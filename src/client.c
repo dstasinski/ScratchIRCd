@@ -6,15 +6,22 @@
 #include <string.h>
 #include <sys/socket.h>
 
-Client *client_create(int fd, const char *host) {
+Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     Client *client = calloc(1U, sizeof(*client));
     if (client == NULL) {
         return NULL;
     }
 
+    client->id = id;
     client->fd = fd;
-    snprintf(client->host, sizeof(client->host), "%s",
-             host != NULL ? host : IRC_UNKNOWN_HOST);
+    client->address_family = address_family;
+    client->dns_state = CLIENT_DNS_NONE;
+
+    (void)snprintf(client->ip, sizeof(client->ip), "%s",
+                   ip != NULL ? ip : IRC_UNKNOWN_HOST);
+    (void)snprintf(client->host, sizeof(client->host), "%s", client->ip);
+    (void)snprintf(client->socket_ip, sizeof(client->socket_ip), "%s", client->ip);
+    (void)snprintf(client->socket_host, sizeof(client->socket_host), "%s", client->ip);
     return client;
 }
 
@@ -26,7 +33,6 @@ void client_free(void *ptr) {
         return;
     }
 
-    /* Normally empty because server_disconnect() unlinks memberships first. */
     link = client->channels;
     while (link != NULL) {
         ClientChannelLink *next = link->next;
@@ -52,7 +58,6 @@ int client_send_line(Client *client, const char *line) {
 
     length = (size_t)written;
     if (length >= sizeof(buffer)) {
-        /* Preserve CRLF even if a future caller constructs an oversized line. */
         length = sizeof(buffer) - 1U;
         if (length >= 2U) {
             buffer[length - 2U] = '\r';
