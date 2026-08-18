@@ -23,6 +23,7 @@ static const CommandEntry command_table[] = {
     {"PING",    command_ping},
     {"JOIN",    command_join},
     {"PART",    command_part},
+    {"MODE",    command_mode},
     {"PRIVMSG", command_privmsg},
     {"QUIT",    command_quit}
 };
