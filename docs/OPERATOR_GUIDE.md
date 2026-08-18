@@ -1,53 +1,89 @@
 # ScratchIRCd IRC Operator Guide
 
-This guide documents ordinary IRC operator authentication, permissions, modes, and commands. It will be updated as operator commands are implemented.
+This guide documents ordinary IRC operator authentication, permissions, modes, and commands. Ordinary operators are stored in `data/operators.db` and managed by the network administrator.
 
-## Operator accounts
-
-Ordinary IRC operators are stored in the SQLite `operators.db` database and are managed by the network administrator. They are not configured in `ircd.conf`.
-
-Authenticate with:
+## Authentication
 
 ```text
 OPER <operator-name> <password>
 ```
 
-A successful login grants user mode `+o` and loads the permission set stored in the operator record. An operator record must be enabled.
-
-If the record contains `helpop`, `+h` is also granted. If it contains `get_host` and a vhost is configured, that vhost is applied and user mode `+t` is granted. Database operators cannot receive network-administrator mode `+N`.
+A successful login grants user mode `+o` and loads the permissions from the SQLite operator record. The record must be enabled. `helpop` grants `+h`; `get_host` applies the configured vhost and grants `+t`. Database operators cannot receive `+N`.
 
 ## Permission flags
 
-The database `permissions` field is a comma-separated list. Defined permissions are:
-
-- `can_rehash` — use REHASH when implemented.
-- `can_die` — use DIE when implemented.
+- `can_rehash` — use REHASH.
+- `can_die` — reserved for DIE; not implemented.
 - `can_restart` — use RESTART when implemented.
 - `helpop` — receive user mode `+h`.
-- `can_wallops` — send WALLOPS when implemented.
-- `can_kill` — use KILL when implemented.
-- `can_kline` — add KLINEs when implemented.
-- `can_unkline` — remove KLINEs when implemented.
-- `can_zline` — use ZLINE when implemented.
+- `can_wallops` — send WALLOPS.
+- `can_kill` — use KILL.
+- `can_kline` — add KLINEs.
+- `can_unkline` — remove KLINEs.
+- `can_zline` — add/remove ZLINEs.
 - `get_host` — receive the configured operator vhost and `+t`.
 - `can_override` — use server-authority override commands when implemented.
 
-`netadmin` is not a valid ordinary-operator permission. It is reserved for the bootstrap network administrator.
+`netadmin` is reserved for the bootstrap network administrator and cannot be assigned to ordinary operators.
 
-## Operator commands currently implemented
+## Implemented operator commands
 
-At this stage, `OPER` is the implemented operator-specific command:
+### KILL
 
 ```text
-OPER <operator-name> <password>
+KILL <nickname> :<reason>
 ```
 
-The following requested operator commands are planned and will enforce their corresponding permission bits:
+Requires `can_kill`. Services-protected clients cannot be killed through ordinary KILL. Ordinary operators also cannot KILL a network administrator.
+
+### KLINE
 
 ```text
-KILL
-KLINE
+KLINE <user@host-mask> :<reason>
+KLINE -<user@host-mask>
+```
+
+Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported, and matching checks both effective `user@host` and `user@IP`. Matching connected clients are removed immediately and new matches are rejected before registration.
+
+### ZLINE
+
+```text
+ZLINE <ip-mask> :<reason>
+ZLINE -<ip-mask>
+```
+
+Requires `can_zline`. ZLINE matches the effective numeric client IP and persists in `data/bans.db`.
+
+### WALLOPS
+
+```text
+WALLOPS :<message>
+```
+
+Requires `can_wallops`. Messages are delivered to registered clients using user mode `+w`.
+
+### REHASH
+
+```text
 REHASH
+```
+
+Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.conf`. Listener address, port, server-name changes, or reducing `max_clients` below the current connection count require a restart instead and are rejected by REHASH.
+
+## Network-administrator-only commands
+
+Ordinary operators cannot use these database-management commands:
+
+```text
+OPERADD
+OPERDEL
+OPERSET
+OPERLIST
+```
+
+## Planned operator commands
+
+```text
 RESTART
 SAJOIN
 SAMODE
@@ -55,15 +91,9 @@ SAPART
 SETHOST
 SETIDENT
 SETNAME
-WALLOPS
-ZLINE
 ```
 
-Operator database management commands (`OPERADD`, `OPERDEL`, `OPERSET`, `OPERLIST`) are network-administrator-only and are not available to ordinary operators.
-
-## General client commands
-
-Operators may also use the normal implemented IRC commands:
+## General commands available to operators
 
 ```text
 ADMIN
@@ -72,6 +102,8 @@ INVITE
 ISON
 JOIN
 KICK
+KILL
+KLINE
 LIST
 LUSERS
 MODE
@@ -79,34 +111,34 @@ MOTD
 NAMES
 NICK
 NOTICE
+OPER
 PART
 PASS
 PING
 PONG
 PRIVMSG
 QUIT
+REHASH
 RULES
 TOPIC
 USER
 USERHOST
 USERIP
+WALLOPS
 WHO
 WHOIS
+ZLINE
 ```
 
 ## Operator-related user modes
 
-Relevant user modes include:
-
 - `+o` — IRC operator.
 - `+N` — network administrator; bootstrap administrator only.
 - `+h` — HelpOp.
-- `+H` — hide IRCop status; reserved for operator behavior as implementation expands.
-- `+I` — hide an operator's idle time from regular users.
-- `+g` — globops/locops capability as implementation expands.
-- `+s` — server notices as implementation expands.
-- `+w` — wallops reception as implementation expands.
-- `+W` — WHOIS notification for IRCops as implementation expands.
-- `+t` — indicates an applied vhost.
-
-A mode being represented internally does not necessarily mean every associated behavior is implemented yet. This guide distinguishes implemented commands from planned ones accordingly.
+- `+H` — hide IRCop status; full behavior still planned.
+- `+I` — hide operator idle time from regular users.
+- `+g` — globops/locops capability; full behavior still planned.
+- `+s` — server-notice reception; full behavior still planned.
+- `+w` — receive WALLOPS.
+- `+W` — WHOIS notification for IRCops; full behavior still planned.
+- `+t` — using an operator vhost.
