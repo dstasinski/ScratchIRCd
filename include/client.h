@@ -35,7 +35,7 @@ typedef enum ClientDnsState {
  * State associated with one connected IRC client.
  *
  * ScratchIRCd intentionally distinguishes the physical socket peer from the
- * effective IRC identity.  For ordinary clients they are the same.  An
+ * effective IRC identity. For ordinary clients they are the same. An
  * authenticated WEBIRC command may replace ip/host with the end-user address
  * while socket_ip/socket_host continue to identify the gateway for auditing.
  */
@@ -50,6 +50,7 @@ typedef struct Client {
     char nick[IRC_NICK_MAX + 1U];       /**< Current nickname. */
     char user[IRC_USER_MAX + 1U];       /**< USER/ident value. */
     char realname[IRC_REALNAME_MAX + 1U]; /**< USER trailing real name. */
+    char away[IRC_AWAY_MAX + 1U];       /**< AWAY message; empty means present. */
 
     char ip[IRC_IP_MAX + 1U];           /**< Effective client numeric address. */
     char host[IRC_HOST_MAX + 1U];       /**< Effective IRC-visible hostname. */
@@ -61,6 +62,8 @@ typedef struct Client {
 
     ClientDnsState dns_state;           /**< Current asynchronous DNS state. */
     time_t dns_deadline;                /**< Registration DNS timeout deadline. */
+    time_t signon_time;                 /**< TCP connection creation time. */
+    time_t last_activity;               /**< Time of most recent parsed IRC command. */
 
     char quit_reason[IRC_QUIT_REASON_MAX + 1U]; /**< Requested QUIT reason. */
     char inbuf[IRC_INPUT_BUFFER_SIZE];  /**< Buffered incomplete network input. */
