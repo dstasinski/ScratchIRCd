@@ -22,10 +22,14 @@ The current code provides:
 - Bidirectional client/channel membership tracking.
 - Dedicated user-mode, channel-mode, and per-membership privilege bitsets.
 - Channel storage for key/limit, join throttle, redirects, bans, exceptions,
-  and invite exceptions in preparation for complete MODE/JOIN policy.
+  and invite exceptions.
 - Owner/operator/halfop/voice state stored on each channel membership.
 - NAMES prefixes for `~` owner, `@` operator, `%` halfop, and `+` voice.
 - First-member `+qo` initialization for newly empty unregistered channels.
+- A modular `MODE` command for user and channel mode state.
+- Foundational JOIN enforcement for `+k`, `+l`, `+R`, `+O`, `+A`, and `+z`.
+- Foundational PRIVMSG enforcement for channel `+n`, `+m`, `+M` and user
+  `+R`/`+T`.
 - Modular command implementations under `src/commands/`.
 - Numeric replies based on `include/numerics.h`.
 - Runtime `ircd.conf` configuration with compile-time limits/defaults in
@@ -36,29 +40,34 @@ The current code provides:
   authorized WebIRC gateways.
 - CTest unit tests and a Linux GitHub Actions build/test workflow.
 
-## Modes and channel membership
+## MODE foundation
 
-`include/modes.h` defines every client mode and boolean channel mode in the
-ScratchIRCd specification as an explicit bit.  The data layer does not yet
-advertise these modes as implemented because MODE parsing and behavioral
-policy are still being built.
+`MODE` now supports querying user and channel mode state and parsing grouped
+`+`/`-` mode strings.  Channel owner/operator privilege is required to mutate
+channel modes.  Membership modes `q`, `o`, `h`, and `v` modify the canonical
+`ChannelMember` privilege state.
 
-Channel privileges are deliberately attached to `ChannelMember`, not to the
-client or channel globally.  This permits one user to be owner in one channel,
-operator in another, voiced in another, and unprivileged elsewhere.
+Channel parameter/list mode storage is connected to MODE for:
 
-Parameter/list channel modes already have dedicated storage in `Channel`:
+- `+k <key>`
+- `+l <limit>`
+- `+j <joins:seconds>`
+- `+L <channel>`
+- `+B <channel>`
+- `+b <mask>`
+- `+e <mask>`
+- `+I <mask>`
 
-- `+k` key
-- `+l` user limit
-- `+j` join throttle count/seconds
-- `+L` full-channel redirect
-- `+B` banned-user redirect
-- `+b` ban masks
-- `+e` ban exceptions
-- `+I` invite exceptions
+The `b`, `e`, and `I` lists can also be queried through MODE.  Channel `+r` is
+reserved for services and cannot be set by a normal user MODE command.
+Security-derived user modes such as operator, registered-account, service,
+WebIRC, and TLS state likewise cannot be self-granted.
 
-The command/policy layer will decide who may modify or enforce this state.
+Some stored modes still depend on subsystems not yet implemented.  In
+particular, invite state, ban matching, join-throttle history, color filtering,
+and redirect policy will be completed in later milestones.  ScratchIRCd
+therefore intentionally keeps its advertised mode/ISUPPORT feature set
+conservative until behavior is enforced end-to-end.
 
 ## DNS and client identity
 
@@ -103,18 +112,17 @@ remain in `include/config.h`.
 
 ## Currently implemented commands
 
-The command layer currently contains the starter command set:
-
 - `NICK`
 - `USER`
 - `PING`
 - `JOIN`
 - `PART`
+- `MODE`
 - `PRIVMSG`
 - `QUIT`
 
-Additional IRC and operator commands will be added as the core data structures,
-modes, authentication, services, and persistence layers are implemented.
+Additional IRC and operator commands will be added as authentication, services,
+persistence, and the remaining mode-policy layers are implemented.
 
 ## Source layout
 
@@ -147,6 +155,7 @@ src/
         common.c
         dispatch.c
         joinpart.c
+        mode.c
         nick.c
         ping.c
         privmsg.c
