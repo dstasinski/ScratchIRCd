@@ -36,6 +36,10 @@
 #define IRCD_DEFAULT_CONFIG_FILE "ircd.conf"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 
+/*
+ * Mode letters remain empty here until MODE parsing and behavioral enforcement
+ * are implemented.  Internal mode storage may exist before it is advertised.
+ */
 #define IRCD_SUPPORTED_USER_MODES ""
 #define IRCD_SUPPORTED_CHANNEL_MODES ""
 #define IRCD_ISUPPORT_BASE \
@@ -73,9 +77,12 @@
  * ------------------------------------------------------------------------- */
 
 #define IRC_CHANNEL_NAME_MAX 63U
+#define IRC_CHANNEL_KEY_MAX 63U
+#define IRC_CHANNEL_MASK_MAX 255U
 #define IRC_CHANNEL_PREFIXES "#&"
 #define IRC_CHANNEL_PREFIX '#'
 #define IRC_NAMES_PUBLIC_MARKER '='
+#define IRC_NAMES_PRIVATE_MARKER '*'
 #define IRC_NAMES_BUFFER_SIZE 768U
 
 #endif /* IRCD_CONFIG_H */
