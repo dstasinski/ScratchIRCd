@@ -36,13 +36,19 @@
 #define IRCD_DEFAULT_CONFIG_FILE "ircd.conf"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 
-/** User/channel mode strings will be expanded as their handlers land. */
 #define IRCD_SUPPORTED_USER_MODES ""
 #define IRCD_SUPPORTED_CHANNEL_MODES ""
-
-/** Base ISUPPORT tokens currently implemented by the daemon. */
 #define IRCD_ISUPPORT_BASE \
     "CASEMAPPING=rfc1459 CHANTYPES=#& NICKLEN=31 CHANNELLEN=63"
+
+/*
+ * Transitional aliases used by command files not yet migrated to ServerConfig.
+ * New code should prefer server->config.*.  These aliases remain defaults, not
+ * runtime state, and will disappear as each command is upgraded.
+ */
+#define IRCD_SERVER_NAME IRCD_DEFAULT_SERVER_NAME
+#define IRCD_NETWORK_NAME IRCD_DEFAULT_NETWORK_NAME
+#define IRCD_ISUPPORT IRCD_ISUPPORT_BASE
 
 /* -------------------------------------------------------------------------
  * Client limits and defaults
@@ -68,6 +74,7 @@
 
 #define IRC_CHANNEL_NAME_MAX 63U
 #define IRC_CHANNEL_PREFIXES "#&"
+#define IRC_CHANNEL_PREFIX '#'
 #define IRC_NAMES_PUBLIC_MARKER '='
 #define IRC_NAMES_BUFFER_SIZE 768U
 
