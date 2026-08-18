@@ -1,10 +1,6 @@
 /**
  * @file runtime_config.c
- * @brief Runtime configuration loading for ScratchIRCd.
- *
- * The parser is intentionally small and strict. It accepts key=value pairs,
- * trims surrounding whitespace, ignores comments/blank lines, and rejects
- * unknown or invalid keys.
+ * @brief Strict key=value runtime configuration loading for ScratchIRCd.
  */
 
 #include "runtime_config.h"
@@ -39,7 +35,8 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->port, sizeof(config->port), IRCD_DEFAULT_PORT);
     (void)copy_value(config->motd_file, sizeof(config->motd_file), IRCD_DEFAULT_MOTD_FILE);
     (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
-    (void)copy_value(config->oper_hostmask, sizeof(config->oper_hostmask), "*!*@*");
+    (void)copy_value(config->operators_db, sizeof(config->operators_db), IRCD_DEFAULT_OPERATORS_DB);
+    (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
 }
@@ -63,11 +60,11 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("admin_location1", admin_location1)
     STRING_OPTION("admin_location2", admin_location2)
     STRING_OPTION("admin_email", admin_email)
-    STRING_OPTION("oper_name", oper_name)
-    STRING_OPTION("oper_password_hash", oper_password_hash)
-    STRING_OPTION("oper_hostmask", oper_hostmask)
-    STRING_OPTION("oper_flags", oper_flags)
-    STRING_OPTION("oper_vhost", oper_vhost)
+    STRING_OPTION("operators_db", operators_db)
+    STRING_OPTION("netadmin_name", netadmin_name)
+    STRING_OPTION("netadmin_password_hash", netadmin_password_hash)
+    STRING_OPTION("netadmin_hostmask", netadmin_hostmask)
+    STRING_OPTION("netadmin_vhost", netadmin_vhost)
 
 #undef STRING_OPTION
 
