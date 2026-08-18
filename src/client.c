@@ -5,17 +5,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 
 Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     Client *client = calloc(1U, sizeof(*client));
+    time_t now;
+
     if (client == NULL) {
         return NULL;
     }
 
+    now = time(NULL);
     client->id = id;
     client->fd = fd;
     client->address_family = address_family;
     client->dns_state = CLIENT_DNS_NONE;
+    client->signon_time = now;
+    client->last_activity = now;
 
     (void)snprintf(client->ip, sizeof(client->ip), "%s",
                    ip != NULL ? ip : IRC_UNKNOWN_HOST);
