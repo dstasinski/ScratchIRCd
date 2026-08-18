@@ -22,10 +22,14 @@ static const CommandEntry command_table[] = {
     {"PART",    command_part},
     {"INVITE",  command_invite},
     {"KICK",    command_kick},
+    {"LIST",    command_list},
     {"MODE",    command_mode},
+    {"NAMES",   command_names},
     {"NOTICE",  command_notice},
     {"PRIVMSG", command_privmsg},
     {"TOPIC",   command_topic},
+    {"WHO",     command_who},
+    {"WHOIS",   command_whois},
     {"QUIT",    command_quit}
 };
 
