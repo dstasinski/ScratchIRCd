@@ -1,15 +1,15 @@
 /**
  * @file joinpart.c
- * @brief Implementations of IRC JOIN and PART.
+ * @brief IRC JOIN/PART with channel access-policy enforcement.
  *
- * Both standard '#' channels and private/unlisted '&' channels are valid.
- * JOIN performs the mode checks whose required state already exists: channel
- * key (+k), user limit (+l), registered-only (+R), oper-only (+O), admin-only
- * (+A), and secure-only (+z). Invite state, join-throttle history, and ban
- * matching are intentionally deferred to their dedicated subsystems.
+ * JOIN enforces the channel state represented by MODE: keys, bans and
+ * exceptions, full/banned redirects, account/oper/admin/TLS requirements,
+ * invite-only channels and invex masks, and per-client join throttling.
+ * Redirect traversal is bounded by IRC_JOIN_REDIRECT_MAX to prevent cycles.
  */
 
 #include "commands.h"
+#include "channel_policy.h"
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
@@ -22,12 +22,148 @@ static int valid_channel_name(const char *name) {
            strlen(name) <= IRC_CHANNEL_NAME_MAX && strchr(name, ' ') == NULL;
 }
 
-CommandResult command_join(Server *server, Client *client, char *params) {
+/** Attempt one channel join, following bounded +B/+L redirects when needed. */
+static void join_one(Server *server, Client *client, const char *name,
+                     const char *key, unsigned int redirect_depth) {
     Channel *channel;
-    char *name;
-    char *key;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
     int first_member;
+    int explicitly_invited;
+
+    if (!valid_channel_name(name)) {
+        client_sendf(client, ERR_NOSUCHCHANNEL,
+                     server->config.server_name, client->nick,
+                     name != NULL ? name : "*");
+        return;
+    }
+
+    if (client->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) {
+        client_sendf(client, ERR_TOOMANYCHANNELS,
+                     server->config.server_name, client->nick, name);
+        return;
+    }
+
+    channel = hash_get(&server->channels_by_name, name);
+    if (channel == NULL) {
+        channel = server_get_or_create_channel(server, name);
+    }
+    if (channel == NULL || channel_has_client(channel, client)) {
+        return;
+    }
+
+    explicitly_invited = channel_invite_has(channel, client->id);
+
+    if (channel->key[0] != '\0' &&
+        (key == NULL || strcmp(channel->key, key) != 0)) {
+        client_sendf(client, ERR_BADCHANNELKEY,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_client_is_banned(channel, client)) {
+        if (channel->ban_redirect[0] != '\0' &&
+            redirect_depth < IRC_JOIN_REDIRECT_MAX &&
+            valid_channel_name(channel->ban_redirect)) {
+            client_sendf(client, ERR_LINKCHANNEL,
+                         server->config.server_name, client->nick,
+                         channel->name, channel->ban_redirect);
+            join_one(server, client, channel->ban_redirect, NULL,
+                     redirect_depth + 1U);
+            return;
+        }
+        client_sendf(client, ERR_BANNEDFROMCHAN,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel->user_limit != 0U &&
+        channel->member_count >= channel->user_limit) {
+        if (channel->limit_redirect[0] != '\0' &&
+            redirect_depth < IRC_JOIN_REDIRECT_MAX &&
+            valid_channel_name(channel->limit_redirect)) {
+            client_sendf(client, ERR_LINKCHANNEL,
+                         server->config.server_name, client->nick,
+                         channel->name, channel->limit_redirect);
+            join_one(server, client, channel->limit_redirect, NULL,
+                     redirect_depth + 1U);
+            return;
+        }
+        client_sendf(client, ERR_CHANNELISFULL,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_JOIN) &&
+        !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+        client_sendf(client, ERR_NEEDREGGEDNICK,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_OPER_ONLY) &&
+        !client_mode_has(client->modes,
+                         CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
+        client_sendf(client, ERR_520,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_ADMIN_ONLY) &&
+        !client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
+        client_sendf(client, ERR_519,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_SECURE_ONLY) &&
+        !client_mode_has(client->modes, CLIENT_MODE_SECURE)) {
+        client_sendf(client, ERR_SECUREONLYCHAN,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_INVITE_ONLY) &&
+        !explicitly_invited && !channel_client_is_invex(channel, client)) {
+        client_sendf(client, ERR_INVITEONLYCHAN,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    if (!channel_join_throttle_allows(channel, client->id)) {
+        client_sendf(client, ERR_TOOMANYJOINS,
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
+
+    first_member = channel->member_count == 0U;
+    if (channel_add_client(channel, client) < 0) {
+        return;
+    }
+
+    channel_join_throttle_record(channel, client->id);
+    if (explicitly_invited) {
+        (void)channel_invite_consume(channel, client->id);
+    }
+
+    if (first_member &&
+        !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+        (void)channel_add_privileges(channel, client,
+                                     CHANNEL_PRIV_OWNER |
+                                     CHANNEL_PRIV_OPERATOR);
+    }
+
+    (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
+                   client->nick, client->user, client->host, channel->name);
+    channel_broadcast(channel, NULL, message);
+
+    client_sendf(client, RPL_NOTOPIC,
+                 server->config.server_name, client->nick, channel->name);
+    command_send_names(channel, client);
+}
+
+CommandResult command_join(Server *server, Client *client, char *params) {
+    char *name;
+    char *key;
 
     if (command_require_registered(client)) {
         return COMMAND_KEEP_CLIENT;
@@ -41,84 +177,7 @@ CommandResult command_join(Server *server, Client *client, char *params) {
 
     name = strtok(params, " ");
     key = strtok(NULL, " ");
-
-    if (!valid_channel_name(name)) {
-        client_sendf(client, ERR_NOSUCHCHANNEL,
-                     server->config.server_name, client->nick,
-                     name != NULL ? name : "*");
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    if (client->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) {
-        client_sendf(client, ERR_TOOMANYCHANNELS,
-                     server->config.server_name, client->nick, name);
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    channel = hash_get(&server->channels_by_name, name);
-    if (channel != NULL) {
-        if (channel->key[0] != '\0' &&
-            (key == NULL || strcmp(channel->key, key) != 0)) {
-            client_sendf(client, ERR_BADCHANNELKEY,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel->user_limit != 0U &&
-            channel->member_count >= channel->user_limit) {
-            client_sendf(client, ERR_CHANNELISFULL,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_JOIN) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
-            client_sendf(client, ERR_NEEDREGGEDNICK,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_OPER_ONLY) &&
-            !client_mode_has(client->modes,
-                             CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
-            client_sendf(client, ERR_520,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_ADMIN_ONLY) &&
-            !client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
-            client_sendf(client, ERR_519,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_SECURE_ONLY) &&
-            !client_mode_has(client->modes, CLIENT_MODE_SECURE)) {
-            client_sendf(client, ERR_SECUREONLYCHAN,
-                         server->config.server_name, client->nick, channel->name);
-            return COMMAND_KEEP_CLIENT;
-        }
-    } else {
-        channel = server_get_or_create_channel(server, name);
-    }
-
-    if (channel == NULL) {
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    first_member = channel->member_count == 0U;
-    if (channel_add_client(channel, client) < 0) {
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
-        (void)channel_add_privileges(channel, client,
-                                     CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
-    }
-
-    (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
-                   client->nick, client->user, client->host, channel->name);
-    channel_broadcast(channel, NULL, message);
-
-    client_sendf(client, RPL_NOTOPIC,
-                 server->config.server_name, client->nick, channel->name);
-    command_send_names(channel, client);
+    join_one(server, client, name, key, 0U);
     return COMMAND_KEEP_CLIENT;
 }
 
