@@ -3,13 +3,7 @@
 
 #include <stddef.h>
 
-/**
- * One node in a separately chained hash-table bucket.
- *
- * Keys are owned by the table and copied when inserted.  Values are opaque
- * pointers owned by the caller unless a destructor is supplied to
- * hash_destroy().
- */
+/** One node in a separately chained hash-table bucket. */
 typedef struct HashEntry {
     char *key;                 /**< Heap-allocated lookup key. */
     void *value;               /**< Caller-owned value associated with key. */
@@ -17,11 +11,12 @@ typedef struct HashEntry {
 } HashEntry;
 
 /**
- * Generic case-insensitive string hash table.
+ * Generic IRC string hash table.
  *
- * Lookups use ASCII-style case-insensitive comparison.  This is sufficient
- * for the project's current foundation and can later be replaced with RFC
- * IRC casemapping without changing client/channel ownership.
+ * Keys are hashed and compared with RFC1459 casemapping.  In addition to
+ * ASCII A-Z folding, []\\^ and {}|~ are treated as case-equivalent pairs.
+ * This is the lookup behavior advertised by CASEMAPPING=rfc1459 and is used
+ * for both nicknames and channel names.
  */
 typedef struct HashTable {
     size_t bucket_count;       /**< Number of entries in buckets[]. */
