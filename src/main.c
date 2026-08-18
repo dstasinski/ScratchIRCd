@@ -1,22 +1,16 @@
 #include "config.h"
+#include "operator_db.h"
 #include "runtime_config.h"
 #include "server.h"
 
 #include <errno.h>
 #include <stdio.h>
 
-/**
- * Program entry point.
- *
- * Usage: scratchircd [config-file]
- *
- * Defaults are always loaded first.  The default ircd.conf is optional so a
- * fresh build remains easy to run; an explicitly named configuration file is
- * required to load successfully.
- */
+/** Program entry point. Usage: scratchircd [config-file] */
 int main(int argc, char **argv) {
     ServerConfig config;
     Server server;
+    OperatorDb operators;
     const char *path = argc > 1 ? argv[1] : IRCD_DEFAULT_CONFIG_FILE;
 
     runtime_config_defaults(&config);
@@ -28,6 +22,13 @@ int main(int argc, char **argv) {
         }
         clearerr(stderr);
     }
+
+    /* Ensure operators.db and its exact schema exist before accepting clients. */
+    if (operator_db_open(&operators, config.operators_db) != 0) {
+        fprintf(stderr, "Failed to open operator database: %s\n", config.operators_db);
+        return 1;
+    }
+    operator_db_close(&operators);
 
     if (server_init(&server, &config) != 0) {
         fprintf(stderr, "Failed to start %s on port %s\n",
