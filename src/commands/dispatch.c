@@ -15,14 +15,15 @@ typedef struct CommandEntry {
 } CommandEntry;
 
 static const CommandEntry command_table[] = {
-    {"NICK", command_nick}, {"USER", command_user}, {"PING", command_ping},
-    {"AWAY", command_away}, {"ISON", command_ison}, {"JOIN", command_join},
-    {"PART", command_part}, {"INVITE", command_invite}, {"KICK", command_kick},
+    {"ADMIN", command_admin}, {"AWAY", command_away}, {"INVITE", command_invite},
+    {"ISON", command_ison}, {"JOIN", command_join}, {"KICK", command_kick},
     {"LIST", command_list}, {"LUSERS", command_lusers}, {"MODE", command_mode},
-    {"NAMES", command_names}, {"NOTICE", command_notice},
-    {"PRIVMSG", command_privmsg}, {"TOPIC", command_topic},
+    {"MOTD", command_motd}, {"NAMES", command_names}, {"NICK", command_nick},
+    {"NOTICE", command_notice}, {"PART", command_part}, {"PASS", command_pass},
+    {"PING", command_ping}, {"PRIVMSG", command_privmsg}, {"QUIT", command_quit},
+    {"RULES", command_rules}, {"TOPIC", command_topic}, {"USER", command_user},
     {"USERHOST", command_userhost}, {"USERIP", command_userip},
-    {"WHO", command_who}, {"WHOIS", command_whois}, {"QUIT", command_quit}
+    {"WHO", command_who}, {"WHOIS", command_whois}
 };
 
 CommandResult command_dispatch(Server *server, Client *client,
