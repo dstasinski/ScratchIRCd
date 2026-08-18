@@ -5,22 +5,39 @@
  * Usage: scratchircd-mkpasswd <password>
  *
  * The encoded result can be pasted directly into oper_password_hash. Salt is
- * generated from the Linux getrandom() interface; no password is written to a
- * file by this utility.
+ * generated from Linux getrandom(); short reads and EINTR are handled so a
+ * partially filled salt can never be used accidentally.
  */
 
 #include "config.h"
 
 #include <argon2.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/random.h>
 
+static int fill_random(uint8_t *buffer, size_t length) {
+    size_t used = 0U;
+
+    while (used < length) {
+        ssize_t got = getrandom(buffer + used, length - used, 0);
+        if (got > 0) {
+            used += (size_t)got;
+            continue;
+        }
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     uint8_t salt[IRCD_ARGON2_SALT_BYTES];
     char encoded[IRCD_OPER_HASH_MAX + 1U];
-    ssize_t got;
     int result;
 
     if (argc != 2 || argv[1][0] == '\0') {
@@ -28,8 +45,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    got = getrandom(salt, sizeof(salt), 0);
-    if (got != (ssize_t)sizeof(salt)) {
+    if (fill_random(salt, sizeof(salt)) != 0) {
         fprintf(stderr, "unable to obtain secure random salt\n");
         return 1;
     }
