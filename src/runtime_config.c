@@ -4,8 +4,7 @@
  *
  * The parser is intentionally small and strict. It accepts key=value pairs,
  * trims surrounding whitespace, ignores comments/blank lines, and rejects
- * unknown or invalid keys. This gives the project a stable configuration
- * boundary before TLS, WebIRC, services, and database settings are added.
+ * unknown or invalid keys.
  */
 
 #include "runtime_config.h"
@@ -18,18 +17,10 @@
 
 static char *trim(char *text) {
     char *end;
-
-    while (*text != '\0' && isspace((unsigned char)*text)) {
-        ++text;
-    }
-    if (*text == '\0') {
-        return text;
-    }
-
+    while (*text != '\0' && isspace((unsigned char)*text)) ++text;
+    if (*text == '\0') return text;
     end = text + strlen(text) - 1U;
-    while (end > text && isspace((unsigned char)*end)) {
-        *end-- = '\0';
-    }
+    while (end > text && isspace((unsigned char)*end)) *end-- = '\0';
     return text;
 }
 
@@ -39,9 +30,7 @@ static int copy_value(char *dest, size_t size, const char *value) {
 }
 
 void runtime_config_defaults(ServerConfig *config) {
-    if (config == NULL) {
-        return;
-    }
+    if (config == NULL) return;
 
     memset(config, 0, sizeof(*config));
     (void)copy_value(config->server_name, sizeof(config->server_name), IRCD_DEFAULT_SERVER_NAME);
@@ -50,6 +39,7 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->port, sizeof(config->port), IRCD_DEFAULT_PORT);
     (void)copy_value(config->motd_file, sizeof(config->motd_file), IRCD_DEFAULT_MOTD_FILE);
     (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
+    (void)copy_value(config->oper_hostmask, sizeof(config->oper_hostmask), "*!*@*");
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
 }
@@ -73,30 +63,28 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("admin_location1", admin_location1)
     STRING_OPTION("admin_location2", admin_location2)
     STRING_OPTION("admin_email", admin_email)
+    STRING_OPTION("oper_name", oper_name)
+    STRING_OPTION("oper_password_hash", oper_password_hash)
+    STRING_OPTION("oper_hostmask", oper_hostmask)
+    STRING_OPTION("oper_flags", oper_flags)
+    STRING_OPTION("oper_vhost", oper_vhost)
 
 #undef STRING_OPTION
 
     errno = 0;
     number = strtoul(value, &end, 10);
-    if (errno != 0 || end == value || *end != '\0') {
-        return -1;
-    }
+    if (errno != 0 || end == value || *end != '\0') return -1;
 
     if (strcmp(key, "max_clients") == 0) {
-        if (number == 0UL || number > IRCD_HARD_MAX_CLIENTS) {
-            return -1;
-        }
+        if (number == 0UL || number > IRCD_HARD_MAX_CLIENTS) return -1;
         config->max_clients = (size_t)number;
         return 0;
     }
     if (strcmp(key, "dns_timeout_seconds") == 0) {
-        if (number == 0UL || number > 300UL) {
-            return -1;
-        }
+        if (number == 0UL || number > 300UL) return -1;
         config->dns_timeout_seconds = (unsigned int)number;
         return 0;
     }
-
     return -1;
 }
 
@@ -105,14 +93,9 @@ int runtime_config_load(ServerConfig *config, const char *path) {
     char line[IRCD_CONFIG_LINE_MAX];
     unsigned long line_number = 0UL;
 
-    if (config == NULL || path == NULL) {
-        return -1;
-    }
-
+    if (config == NULL || path == NULL) return -1;
     file = fopen(path, "r");
-    if (file == NULL) {
-        return -1;
-    }
+    if (file == NULL) return -1;
 
     while (fgets(line, sizeof(line), file) != NULL) {
         char *text;
@@ -122,9 +105,7 @@ int runtime_config_load(ServerConfig *config, const char *path) {
 
         ++line_number;
         text = trim(line);
-        if (*text == '\0' || *text == '#') {
-            continue;
-        }
+        if (*text == '\0' || *text == '#') continue;
 
         equals = strchr(text, '=');
         if (equals == NULL) {
@@ -147,7 +128,6 @@ int runtime_config_load(ServerConfig *config, const char *path) {
         fclose(file);
         return -1;
     }
-
     fclose(file);
     return 0;
 }
