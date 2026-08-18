@@ -8,8 +8,10 @@
 
 #include "operator_db.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS \"operators\" ("
@@ -27,11 +29,39 @@ static void copy_text(char *dest, size_t size, const unsigned char *value) {
     (void)snprintf(dest, size, "%s", value != NULL ? (const char *)value : "");
 }
 
+/*
+ * Ensure the immediate parent directory for a configured database path exists.
+ * ScratchIRCd's standard database layout is data/<database>.db, so one parent
+ * level is sufficient for the supported configuration. Existing directories
+ * are accepted. Absolute paths and explicitly configured alternate directories
+ * work as long as their own parent already exists.
+ */
+static int ensure_parent_directory(const char *path) {
+    char parent[IRCD_CONFIG_PATH_MAX + 1U];
+    char *slash;
+    size_t length;
+
+    if (path == NULL) return -1;
+    length = strlen(path);
+    if (length == 0U || length >= sizeof(parent)) return -1;
+
+    (void)snprintf(parent, sizeof(parent), "%s", path);
+    slash = strrchr(parent, '/');
+    if (slash == NULL) return 0;
+    if (slash == parent) return 0; /* root directory */
+    *slash = '\0';
+
+    if (mkdir(parent, 0750) == 0 || errno == EEXIST) return 0;
+    return -1;
+}
+
 int operator_db_open(OperatorDb *db, const char *path) {
     char *error = NULL;
 
     if (db == NULL || path == NULL || *path == '\0') return -1;
     memset(db, 0, sizeof(*db));
+
+    if (ensure_parent_directory(path) != 0) return -1;
 
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
         operator_db_close(db);
