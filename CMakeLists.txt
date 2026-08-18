@@ -33,24 +33,19 @@ add_executable(scratchircd
     src/commands/ping.c
     src/commands/joinpart.c
     src/commands/invite.c
+    src/commands/kick.c
     src/commands/mode.c
+    src/commands/notice.c
     src/commands/privmsg.c
+    src/commands/topic.c
     src/commands/quit.c
 )
 
-target_include_directories(scratchircd
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
+target_include_directories(scratchircd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(scratchircd PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(scratchircd PRIVATE Threads::Threads)
 
-add_executable(test_modes
-    tests/test_modes.c
-    src/modes.c
-)
-
+add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME modes COMMAND test_modes)
 
@@ -59,11 +54,7 @@ add_executable(test_channel_policy
     src/channel.c
     src/channel_policy.c
 )
-
-target_include_directories(test_channel_policy
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+target_include_directories(test_channel_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME channel_policy COMMAND test_channel_policy)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
