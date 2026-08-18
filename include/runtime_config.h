@@ -9,9 +9,8 @@
  * Runtime server configuration loaded from ircd.conf.
  *
  * Ordinary IRC operator accounts are intentionally excluded from this
- * structure and live in operators.db.  Only the bootstrap network
- * administrator remains in ircd.conf so a fresh server always has a recovery
- * and operator-management path.
+ * structure and live in operators.db. Only the bootstrap network
+ * administrator remains in ircd.conf.
  */
 typedef struct ServerConfig {
     char server_name[IRC_HOST_MAX + 1U];
@@ -29,11 +28,15 @@ typedef struct ServerConfig {
     char admin_email[IRCD_ADMIN_TEXT_MAX + 1U];
 
     char operators_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char bans_db[IRCD_CONFIG_PATH_MAX + 1U];
 
     char netadmin_name[IRCD_OPER_NAME_MAX + 1U];
     char netadmin_password_hash[IRCD_OPER_HASH_MAX + 1U];
     char netadmin_hostmask[IRCD_OPER_HOSTMASK_MAX + 1U];
     char netadmin_vhost[IRCD_OPER_VHOST_MAX + 1U];
+
+    /** Source file used by REHASH; not itself a parsed configuration key. */
+    char source_path[IRCD_CONFIG_PATH_MAX + 1U];
 } ServerConfig;
 
 void runtime_config_defaults(ServerConfig *config);
