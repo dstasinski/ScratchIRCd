@@ -2,18 +2,16 @@
  * @file joinpart.c
  * @brief Implementations of IRC JOIN and PART.
  *
- * Both standard '#' channels and private/unlisted '&' channels are valid
- * channel names.  Listing policy for '&' channels will be enforced by LIST
- * when that command is implemented; membership semantics are otherwise the
- * same at this layer.
- *
- * The first member of a newly empty, unregistered channel receives owner and
- * operator privileges.  Registered/persistent channels will later restore
- * ChanServ-defined access instead of relying on first-join ownership.
+ * Both standard '#' channels and private/unlisted '&' channels are valid.
+ * JOIN performs the mode checks whose required state already exists: channel
+ * key (+k), user limit (+l), registered-only (+R), oper-only (+O), admin-only
+ * (+A), and secure-only (+z). Invite state, join-throttle history, and ban
+ * matching are intentionally deferred to their dedicated subsystems.
  */
 
 #include "commands.h"
 #include "config.h"
+#include "modes.h"
 #include "numerics.h"
 
 #include <stdio.h>
@@ -26,6 +24,8 @@ static int valid_channel_name(const char *name) {
 
 CommandResult command_join(Server *server, Client *client, char *params) {
     Channel *channel;
+    char *name;
+    char *key;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
     int first_member;
 
@@ -33,20 +33,71 @@ CommandResult command_join(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (!valid_channel_name(params)) {
+    if (params == NULL) {
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, "JOIN");
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    name = strtok(params, " ");
+    key = strtok(NULL, " ");
+
+    if (!valid_channel_name(name)) {
         client_sendf(client, ERR_NOSUCHCHANNEL,
                      server->config.server_name, client->nick,
-                     params != NULL ? params : "*");
+                     name != NULL ? name : "*");
         return COMMAND_KEEP_CLIENT;
     }
 
     if (client->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) {
         client_sendf(client, ERR_TOOMANYCHANNELS,
-                     server->config.server_name, client->nick, params);
+                     server->config.server_name, client->nick, name);
         return COMMAND_KEEP_CLIENT;
     }
 
-    channel = server_get_or_create_channel(server, params);
+    channel = hash_get(&server->channels_by_name, name);
+    if (channel != NULL) {
+        if (channel->key[0] != '\0' &&
+            (key == NULL || strcmp(channel->key, key) != 0)) {
+            client_sendf(client, ERR_BADCHANNELKEY,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (channel->user_limit != 0U &&
+            channel->member_count >= channel->user_limit) {
+            client_sendf(client, ERR_CHANNELISFULL,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_JOIN) &&
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+            client_sendf(client, ERR_NEEDREGGEDNICK,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_OPER_ONLY) &&
+            !client_mode_has(client->modes,
+                             CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
+            client_sendf(client, ERR_520,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_ADMIN_ONLY) &&
+            !client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
+            client_sendf(client, ERR_519,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_SECURE_ONLY) &&
+            !client_mode_has(client->modes, CLIENT_MODE_SECURE)) {
+            client_sendf(client, ERR_SECUREONLYCHAN,
+                         server->config.server_name, client->nick, channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
+    } else {
+        channel = server_get_or_create_channel(server, name);
+    }
+
     if (channel == NULL) {
         return COMMAND_KEEP_CLIENT;
     }
