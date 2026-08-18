@@ -1,0 +1,22 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - Genesis
+  pull_request:
+    branches:
+      - Genesis
+
+jobs:
+  linux-cmake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
