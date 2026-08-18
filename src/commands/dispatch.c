@@ -21,8 +21,11 @@ static const CommandEntry command_table[] = {
     {"JOIN",    command_join},
     {"PART",    command_part},
     {"INVITE",  command_invite},
+    {"KICK",    command_kick},
     {"MODE",    command_mode},
+    {"NOTICE",  command_notice},
     {"PRIVMSG", command_privmsg},
+    {"TOPIC",   command_topic},
     {"QUIT",    command_quit}
 };
 
