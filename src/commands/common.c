@@ -4,16 +4,49 @@
  */
 
 #include "commands.h"
+#include "ban_db.h"
 #include "config.h"
 #include "numerics.h"
 
 #include <stdio.h>
+#include <sys/socket.h>
 
 const char *command_reply_nick(const Client *client) {
     if (client == NULL || client->nick[0] == '\0') {
         return "*";
     }
     return client->nick;
+}
+
+/** Return non-zero when a persistent KLINE or ZLINE blocks registration. */
+static int registration_banned(Server *server, Client *client) {
+    BanDb db = {0};
+    BanRecord record;
+    char host_identity[IRCD_MESSAGE_BUFFER_SIZE];
+    char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+    int matched = 0;
+
+    if (ban_db_open(&db, server->config.bans_db) != 0) return 0;
+
+    if (ban_db_match(&db, BAN_TYPE_ZLINE, client->ip, NULL, &record) == 1) {
+        matched = 1;
+    } else {
+        (void)snprintf(host_identity, sizeof(host_identity), "%s@%s", client->user, client->host);
+        (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s", client->user, client->ip);
+        if (ban_db_match(&db, BAN_TYPE_KLINE, host_identity, ip_identity, &record) == 1)
+            matched = 1;
+    }
+
+    if (matched) {
+        client_sendf(client, ERR_YOUREBANNEDCREEP,
+                     server->config.server_name, command_reply_nick(client),
+                     server->config.admin_email);
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s",
+                       record.reason[0] != '\0' ? record.reason : "Banned");
+        (void)shutdown(client->fd, SHUT_RDWR);
+    }
+    ban_db_close(&db);
+    return matched;
 }
 
 void command_maybe_register(Server *server, Client *client) {
@@ -23,6 +56,8 @@ void command_maybe_register(Server *server, Client *client) {
         (server->config.server_password[0] != '\0' && !client->pass_accepted)) {
         return;
     }
+
+    if (registration_banned(server, client)) return;
 
     client->registered = 1;
     client_sendf(client, RPL_WELCOME, server->config.server_name, client->nick,
