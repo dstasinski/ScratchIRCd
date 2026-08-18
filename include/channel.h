@@ -44,6 +44,14 @@ typedef struct Channel {
     char name[IRC_CHANNEL_NAME_MAX + 1U];
     ChannelModeSet modes;
 
+    /**
+     * Current topic state. topic_setter is the full nick!user@host identity
+     * that last changed it; topic_time is zero when no topic has been set.
+     */
+    char topic[IRC_CHANNEL_TOPIC_MAX + 1U];
+    char topic_setter[IRC_CHANNEL_TOPIC_SETTER_MAX + 1U];
+    time_t topic_time;
+
     char key[IRC_CHANNEL_KEY_MAX + 1U];
     size_t user_limit;
     unsigned int join_throttle_count;
