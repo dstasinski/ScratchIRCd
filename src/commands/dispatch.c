@@ -1,9 +1,6 @@
 /**
  * @file dispatch.c
  * @brief Maps IRC command names to command-specific handler functions.
- *
- * The dispatcher contains no command policy. Implementations live in their
- * own source files under src/commands/ and are selected through this table.
  */
 
 #include "commands.h"
@@ -23,6 +20,7 @@ static const CommandEntry command_table[] = {
     {"PING",    command_ping},
     {"JOIN",    command_join},
     {"PART",    command_part},
+    {"INVITE",  command_invite},
     {"MODE",    command_mode},
     {"PRIVMSG", command_privmsg},
     {"QUIT",    command_quit}
