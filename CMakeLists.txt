@@ -65,6 +65,7 @@ add_test(NAME channel_policy COMMAND test_channel_policy)
 add_executable(test_visibility
     tests/test_visibility.c
     src/channel.c
+    src/channel_policy.c
     src/modes.c
     src/visibility.c
 )
