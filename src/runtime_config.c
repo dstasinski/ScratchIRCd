@@ -2,9 +2,9 @@
  * @file runtime_config.c
  * @brief Runtime configuration loading for ScratchIRCd.
  *
- * The parser is intentionally small and strict.  It accepts key=value pairs,
+ * The parser is intentionally small and strict. It accepts key=value pairs,
  * trims surrounding whitespace, ignores comments/blank lines, and rejects
- * unknown or invalid keys.  This gives the project a stable configuration
+ * unknown or invalid keys. This gives the project a stable configuration
  * boundary before TLS, WebIRC, services, and database settings are added.
  */
 
@@ -34,9 +34,7 @@ static char *trim(char *text) {
 }
 
 static int copy_value(char *dest, size_t size, const char *value) {
-    int written;
-
-    written = snprintf(dest, size, "%s", value);
+    int written = snprintf(dest, size, "%s", value);
     return written >= 0 && (size_t)written < size ? 0 : -1;
 }
 
@@ -46,13 +44,12 @@ void runtime_config_defaults(ServerConfig *config) {
     }
 
     memset(config, 0, sizeof(*config));
-    (void)copy_value(config->server_name, sizeof(config->server_name),
-                     IRCD_DEFAULT_SERVER_NAME);
-    (void)copy_value(config->network_name, sizeof(config->network_name),
-                     IRCD_DEFAULT_NETWORK_NAME);
-    (void)copy_value(config->bind_address, sizeof(config->bind_address),
-                     IRCD_DEFAULT_BIND_ADDRESS);
+    (void)copy_value(config->server_name, sizeof(config->server_name), IRCD_DEFAULT_SERVER_NAME);
+    (void)copy_value(config->network_name, sizeof(config->network_name), IRCD_DEFAULT_NETWORK_NAME);
+    (void)copy_value(config->bind_address, sizeof(config->bind_address), IRCD_DEFAULT_BIND_ADDRESS);
     (void)copy_value(config->port, sizeof(config->port), IRCD_DEFAULT_PORT);
+    (void)copy_value(config->motd_file, sizeof(config->motd_file), IRCD_DEFAULT_MOTD_FILE);
+    (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
 }
@@ -61,18 +58,23 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     char *end = NULL;
     unsigned long number;
 
-    if (strcmp(key, "server_name") == 0) {
-        return copy_value(config->server_name, sizeof(config->server_name), value);
+#define STRING_OPTION(name, field) \
+    if (strcmp(key, (name)) == 0) { \
+        return copy_value(config->field, sizeof(config->field), value); \
     }
-    if (strcmp(key, "network_name") == 0) {
-        return copy_value(config->network_name, sizeof(config->network_name), value);
-    }
-    if (strcmp(key, "bind_address") == 0) {
-        return copy_value(config->bind_address, sizeof(config->bind_address), value);
-    }
-    if (strcmp(key, "port") == 0) {
-        return copy_value(config->port, sizeof(config->port), value);
-    }
+
+    STRING_OPTION("server_name", server_name)
+    STRING_OPTION("network_name", network_name)
+    STRING_OPTION("bind_address", bind_address)
+    STRING_OPTION("port", port)
+    STRING_OPTION("server_password", server_password)
+    STRING_OPTION("motd_file", motd_file)
+    STRING_OPTION("rules_file", rules_file)
+    STRING_OPTION("admin_location1", admin_location1)
+    STRING_OPTION("admin_location2", admin_location2)
+    STRING_OPTION("admin_email", admin_email)
+
+#undef STRING_OPTION
 
     errno = 0;
     number = strtoul(value, &end, 10);
@@ -135,8 +137,7 @@ int runtime_config_load(ServerConfig *config, const char *path) {
         key = trim(text);
         value = trim(equals + 1);
         if (*key == '\0' || set_option(config, key, value) != 0) {
-            fprintf(stderr, "%s:%lu: invalid option '%s'\n",
-                    path, line_number, key);
+            fprintf(stderr, "%s:%lu: invalid option '%s'\n", path, line_number, key);
             fclose(file);
             return -1;
         }
