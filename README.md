@@ -37,6 +37,31 @@ by WHO; user `+p` hides WHOIS channel membership. WHOIS exposes effective IRC
 identity to ordinary users while preserving physical socket-origin information
 for future operator-only use and WebIRC auditing.
 
+## Operator authentication foundation
+
+`OPER` is implemented using an Argon2id encoded password hash from `ircd.conf`.
+Generate a hash with:
+
+```sh
+./build/scratchircd-mkpasswd 'your password'
+```
+
+The bootstrap operator definition supports the registered-account privilege
+names planned for NickServ: `netadmin`, `can_rehash`, `can_die`, `can_restart`,
+`helpop`, `can_wallops`, `can_kill`, `can_kline`, `can_unkline`, `can_zline`,
+`get_host`, and `can_override`. Successful authentication stores these in a
+separate operator permission bitset rather than inferring authority from user
+mode `+o` alone. `netadmin` adds `+N`, `helpop` adds `+h`, and `get_host` may
+apply the configured operator vhost and `+t`.
+
+The OPER host mask is matched against the effective client host/IP, not the
+physical socket peer. This keeps the authorization model correct for future
+WebIRC clients.
+
+The current config-based OPER entry is a bootstrap path. Once NickServ/SQLite
+accounts are implemented, identified account flags will populate the same
+client permission structure.
+
 ## Client state and server information
 
 Client state records signon time, last IRC-command activity, and AWAY text.
@@ -62,26 +87,37 @@ The `Client` structure distinguishes:
 - `reverse_host`: PTR result
 - `forward_host`: FCrDNS-confirmed hostname
 
+## Dependencies
+
+ScratchIRCd currently requires a C11 compiler, CMake, pthreads, Python 3 for the
+protocol integration tests, and libargon2 development headers/library.
+On Debian/Ubuntu systems:
+
+```sh
+sudo apt install build-essential cmake python3 libargon2-dev
+```
+
 ## Runtime configuration
 
 Copy `ircd.conf.example` to `ircd.conf` and edit it as needed. Runtime options
-now include server/network/listener settings, optional `server_password`,
-`motd_file`, `rules_file`, and ADMIN location/email fields. Compile-time storage
-sizes, protocol constants, and hard limits remain in `include/config.h`.
+include server/network/listener settings, optional `server_password`, MOTD/RULES
+and ADMIN information, plus the bootstrap OPER definition. Compile-time storage
+sizes, protocol constants, Argon2 defaults, and hard limits remain in
+`include/config.h`.
 
 ## Currently implemented commands
 
 `ADMIN`, `AWAY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `LIST`, `LUSERS`, `MODE`,
-`MOTD`, `NAMES`, `NICK`, `NOTICE`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`,
-`RULES`, `TOPIC`, `USER`, `USERHOST`, `USERIP`, `WHO`, and `WHOIS`.
+`MOTD`, `NAMES`, `NICK`, `NOTICE`, `OPER`, `PART`, `PASS`, `PING`, `PRIVMSG`,
+`QUIT`, `RULES`, `TOPIC`, `USER`, `USERHOST`, `USERIP`, `WHO`, and `WHOIS`.
 
 ## Testing
 
-CMake/CTest now runs both unit tests and a real socket-level protocol integration
-test. The integration harness starts the compiled daemon on a temporary local
-port, connects multiple IRC clients, exercises registration/channel/messaging
-behavior, tests client-state queries and server-information commands, and then
-restarts the daemon with PASS protection to verify registration gating.
+CMake/CTest runs unit tests plus a real socket-level protocol integration test.
+The integration harness starts the compiled daemon on a temporary local port,
+connects multiple IRC clients, exercises registration/channel/messaging/state
+behavior, generates an Argon2id OPER credential and tests OPER authentication,
+and restarts the daemon with PASS protection to verify registration gating.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -96,9 +132,9 @@ normal regression-testing workflow.
 
 The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ,
 and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized
-WebIRC gateways; complete client/channel mode behavior; operator permissions;
-full applicable ISUPPORT advertising; and the planned standard/operator command
-set.
+WebIRC gateways; complete client/channel mode behavior; operator commands and
+permissions; full applicable ISUPPORT advertising; and the remaining planned
+standard/operator command set.
 
 Services will be addressable virtual identities but will never join channels or
 appear in ordinary client lists. Persistent channels will be restored from
