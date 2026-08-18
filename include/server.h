@@ -8,7 +8,6 @@
 #include "client.h"
 #include "dns.h"
 #include "hash.h"
-#include "operator_db.h"
 #include "runtime_config.h"
 
 /** Complete process-level IRC server state. */
@@ -26,7 +25,6 @@ typedef struct Server {
     HashTable clients_by_nick;
     HashTable channels_by_name;
     DnsResolver dns;
-    OperatorDb operators;                /**< Persistent ordinary IRC operators. */
 } Server;
 
 int server_init(Server *server, const ServerConfig *config);
