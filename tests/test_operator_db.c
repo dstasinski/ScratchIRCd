@@ -7,7 +7,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -21,14 +20,13 @@ static int count_record(const OperatorRecord *record, void *context) {
 }
 
 int main(void) {
-    char path[] = "/tmp/scratchircd-operators-XXXXXX";
-    int fd = mkstemp(path);
+    char path[128];
     OperatorDb db;
     OperatorRecord add;
     OperatorRecord got;
 
-    assert(fd >= 0);
-    close(fd);
+    (void)snprintf(path, sizeof(path), "/tmp/scratchircd-operators-%ld.db",
+                   (long)getpid());
     unlink(path);
 
     assert(operator_db_open(&db, path) == 0);
