@@ -19,10 +19,12 @@ static const CommandEntry command_table[] = {
     {"ISON", command_ison}, {"JOIN", command_join}, {"KICK", command_kick},
     {"LIST", command_list}, {"LUSERS", command_lusers}, {"MODE", command_mode},
     {"MOTD", command_motd}, {"NAMES", command_names}, {"NICK", command_nick},
-    {"NOTICE", command_notice}, {"OPER", command_oper}, {"PART", command_part},
-    {"PASS", command_pass}, {"PING", command_ping}, {"PRIVMSG", command_privmsg},
-    {"QUIT", command_quit}, {"RULES", command_rules}, {"TOPIC", command_topic},
-    {"USER", command_user}, {"USERHOST", command_userhost}, {"USERIP", command_userip},
+    {"NOTICE", command_notice}, {"OPER", command_oper}, {"OPERADD", command_operadd},
+    {"OPERDEL", command_operdel}, {"OPERLIST", command_operlist},
+    {"OPERSET", command_operset}, {"PART", command_part}, {"PASS", command_pass},
+    {"PING", command_ping}, {"PRIVMSG", command_privmsg}, {"QUIT", command_quit},
+    {"RULES", command_rules}, {"TOPIC", command_topic}, {"USER", command_user},
+    {"USERHOST", command_userhost}, {"USERIP", command_userip},
     {"WHO", command_who}, {"WHOIS", command_whois}
 };
 
