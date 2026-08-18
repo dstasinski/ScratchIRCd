@@ -91,6 +91,15 @@ add_test(
 )
 set_tests_properties(protocol_integration PROPERTIES TIMEOUT 60)
 
+add_test(
+    NAME operator_actions_integration
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py
+            $<TARGET_FILE:scratchircd>
+            $<TARGET_FILE:scratchircd-mkpasswd>
+)
+set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
