@@ -2,9 +2,8 @@
  * @file joinpart.c
  * @brief IRC JOIN/PART with channel access-policy enforcement.
  *
- * JOIN enforces the channel state represented by MODE: keys, bans and
- * exceptions, full/banned redirects, account/oper/admin/TLS requirements,
- * invite-only channels and invex masks, and per-client join throttling.
+ * JOIN enforces keys, bans/exceptions, redirects, account/oper/admin/TLS
+ * requirements, invite-only/invex policy, and per-client join throttling.
  * Redirect traversal is bounded by IRC_JOIN_REDIRECT_MAX to prevent cycles.
  */
 
@@ -22,7 +21,6 @@ static int valid_channel_name(const char *name) {
            strlen(name) <= IRC_CHANNEL_NAME_MAX && strchr(name, ' ') == NULL;
 }
 
-/** Attempt one channel join, following bounded +B/+L redirects when needed. */
 static void join_one(Server *server, Client *client, const char *name,
                      const char *key, unsigned int redirect_depth) {
     Channel *channel;
@@ -36,7 +34,6 @@ static void join_one(Server *server, Client *client, const char *name,
                      name != NULL ? name : "*");
         return;
     }
-
     if (client->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) {
         client_sendf(client, ERR_TOOMANYCHANNELS,
                      server->config.server_name, client->nick, name);
@@ -59,7 +56,6 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_client_is_banned(channel, client)) {
         if (channel->ban_redirect[0] != '\0' &&
             redirect_depth < IRC_JOIN_REDIRECT_MAX &&
@@ -75,7 +71,6 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel->user_limit != 0U &&
         channel->member_count >= channel->user_limit) {
         if (channel->limit_redirect[0] != '\0' &&
@@ -92,14 +87,12 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_JOIN) &&
         !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
         client_sendf(client, ERR_NEEDREGGEDNICK,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_mode_has(channel->modes, CHANNEL_MODE_OPER_ONLY) &&
         !client_mode_has(client->modes,
                          CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
@@ -107,28 +100,24 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_mode_has(channel->modes, CHANNEL_MODE_ADMIN_ONLY) &&
         !client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
         client_sendf(client, ERR_519,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_mode_has(channel->modes, CHANNEL_MODE_SECURE_ONLY) &&
         !client_mode_has(client->modes, CLIENT_MODE_SECURE)) {
         client_sendf(client, ERR_SECUREONLYCHAN,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (channel_mode_has(channel->modes, CHANNEL_MODE_INVITE_ONLY) &&
         !explicitly_invited && !channel_client_is_invex(channel, client)) {
         client_sendf(client, ERR_INVITEONLYCHAN,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-
     if (!channel_join_throttle_allows(channel, client->id)) {
         client_sendf(client, ERR_TOOMANYJOINS,
                      server->config.server_name, client->nick, channel->name);
@@ -139,12 +128,10 @@ static void join_one(Server *server, Client *client, const char *name,
     if (channel_add_client(channel, client) < 0) {
         return;
     }
-
     channel_join_throttle_record(channel, client->id);
     if (explicitly_invited) {
         (void)channel_invite_consume(channel, client->id);
     }
-
     if (first_member &&
         !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
         (void)channel_add_privileges(channel, client,
@@ -156,8 +143,18 @@ static void join_one(Server *server, Client *client, const char *name,
                    client->nick, client->user, client->host, channel->name);
     channel_broadcast(channel, NULL, message);
 
-    client_sendf(client, RPL_NOTOPIC,
-                 server->config.server_name, client->nick, channel->name);
+    if (channel->topic[0] == '\0') {
+        client_sendf(client, RPL_NOTOPIC,
+                     server->config.server_name, client->nick, channel->name);
+    } else {
+        client_sendf(client, RPL_TOPIC,
+                     server->config.server_name, client->nick,
+                     channel->name, channel->topic);
+        client_sendf(client, RPL_TOPICWHOTIME,
+                     server->config.server_name, client->nick,
+                     channel->name, channel->topic_setter,
+                     (unsigned long)channel->topic_time);
+    }
     command_send_names(channel, client);
 }
 
@@ -168,7 +165,6 @@ CommandResult command_join(Server *server, Client *client, char *params) {
     if (command_require_registered(client)) {
         return COMMAND_KEEP_CLIENT;
     }
-
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "JOIN");
@@ -190,7 +186,6 @@ CommandResult command_part(Server *server, Client *client, char *params) {
     if (command_require_registered(client)) {
         return COMMAND_KEEP_CLIENT;
     }
-
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "PART");
@@ -209,7 +204,6 @@ CommandResult command_part(Server *server, Client *client, char *params) {
                      server->config.server_name, client->nick, name);
         return COMMAND_KEEP_CLIENT;
     }
-
     if (!channel_has_client(channel, client)) {
         client_sendf(client, ERR_NOTONCHANNEL,
                      server->config.server_name, client->nick, channel->name);
