@@ -70,6 +70,15 @@ class IRCClient:
             pass
 
 
+def mode_token(lines, nick):
+    """Return the actual user-mode token from a numeric 221 reply."""
+    marker = f" 221 {nick} "
+    for line in lines:
+        if marker in line:
+            return line.rsplit(" ", 1)[-1]
+    raise AssertionError(f"no 221 mode reply for {nick!r}: {lines!r}")
+
+
 def free_port():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -162,8 +171,9 @@ def run_unprotected(binary, mkpasswd, tempdir):
         a.expect(" 381 alice :You are now a Network Administrator")
         a.send("MODE alice")
         modes = a.expect(" 221 alice ")
-        assert any("o" in line and "N" in line and "h" in line and "t" in line
-                   for line in modes), modes
+        alice_modes = mode_token(modes, "alice")
+        assert alice_modes.startswith("+")
+        assert all(letter in alice_modes for letter in "oNht"), modes
 
         # Ordinary users cannot manage operator records.
         b.send("OPERADD nope pass - :can_kill")
@@ -184,8 +194,10 @@ def run_unprotected(binary, mkpasswd, tempdir):
         c.expect(" 381 charlie :You are now an IRC operator")
         c.send("MODE charlie")
         cmodes = c.expect(" 221 charlie ")
-        assert any("o" in line and "h" in line and "t" in line and "N" not in line
-                   for line in cmodes), cmodes
+        charlie_modes = mode_token(cmodes, "charlie")
+        assert charlie_modes.startswith("+")
+        assert all(letter in charlie_modes for letter in "oht"), cmodes
+        assert "N" not in charlie_modes, cmodes
         b.send("WHOIS charlie")
         whois = b.expect(" 318 bob charlie ")
         assert any(" 313 bob charlie :is an IRCop" in line for line in whois), whois
@@ -212,8 +224,8 @@ def run_unprotected(binary, mkpasswd, tempdir):
         d.expect(" 381 delta :You are now an IRC operator")
         d.send("MODE delta")
         dmodes = d.expect(" 221 delta ")
-        assert any("o" in line and "N" not in line and "h" not in line and "t" not in line
-                   for line in dmodes), dmodes
+        delta_modes = mode_token(dmodes, "delta")
+        assert delta_modes == "+o", dmodes
 
         # Delete record and verify subsequent logins fail.
         a.send("OPERDEL helper")
