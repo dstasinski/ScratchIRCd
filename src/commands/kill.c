@@ -52,6 +52,12 @@ CommandResult command_kill(Server *server, Client *client, char *params) {
                    client->nick, reason);
     client_sendf(target, ":%s KILL %s :%s",
                  server->config.server_name, target->nick, reason);
+
+    if (target == client) {
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", quit_reason);
+        return COMMAND_DISCONNECT_CLIENT;
+    }
+
     server_disconnect(server, target, quit_reason);
     return COMMAND_KEEP_CLIENT;
 }
