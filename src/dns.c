@@ -166,9 +166,14 @@ static void *resolver_main(void *arg) {
     while (read_full(resolver->request_read_fd, &request, sizeof(request)) == 1) {
         DnsResult result;
         resolve_request(&request, &result);
-        if (write_full(resolver->result_write_fd, &result, sizeof(result)) != 0) {
-            break;
-        }
+
+        /*
+         * Result delivery is deliberately non-blocking.  If the event loop is
+         * temporarily unable to drain the pipe, dropping this answer is safe:
+         * the client's DNS deadline will expire and registration will continue
+         * with the numeric address rather than stalling the daemon.
+         */
+        (void)write_full(resolver->result_write_fd, &result, sizeof(result));
     }
     return NULL;
 }
@@ -200,7 +205,8 @@ int dns_resolver_init(DnsResolver *resolver) {
     resolver->result_write_fd = results[1];
 
     if (set_nonblocking(resolver->request_write_fd) != 0 ||
-        set_nonblocking(resolver->result_read_fd) != 0) {
+        set_nonblocking(resolver->result_read_fd) != 0 ||
+        set_nonblocking(resolver->result_write_fd) != 0) {
         dns_resolver_destroy(resolver);
         return -1;
     }
