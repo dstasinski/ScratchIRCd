@@ -1,13 +1,16 @@
 /**
  * @file privmsg.c
- * @brief Implementation of the IRC PRIVMSG command.
+ * @brief Implementation of IRC PRIVMSG.
  *
- * PRIVMSG currently supports one target. Targets beginning with '#' or '&'
- * are resolved as channels; all other targets are resolved as nicknames.
+ * PRIVMSG currently supports one target. Channel delivery enforces the mode
+ * state that is already modeled: +n (no external messages), +m (moderated),
+ * and +M (registered nick required to speak). Direct client delivery enforces
+ * recipient +R (registered senders only) and +T (no CTCP).
  */
 
 #include "commands.h"
 #include "config.h"
+#include "modes.h"
 #include "numerics.h"
 
 #include <stdio.h>
@@ -53,6 +56,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
 
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
+        ChannelMember *member;
 
         if (channel == NULL) {
             client_sendf(client, ERR_NOSUCHCHANNEL,
@@ -60,11 +64,36 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         }
 
-        if (!channel_has_client(channel, client)) {
+        member = channel_find_member(channel, client);
+
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL) &&
+            member == NULL) {
             client_sendf(client, ERR_CANNOTSENDTOCHAN,
                          server->config.server_name, client->nick, channel->name,
-                         IRC_CANNOT_SEND_NOT_MEMBER_TEXT);
+                         "no external messages (+n)");
             return COMMAND_KEEP_CLIENT;
+        }
+
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_SPEAK) &&
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+            client_sendf(client, ERR_CANNOTSENDTOCHAN,
+                         server->config.server_name, client->nick, channel->name,
+                         "registered nickname required (+M)");
+            return COMMAND_KEEP_CLIENT;
+        }
+
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_MODERATED)) {
+            if (member == NULL ||
+                !channel_privilege_has(member->privileges,
+                                       CHANNEL_PRIV_VOICE |
+                                       CHANNEL_PRIV_HALFOP |
+                                       CHANNEL_PRIV_OPERATOR |
+                                       CHANNEL_PRIV_OWNER)) {
+                client_sendf(client, ERR_CANNOTSENDTOCHAN,
+                             server->config.server_name, client->nick,
+                             channel->name, "moderated channel (+m)");
+                return COMMAND_KEEP_CLIENT;
+            }
         }
 
         channel_broadcast(channel, client, message);
@@ -74,6 +103,22 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         if (destination == NULL) {
             client_sendf(client, ERR_NOSUCHNICK,
                          server->config.server_name, client->nick, target);
+            return COMMAND_KEEP_CLIENT;
+        }
+
+        if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+            client_sendf(client, ERR_NONONREG,
+                         server->config.server_name, client->nick,
+                         destination->nick);
+            return COMMAND_KEEP_CLIENT;
+        }
+
+        if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) &&
+            text[0] == '\001') {
+            client_sendf(client, ERR_NOCTCP,
+                         server->config.server_name, client->nick,
+                         destination->nick);
             return COMMAND_KEEP_CLIENT;
         }
 
