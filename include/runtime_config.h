@@ -8,10 +8,10 @@
 /**
  * Runtime server configuration loaded from ircd.conf.
  *
- * Compile-time limits and safe defaults remain in config.h; settings that an
- * administrator should be able to change without rebuilding the daemon live
- * here. Additional subsystems (TLS, WebIRC, services, databases) will extend
- * this structure as they are implemented.
+ * Ordinary IRC operator accounts are intentionally excluded from this
+ * structure and live in operators.db.  Only the bootstrap network
+ * administrator remains in ircd.conf so a fresh server always has a recovery
+ * and operator-management path.
  */
 typedef struct ServerConfig {
     char server_name[IRC_HOST_MAX + 1U];
@@ -28,18 +28,12 @@ typedef struct ServerConfig {
     char admin_location2[IRCD_ADMIN_TEXT_MAX + 1U];
     char admin_email[IRCD_ADMIN_TEXT_MAX + 1U];
 
-    /**
-     * Bootstrap IRC operator definition.
-     *
-     * These fields provide an administrative path before NickServ/SQLite is
-     * available. Later, identified registered accounts can populate the same
-     * Client.oper_permissions representation from database flags.
-     */
-    char oper_name[IRCD_OPER_NAME_MAX + 1U];
-    char oper_password_hash[IRCD_OPER_HASH_MAX + 1U];
-    char oper_hostmask[IRCD_OPER_HOSTMASK_MAX + 1U];
-    char oper_flags[IRCD_OPER_FLAGS_MAX + 1U];
-    char oper_vhost[IRCD_OPER_VHOST_MAX + 1U];
+    char operators_db[IRCD_CONFIG_PATH_MAX + 1U];
+
+    char netadmin_name[IRCD_OPER_NAME_MAX + 1U];
+    char netadmin_password_hash[IRCD_OPER_HASH_MAX + 1U];
+    char netadmin_hostmask[IRCD_OPER_HOSTMASK_MAX + 1U];
+    char netadmin_vhost[IRCD_OPER_VHOST_MAX + 1U];
 } ServerConfig;
 
 void runtime_config_defaults(ServerConfig *config);
