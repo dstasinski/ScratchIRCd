@@ -10,3 +10,15 @@ port = 6667
 
 max_clients = 1024
 dns_timeout_seconds = 5
+
+# Optional connection password. Leave empty to disable PASS enforcement.
+server_password =
+
+# Server information files.
+motd_file = motd.txt
+rules_file = rules.txt
+
+# ADMIN command information.
+admin_location1 =
+admin_location2 =
+admin_email =
