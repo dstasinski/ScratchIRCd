@@ -6,6 +6,10 @@
  * channel names.  Listing policy for '&' channels will be enforced by LIST
  * when that command is implemented; membership semantics are otherwise the
  * same at this layer.
+ *
+ * The first member of a newly empty, unregistered channel receives owner and
+ * operator privileges.  Registered/persistent channels will later restore
+ * ChanServ-defined access instead of relying on first-join ownership.
  */
 
 #include "commands.h"
@@ -23,6 +27,7 @@ static int valid_channel_name(const char *name) {
 CommandResult command_join(Server *server, Client *client, char *params) {
     Channel *channel;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
+    int first_member;
 
     if (command_require_registered(client)) {
         return COMMAND_KEEP_CLIENT;
@@ -42,8 +47,18 @@ CommandResult command_join(Server *server, Client *client, char *params) {
     }
 
     channel = server_get_or_create_channel(server, params);
-    if (channel == NULL || channel_add_client(channel, client) < 0) {
+    if (channel == NULL) {
         return COMMAND_KEEP_CLIENT;
+    }
+
+    first_member = channel->member_count == 0U;
+    if (channel_add_client(channel, client) < 0) {
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+        (void)channel_add_privileges(channel, client,
+                                     CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
     }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
