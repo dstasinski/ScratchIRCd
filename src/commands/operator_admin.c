@@ -3,10 +3,11 @@
  * @brief Network-administrator management of operators.db through IRC.
  *
  * Commands:
- *   OPERADD <name> <password> <vhost|-> :<permissions>
+ *   OPERADD <name> <password> <vhost|-> :<permissions|->
  *   OPERDEL <name>
+ *   OPERSET <name> NAME <newname>
  *   OPERSET <name> PASSWORD <password>
- *   OPERSET <name> PERMISSIONS :<permissions>
+ *   OPERSET <name> PERMISSIONS :<permissions|->
  *   OPERSET <name> VHOST <vhost|->
  *   OPERSET <name> ENABLED <0|1>
  *   OPERLIST [name]
@@ -60,19 +61,29 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
                                  encoded, encoded_size) == ARGON2_OK ? 0 : -1;
 }
 
-static int validate_permissions(const char *text) {
+/** Validate an ordinary-oper permission string and forbid netadmin. */
+static int normalized_permissions(const char *input, const char **output) {
     OperPermissionSet permissions;
-    return oper_permissions_parse(text, &permissions) == 0 &&
-           !oper_permission_has(permissions, OPER_PERMISSION_NETADMIN);
+    const char *text;
+
+    if (input == NULL || output == NULL) return 0;
+    text = strcmp(input, "-") == 0 ? "" : input;
+    if (oper_permissions_parse(text, &permissions) != 0 ||
+        oper_permission_has(permissions, OPER_PERMISSION_NETADMIN)) {
+        return 0;
+    }
+    *output = text;
+    return 1;
 }
 
 CommandResult command_operadd(Server *server, Client *client, char *params) {
     char *name;
     char *password;
     char *vhost;
-    char *permissions;
+    char *permissions_arg;
+    const char *permissions;
     OperatorRecord record;
-    OperatorDb db;
+    OperatorDb db = {0};
 
     if (command_require_registered(client) || require_netadmin(server, client))
         return COMMAND_KEEP_CLIENT;
@@ -85,10 +96,11 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
     name = strtok(params, " ");
     password = strtok(NULL, " ");
     vhost = strtok(NULL, " ");
-    permissions = strtok(NULL, "");
-    if (permissions != NULL && *permissions == ':') ++permissions;
-    if (name == NULL || password == NULL || vhost == NULL || permissions == NULL ||
-        *name == '\0' || *password == '\0' || !validate_permissions(permissions)) {
+    permissions_arg = strtok(NULL, "");
+    if (permissions_arg != NULL && *permissions_arg == ':') ++permissions_arg;
+    if (name == NULL || password == NULL || vhost == NULL ||
+        permissions_arg == NULL || *name == '\0' || *password == '\0' ||
+        !normalized_permissions(permissions_arg, &permissions)) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "OPERADD");
         return COMMAND_KEEP_CLIENT;
@@ -101,8 +113,10 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
                    strcmp(vhost, "-") == 0 ? "" : vhost);
     record.enabled = 1;
 
-    if (hash_password(password, record.password_hash, sizeof(record.password_hash)) != 0 ||
+    if (hash_password(password, record.password_hash,
+                      sizeof(record.password_hash)) != 0 ||
         operator_db_open(&db, server->config.operators_db) != 0) {
+        operator_db_close(&db);
         admin_notice(server, client, "OPERADD failed");
         return COMMAND_KEEP_CLIENT;
     }
@@ -118,7 +132,8 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
 
 CommandResult command_operdel(Server *server, Client *client, char *params) {
     char *name;
-    OperatorDb db;
+    OperatorDb db = {0};
+
     if (command_require_registered(client) || require_netadmin(server, client))
         return COMMAND_KEEP_CLIENT;
     name = params != NULL ? strtok(params, " ") : NULL;
@@ -142,7 +157,7 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
     char *name;
     char *field;
     char *value;
-    OperatorDb db;
+    OperatorDb db = {0};
     int rc = -1;
 
     if (command_require_registered(client) || require_netadmin(server, client))
@@ -168,15 +183,19 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (strcasecmp(field, "PASSWORD") == 0) {
+    if (strcasecmp(field, "NAME") == 0) {
+        rc = operator_db_set_name(&db, name, value);
+    } else if (strcasecmp(field, "PASSWORD") == 0) {
         char encoded[IRCD_OPER_HASH_MAX + 1U];
         if (hash_password(value, encoded, sizeof(encoded)) == 0)
             rc = operator_db_set_password(&db, name, encoded);
     } else if (strcasecmp(field, "PERMISSIONS") == 0) {
-        if (validate_permissions(value))
-            rc = operator_db_set_permissions(&db, name, value);
+        const char *permissions;
+        if (normalized_permissions(value, &permissions))
+            rc = operator_db_set_permissions(&db, name, permissions);
     } else if (strcasecmp(field, "VHOST") == 0) {
-        rc = operator_db_set_vhost(&db, name, strcmp(value, "-") == 0 ? "" : value);
+        rc = operator_db_set_vhost(&db, name,
+                                   strcmp(value, "-") == 0 ? "" : value);
     } else if (strcasecmp(field, "ENABLED") == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
             rc = operator_db_set_enabled(&db, name, value[0] == '1');
@@ -199,13 +218,13 @@ static int list_one(const OperatorRecord *record, void *context) {
                    "OPER %s enabled=%d vhost=%s permissions=%s",
                    record->name, record->enabled,
                    record->vhost[0] != '\0' ? record->vhost : "-",
-                   record->permissions);
+                   record->permissions[0] != '\0' ? record->permissions : "-");
     admin_notice(ctx->server, ctx->client, line);
     return 0;
 }
 
 CommandResult command_operlist(Server *server, Client *client, char *params) {
-    OperatorDb db;
+    OperatorDb db = {0};
     char *name = params != NULL ? strtok(params, " ") : NULL;
 
     if (command_require_registered(client) || require_netadmin(server, client))
@@ -225,7 +244,8 @@ CommandResult command_operlist(Server *server, Client *client, char *params) {
         }
     } else {
         ListContext ctx = {server, client};
-        (void)operator_db_list(&db, list_one, &ctx);
+        if (operator_db_list(&db, list_one, &ctx) != 0)
+            admin_notice(server, client, "OPERLIST failed");
     }
 
     operator_db_close(&db);
