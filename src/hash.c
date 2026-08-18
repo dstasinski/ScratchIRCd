@@ -1,24 +1,42 @@
 #include "hash.h"
 
-#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* djb2-style hash with lowercase folding for case-insensitive keys. */
+/**
+ * Fold one byte according to IRC RFC1459 casemapping.
+ *
+ * In addition to ASCII A-Z, RFC1459 treats []\\^ as case-equivalent to
+ * {}|~.  Nickname and channel hash operations use this function so lookup
+ * semantics match the CASEMAPPING=rfc1459 token advertised in ISUPPORT.
+ */
+static unsigned char irc_fold(unsigned char ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        return (unsigned char)(ch + ('a' - 'A'));
+    }
+
+    switch (ch) {
+        case '{': return '[';
+        case '}': return ']';
+        case '|': return '\\';
+        case '~': return '^';
+        default:  return ch;
+    }
+}
+
 static unsigned long hash_ci(const char *text) {
     unsigned long hash = 5381UL;
     unsigned char ch;
 
     while ((ch = (unsigned char)*text++) != 0U) {
-        hash = ((hash << 5U) + hash) ^ (unsigned long)tolower(ch);
+        hash = ((hash << 5U) + hash) ^ (unsigned long)irc_fold(ch);
     }
     return hash;
 }
 
-/* Compare two NUL-terminated strings without regard to ASCII case. */
 static int key_equal_ci(const char *left, const char *right) {
     while (*left != '\0' && *right != '\0') {
-        if (tolower((unsigned char)*left) != tolower((unsigned char)*right)) {
+        if (irc_fold((unsigned char)*left) != irc_fold((unsigned char)*right)) {
             return 0;
         }
         ++left;
