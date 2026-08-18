@@ -37,30 +37,74 @@ by WHO; user `+p` hides WHOIS channel membership. WHOIS exposes effective IRC
 identity to ordinary users while preserving physical socket-origin information
 for future operator-only use and WebIRC auditing.
 
-## Operator authentication foundation
+## Network administrator and IRC operators
 
-`OPER` is implemented using an Argon2id encoded password hash from `ircd.conf`.
-Generate a hash with:
+Only the bootstrap **network administrator** is configured in `ircd.conf`.
+Generate its Argon2id password hash with:
 
 ```sh
 ./build/scratchircd-mkpasswd 'your password'
 ```
 
-The bootstrap operator definition supports the registered-account privilege
-names planned for NickServ: `netadmin`, `can_rehash`, `can_die`, `can_restart`,
-`helpop`, `can_wallops`, `can_kill`, `can_kline`, `can_unkline`, `can_zline`,
-`get_host`, and `can_override`. Successful authentication stores these in a
-separate operator permission bitset rather than inferring authority from user
-mode `+o` alone. `netadmin` adds `+N`, `helpop` adds `+h`, and `get_host` may
-apply the configured operator vhost and `+t`.
+The relevant runtime settings are:
 
-The OPER host mask is matched against the effective client host/IP, not the
-physical socket peer. This keeps the authorization model correct for future
-WebIRC clients.
+```text
+operators_db = operators.db
+netadmin_name = root
+netadmin_password_hash = $argon2id$...
+netadmin_hostmask = *!*@*
+netadmin_vhost = admin.example.net
+```
 
-The current config-based OPER entry is a bootstrap path. Once NickServ/SQLite
-accounts are implemented, identified account flags will populate the same
-client permission structure.
+The network administrator receives the complete operator permission set and
+user modes `+oN`; `+h` and `+t` are also derived from the full permission set.
+The configured host mask is matched against the effective IRC client host/IP,
+not a future WebIRC gateway peer.
+
+Ordinary IRC operators are stored only in the SQLite database configured by
+`operators_db`. ScratchIRCd creates the database/table at startup using this
+schema:
+
+```sql
+CREATE TABLE "operators" (
+    "name" TEXT COLLATE NOCASE,
+    "password_hash" TEXT NOT NULL,
+    "permissions" TEXT NOT NULL DEFAULT '',
+    "vhost" TEXT NOT NULL,
+    "enabled" INTEGER NOT NULL DEFAULT 1,
+    "created_at" INTEGER NOT NULL DEFAULT (unixepoch()),
+    "updated_at" INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY("name")
+);
+```
+
+Operator passwords are stored only as Argon2id encoded hashes. Database
+operators can never receive `netadmin`; that restriction is enforced both when
+records are managed through IRC and again when OPER authenticates a database
+record.
+
+The network administrator manages operators through:
+
+```text
+OPERADD <name> <password> <vhost|-> :<permissions|->
+OPERDEL <name>
+OPERSET <name> NAME <newname>
+OPERSET <name> PASSWORD <newpassword>
+OPERSET <name> PERMISSIONS :<permissions|->
+OPERSET <name> VHOST <vhost|->
+OPERSET <name> ENABLED <0|1>
+OPERLIST [name]
+```
+
+A literal `-` means an empty vhost or empty permission list where applicable.
+Supported ordinary-operator permissions are `can_rehash`, `can_die`,
+`can_restart`, `helpop`, `can_wallops`, `can_kill`, `can_kline`, `can_unkline`,
+`can_zline`, `get_host`, and `can_override`.
+
+Successful ordinary OPER authentication always grants user mode `+o`; `helpop`
+grants `+h`, and `get_host` applies the database vhost and `+t` when the vhost is
+non-empty. Authority is stored in a separate permission bitset and is never
+inferred from `+o` alone.
 
 ## Client state and server information
 
@@ -90,34 +134,34 @@ The `Client` structure distinguishes:
 ## Dependencies
 
 ScratchIRCd currently requires a C11 compiler, CMake, pthreads, Python 3 for the
-protocol integration tests, and libargon2 development headers/library.
-On Debian/Ubuntu systems:
+protocol integration tests, SQLite3 development files, and libargon2 development
+headers/library. On Debian/Ubuntu systems:
 
 ```sh
-sudo apt install build-essential cmake python3 libargon2-dev
+sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev
 ```
 
 ## Runtime configuration
 
 Copy `ircd.conf.example` to `ircd.conf` and edit it as needed. Runtime options
 include server/network/listener settings, optional `server_password`, MOTD/RULES
-and ADMIN information, plus the bootstrap OPER definition. Compile-time storage
-sizes, protocol constants, Argon2 defaults, and hard limits remain in
-`include/config.h`.
+and ADMIN information, `operators_db`, and the bootstrap network-administrator
+credentials. Ordinary IRC operator definitions do not belong in `ircd.conf`.
 
 ## Currently implemented commands
 
 `ADMIN`, `AWAY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `LIST`, `LUSERS`, `MODE`,
-`MOTD`, `NAMES`, `NICK`, `NOTICE`, `OPER`, `PART`, `PASS`, `PING`, `PRIVMSG`,
-`QUIT`, `RULES`, `TOPIC`, `USER`, `USERHOST`, `USERIP`, `WHO`, and `WHOIS`.
+`MOTD`, `NAMES`, `NICK`, `NOTICE`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`,
+`OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `RULES`, `TOPIC`, `USER`,
+`USERHOST`, `USERIP`, `WHO`, and `WHOIS`.
 
 ## Testing
 
 CMake/CTest runs unit tests plus a real socket-level protocol integration test.
 The integration harness starts the compiled daemon on a temporary local port,
-connects multiple IRC clients, exercises registration/channel/messaging/state
-behavior, generates an Argon2id OPER credential and tests OPER authentication,
-and restarts the daemon with PASS protection to verify registration gating.
+authenticates the configured network administrator, creates/edits/disables/
+deletes an ordinary SQLite-backed operator through IRC, verifies that operator's
+OPER login and vhost/permissions, then exercises the existing protocol features.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -132,9 +176,9 @@ normal regression-testing workflow.
 
 The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ,
 and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized
-WebIRC gateways; complete client/channel mode behavior; operator commands and
-permissions; full applicable ISUPPORT advertising; and the remaining planned
-standard/operator command set.
+WebIRC gateways; complete client/channel mode behavior; the remaining operator
+commands; full applicable ISUPPORT advertising; and the remaining planned
+standard command set.
 
 Services will be addressable virtual identities but will never join channels or
 appear in ordinary client lists. Persistent channels will be restored from
