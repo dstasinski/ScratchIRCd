@@ -32,6 +32,7 @@
 #define IRCD_DEFAULT_RULES_FILE "rules.txt"
 #define IRCD_DEFAULT_DATA_DIR "data"
 #define IRCD_DEFAULT_OPERATORS_DB IRCD_DEFAULT_DATA_DIR "/operators.db"
+#define IRCD_DEFAULT_BANS_DB IRCD_DEFAULT_DATA_DIR "/bans.db"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 
 /* Operator/network-administrator storage limits. */
