@@ -1,3 +1,4 @@
+#include "ban_db.h"
 #include "config.h"
 #include "operator_db.h"
 #include "runtime_config.h"
@@ -11,6 +12,7 @@ int main(int argc, char **argv) {
     ServerConfig config;
     Server server;
     OperatorDb operators;
+    BanDb bans;
     const char *path = argc > 1 ? argv[1] : IRCD_DEFAULT_CONFIG_FILE;
 
     runtime_config_defaults(&config);
@@ -23,12 +25,18 @@ int main(int argc, char **argv) {
         clearerr(stderr);
     }
 
-    /* Ensure operators.db and its exact schema exist before accepting clients. */
+    /* Ensure persistent database files/schemas exist before accepting clients. */
     if (operator_db_open(&operators, config.operators_db) != 0) {
         fprintf(stderr, "Failed to open operator database: %s\n", config.operators_db);
         return 1;
     }
     operator_db_close(&operators);
+
+    if (ban_db_open(&bans, config.bans_db) != 0) {
+        fprintf(stderr, "Failed to open ban database: %s\n", config.bans_db);
+        return 1;
+    }
+    ban_db_close(&bans);
 
     if (server_init(&server, &config) != 0) {
         fprintf(stderr, "Failed to start %s on port %s\n",
