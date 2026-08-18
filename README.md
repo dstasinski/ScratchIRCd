@@ -15,42 +15,30 @@ Client identity keeps the effective IRC IP/host separate from the physical
 socket peer so authenticated WebIRC can later substitute the real user's
 identity without losing gateway audit information.
 
-## Modes and channel access
+## Modes, channel access, and visibility
 
 `MODE` supports grouped user/channel mode changes, membership `+q/+o/+h/+v`,
-parameter modes `+k/+l/+j/+L/+B`, and mask lists `+b/+e/+I`.  Security-derived
+parameter modes `+k/+l/+j/+L/+B`, and mask lists `+b/+e/+I`. Security-derived
 user modes and channel `+r` cannot be self-granted.
 
-JOIN now enforces:
+JOIN enforces keys, limits, bans/exceptions, redirects, invite-only/invex,
+join throttling, registered/oper/admin restrictions, and TLS-only channels.
+Explicit INVITE state is keyed by stable connection ID and consumed after a
+successful JOIN.
 
-- `+k` channel keys
-- `+l` user limits
-- `+b` bans with `+e` exceptions
-- `+B` banned-client redirects
-- `+L` full-channel redirects
-- `+i` invite-only access
-- `+I` invite exceptions
-- `+j joins:seconds` per-client join throttling
-- `+R` registered-nickname requirement
-- `+O` IRC-operator requirement
-- `+A` network-administrator requirement
-- `+z` TLS-only access
+TOPIC stores topic text, setter identity, and timestamp. Channel `+t` limits
+topic changes to halfops and above. NOTICE follows message-delivery policy and
+channel `+T` suppresses channel notices. KICK uses the privilege hierarchy
+owner > operator > halfop > voice > normal member.
 
-Redirect traversal is bounded so cyclic `+L`/`+B` configurations cannot recurse
-indefinitely.
+A shared visibility policy now drives LIST, NAMES, WHO, and WHOIS. Unlisted
+`&` channels and `+p/+s` channels are hidden from outsiders; user `+i` is
+respected by WHO; user `+p` hides WHOIS channel membership; IRC operators may
+see information hidden from ordinary users. WHOIS exposes effective IRC
+identity to ordinary users while retaining physical socket-origin visibility
+for IRC operators, preserving the future WebIRC identity model.
 
-Channel masks use RFC1459-aware `*` and `?` wildcard matching and are tested
-against both `nick!user@host` and `nick!user@IP`.  Explicit INVITE state is keyed
-by stable connection ID, not nickname, and is consumed after a successful JOIN.
-
-`INVITE` is implemented for halfops and above. Channel mode `+V` disables
-invitations. An explicit invitation bypasses `+i` but intentionally does not
-bypass bans, keys, limits, account requirements, or TLS requirements.
-
-PRIVMSG currently enforces channel `+n`, `+m`, and `+M`, along with user `+R`
-and `+T` where applicable.
-
-Modes whose supporting behavior is still incomplete are kept out of the
+Modes whose supporting behavior is still incomplete remain outside the
 advertised ISUPPORT/mode set until they are genuinely enforced end-to-end.
 
 ## DNS and client identity
@@ -90,55 +78,23 @@ Compile-time storage sizes, protocol constants, and hard limits remain in
 - `JOIN`
 - `PART`
 - `INVITE`
+- `KICK`
+- `LIST`
 - `MODE`
+- `NAMES`
+- `NOTICE`
 - `PRIVMSG`
+- `TOPIC`
+- `WHO`
+- `WHOIS`
 - `QUIT`
 
 ## Source layout
 
-```text
-include/
-    channel.h
-    channel_policy.h
-    client.h
-    commands.h
-    config.h
-    dns.h
-    hash.h
-    irc.h
-    modes.h
-    numerics.h
-    runtime_config.h
-    server.h
-
-src/
-    channel.c
-    channel_policy.c
-    client.c
-    dns.c
-    hash.c
-    irc.c
-    main.c
-    modes.c
-    runtime_config.c
-    server.c
-
-    commands/
-        common.c
-        dispatch.c
-        invite.c
-        joinpart.c
-        mode.c
-        nick.c
-        ping.c
-        privmsg.c
-        quit.c
-        user.c
-
-tests/
-    test_modes.c
-    test_channel_policy.c
-```
+Command implementations live in separate files under `src/commands/`. Shared
+policy modules include `src/channel_policy.c` for channel access and
+`src/visibility.c` for information disclosure rules. Tests currently cover mode
+representation, channel access policy, and visibility policy.
 
 ## Planned architecture
 
