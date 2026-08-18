@@ -2,28 +2,21 @@
  * @file dispatch.c
  * @brief Maps IRC command names to command-specific handler functions.
  *
- * The dispatcher deliberately contains no implementation details for NICK,
- * USER, JOIN, PRIVMSG, or any other IRC command.  Adding a new command requires
- * implementing its handler in src/commands/ and adding one table entry here.
- *
- * Command names are matched case-insensitively as required by typical IRC
- * client behavior.  Unknown commands use ERR_UNKNOWNCOMMAND from numerics.h.
+ * The dispatcher contains no command policy. Implementations live in their
+ * own source files under src/commands/ and are selected through this table.
  */
 
 #include "commands.h"
-#include "config.h"
 #include "numerics.h"
 
 #include <stddef.h>
 #include <strings.h>
 
-/** One immutable command-name to function mapping. */
 typedef struct CommandEntry {
-    const char *name;          /**< IRC command token, e.g. "PRIVMSG". */
-    CommandHandler handler;    /**< Function implementing the command. */
+    const char *name;
+    CommandHandler handler;
 } CommandEntry;
 
-/** Commands supported by this iteration of the server. */
 static const CommandEntry command_table[] = {
     {"NICK",    command_nick},
     {"USER",    command_user},
@@ -50,6 +43,6 @@ CommandResult command_dispatch(Server *server, Client *client,
     }
 
     client_sendf(client, ERR_UNKNOWNCOMMAND,
-                 IRCD_SERVER_NAME, command_reply_nick(client), command);
+                 server->config.server_name, command_reply_nick(client), command);
     return COMMAND_KEEP_CLIENT;
 }
