@@ -2,12 +2,9 @@
  * @file common.c
  * @brief Shared helpers used by multiple IRC command implementations.
  *
- * This file intentionally contains no IRC command handler.  It centralizes
- * small pieces of protocol behavior that would otherwise be duplicated across
- * command files: the pre-registration nickname placeholder, registration
- * completion, the registration guard, and NAMES numeric generation.
- *
- * Numeric replies are formatted exclusively through include/numerics.h.
+ * Registration deliberately waits while asynchronous DNS is pending.  A
+ * failed or timed-out lookup does not reject the client; the numeric address
+ * remains the effective hostname and registration proceeds normally.
  */
 
 #include "commands.h"
@@ -23,28 +20,31 @@ const char *command_reply_nick(const Client *client) {
     return client->nick;
 }
 
-void command_maybe_register(Client *client) {
-    if (client == NULL || client->registered || client->nick[0] == '\0' ||
-        client->user[0] == '\0') {
+void command_maybe_register(Server *server, Client *client) {
+    if (server == NULL || client == NULL || client->registered ||
+        client->nick[0] == '\0' || client->user[0] == '\0' ||
+        client->dns_state == CLIENT_DNS_PENDING ||
+        client->dns_state == CLIENT_DNS_NONE) {
         return;
     }
 
     client->registered = 1;
 
     client_sendf(client, RPL_WELCOME,
-                 IRCD_SERVER_NAME, client->nick, IRCD_NETWORK_NAME,
+                 server->config.server_name, client->nick,
+                 server->config.network_name,
                  client->nick, client->user, client->host);
     client_sendf(client, RPL_YOURHOST,
-                 IRCD_SERVER_NAME, client->nick,
-                 IRCD_SERVER_NAME, IRCD_VERSION);
+                 server->config.server_name, client->nick,
+                 server->config.server_name, IRCD_VERSION);
     client_sendf(client, RPL_CREATED,
-                 IRCD_SERVER_NAME, client->nick, IRCD_CREATED);
+                 server->config.server_name, client->nick, IRCD_CREATED);
     client_sendf(client, RPL_AVAILABLE,
-                 IRCD_SERVER_NAME, client->nick, IRCD_SERVER_NAME,
-                 IRCD_VERSION, IRCD_SUPPORTED_USER_MODES,
-                 IRCD_SUPPORTED_CHANNEL_MODES);
+                 server->config.server_name, client->nick,
+                 server->config.server_name, IRCD_VERSION,
+                 IRCD_SUPPORTED_USER_MODES, IRCD_SUPPORTED_CHANNEL_MODES);
     client_sendf(client, RPL_PROTOCOLS,
-                 IRCD_SERVER_NAME, client->nick, IRCD_ISUPPORT);
+                 server->config.server_name, client->nick, IRCD_ISUPPORT_BASE);
 }
 
 int command_require_registered(Client *client) {
@@ -54,7 +54,7 @@ int command_require_registered(Client *client) {
 
     if (client != NULL) {
         client_sendf(client, ERR_NOTREGISTERED,
-                     IRCD_SERVER_NAME, command_reply_nick(client));
+                     IRCD_DEFAULT_SERVER_NAME, command_reply_nick(client));
     }
     return 1;
 }
@@ -80,8 +80,8 @@ void command_send_names(Channel *channel, Client *client) {
     }
 
     client_sendf(client, RPL_NAMREPLY,
-                 IRCD_SERVER_NAME, client->nick, IRC_NAMES_PUBLIC_MARKER,
-                 channel->name, names);
+                 IRCD_DEFAULT_SERVER_NAME, client->nick,
+                 IRC_NAMES_PUBLIC_MARKER, channel->name, names);
     client_sendf(client, RPL_ENDOFNAMES,
-                 IRCD_SERVER_NAME, client->nick, channel->name);
+                 IRCD_DEFAULT_SERVER_NAME, client->nick, channel->name);
 }
