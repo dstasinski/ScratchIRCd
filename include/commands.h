@@ -21,6 +21,7 @@ CommandResult command_user(Server *server, Client *client, char *params);
 CommandResult command_ping(Server *server, Client *client, char *params);
 CommandResult command_join(Server *server, Client *client, char *params);
 CommandResult command_part(Server *server, Client *client, char *params);
+CommandResult command_mode(Server *server, Client *client, char *params);
 CommandResult command_privmsg(Server *server, Client *client, char *params);
 CommandResult command_quit(Server *server, Client *client, char *params);
 
