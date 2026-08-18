@@ -1,10 +1,6 @@
 /**
  * @file modes.c
  * @brief Small, policy-neutral helpers for ScratchIRCd mode bitsets.
- *
- * No IRC command parsing occurs here.  These helpers exist so command code,
- * services, WHO/WHOIS, and channel display logic manipulate mode state through
- * one documented representation rather than duplicating bit operations.
  */
 
 #include "modes.h"
@@ -78,4 +74,20 @@ size_t channel_privilege_format(ChannelPrivilegeSet privileges,
 
     buffer[used] = '\0';
     return used;
+}
+
+unsigned int channel_privilege_rank(ChannelPrivilegeSet privileges) {
+    if ((privileges & CHANNEL_PRIV_OWNER) != 0U) {
+        return 4U;
+    }
+    if ((privileges & CHANNEL_PRIV_OPERATOR) != 0U) {
+        return 3U;
+    }
+    if ((privileges & CHANNEL_PRIV_HALFOP) != 0U) {
+        return 2U;
+    }
+    if ((privileges & CHANNEL_PRIV_VOICE) != 0U) {
+        return 1U;
+    }
+    return 0U;
 }
