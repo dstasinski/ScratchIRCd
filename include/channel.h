@@ -2,6 +2,7 @@
 #define IRCD_CHANNEL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "client.h"
 #include "config.h"
@@ -10,13 +11,25 @@
 /**
  * One mask entry used by channel +b (ban), +e (exception), or +I (invex).
  *
- * The channel owns these nodes and their fixed-size mask strings.  MODE policy
- * will later decide who may add/remove entries and how masks are matched.
+ * The channel owns these nodes and their fixed-size mask strings. MODE policy
+ * controls who may add/remove entries; channel_policy.c performs matching.
  */
 typedef struct ChannelMaskEntry {
     char mask[IRC_CHANNEL_MASK_MAX + 1U]; /**< nick!user@host style mask. */
     struct ChannelMaskEntry *next;        /**< Next entry in the same list. */
 } ChannelMaskEntry;
+
+/**
+ * One explicit, transient invitation.
+ *
+ * Invitations are keyed by Client.id rather than nickname so a nickname change
+ * cannot accidentally invalidate or transfer an invitation.  JOIN consumes
+ * the invitation after a successful entry into the channel.
+ */
+typedef struct ChannelInvite {
+    uint64_t client_id;                    /**< Stable connection ID invited. */
+    struct ChannelInvite *next;            /**< Next explicit invitation. */
+} ChannelInvite;
 
 /**
  * One member in a channel's singly linked membership list.
@@ -33,7 +46,7 @@ typedef struct ChannelMember {
 /**
  * State for one IRC channel.
  *
- * Channel-wide boolean modes use modes.  Modes that carry parameters or lists
+ * Channel-wide boolean modes use modes. Modes that carry parameters or lists
  * have dedicated fields so their semantics remain explicit and type-safe.
  * Channel objects are owned by Server.channels_by_name.
  */
@@ -51,6 +64,7 @@ typedef struct Channel {
     ChannelMaskEntry *ban_list;                 /**< +b masks. */
     ChannelMaskEntry *exception_list;           /**< +e masks. */
     ChannelMaskEntry *invite_exception_list;    /**< +I masks. */
+    ChannelInvite *invites;                     /**< One-use explicit INVITE entries. */
 
     ChannelMember *members;                     /**< Head of member list. */
     size_t member_count;                        /**< Current number of members. */
