@@ -30,5 +30,19 @@ int main(void) {
     assert(strstr(formatted, "netadmin") != NULL);
 
     assert(oper_permissions_parse("can_kill,not_a_flag", &permissions) == -1);
+
+    /* The bootstrap netadmin mask must include every defined permission. */
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_REHASH));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_DIE));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_RESTART));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_WALLOPS));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_KILL));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_KLINE));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_UNKLINE));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_ZLINE));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_OVERRIDE));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_GETHOST));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_HELPOP));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_NETADMIN));
     return 0;
 }
