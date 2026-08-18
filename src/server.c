@@ -1,101 +1,170 @@
 #include "server.h"
+#include "commands.h"
 #include "irc.h"
+#include "numerics.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
-/** Create, bind, and listen on a TCP socket described by bind_addr/port. */
-static int make_listener(const char *bind_addr, const char *port) {
+/** Make a socket non-blocking so accept()/recv() never stall the event loop. */
+static int set_nonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
+}
+
+/**
+ * Open every usable IPv4/IPv6 listener returned by getaddrinfo().
+ *
+ * IPv6 sockets are explicitly V6ONLY so an AF_INET listener can coexist on
+ * the same port.  The result is a true dual-stack server rather than relying
+ * on platform-specific IPv4-mapped IPv6 behavior.
+ */
+static int make_listeners(Server *server) {
     struct addrinfo hints;
     struct addrinfo *result = NULL;
     struct addrinfo *candidate;
-    int listen_fd = -1;
+    const char *bind_address;
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if (getaddrinfo(bind_addr, port, &hints, &result) != 0) {
+    bind_address = server->config.bind_address[0] != '\0'
+                       ? server->config.bind_address
+                       : NULL;
+
+    if (getaddrinfo(bind_address, server->config.port, &hints, &result) != 0) {
         return -1;
     }
 
-    for (candidate = result; candidate != NULL; candidate = candidate->ai_next) {
+    server->listen_fds = calloc(IRCD_MAX_LISTENERS, sizeof(*server->listen_fds));
+    if (server->listen_fds == NULL) {
+        freeaddrinfo(result);
+        return -1;
+    }
+
+    for (candidate = result;
+         candidate != NULL && server->listener_count < IRCD_MAX_LISTENERS;
+         candidate = candidate->ai_next) {
+        int fd;
         int reuse = 1;
 
-        listen_fd = socket(candidate->ai_family,
-                           candidate->ai_socktype,
-                           candidate->ai_protocol);
-        if (listen_fd < 0) {
+        fd = socket(candidate->ai_family, candidate->ai_socktype,
+                    candidate->ai_protocol);
+        if (fd < 0) {
             continue;
         }
 
-        (void)setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
-                         &reuse, sizeof(reuse));
-
-        if (bind(listen_fd, candidate->ai_addr, candidate->ai_addrlen) == 0 &&
-            listen(listen_fd, IRCD_LISTEN_BACKLOG) == 0) {
-            break;
+        (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        if (candidate->ai_family == AF_INET6) {
+            int v6only = 1;
+            (void)setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+                             &v6only, sizeof(v6only));
         }
 
-        close(listen_fd);
-        listen_fd = -1;
+        if (set_nonblocking(fd) != 0 ||
+            bind(fd, candidate->ai_addr, candidate->ai_addrlen) != 0 ||
+            listen(fd, IRCD_LISTEN_BACKLOG) != 0) {
+            close(fd);
+            continue;
+        }
+
+        server->listen_fds[server->listener_count++] = fd;
     }
 
     freeaddrinfo(result);
-    return listen_fd;
+    return server->listener_count > 0U ? 0 : -1;
 }
 
-/** Convert the accepted peer address into a numeric host string. */
-static void peer_host(const struct sockaddr_storage *address, socklen_t length,
-                      char *buffer, size_t buffer_size) {
-    int rc = getnameinfo((const struct sockaddr *)address, length,
-                         buffer, (socklen_t)buffer_size,
-                         NULL, 0U, NI_NUMERICHOST);
-    if (rc != 0) {
-        snprintf(buffer, buffer_size, "%s", IRC_UNKNOWN_HOST);
+/** Render a peer address numerically; NI_NUMERICHOST performs no DNS lookup. */
+static int peer_ip(const struct sockaddr_storage *address, socklen_t length,
+                   char *buffer, size_t buffer_size) {
+    return getnameinfo((const struct sockaddr *)address, length,
+                       buffer, (socklen_t)buffer_size,
+                       NULL, 0U, NI_NUMERICHOST) == 0 ? 0 : -1;
+}
+
+/** Ensure clients[] has room for one more connection. */
+static int ensure_client_capacity(Server *server) {
+    size_t capacity;
+    Client **clients;
+
+    if (server->client_count < server->client_capacity) {
+        return 0;
+    }
+
+    capacity = server->client_capacity == 0U ? 16U : server->client_capacity * 2U;
+    if (capacity > server->config.max_clients) {
+        capacity = server->config.max_clients;
+    }
+    if (capacity <= server->client_capacity) {
+        return -1;
+    }
+
+    clients = realloc(server->clients, capacity * sizeof(*clients));
+    if (clients == NULL) {
+        return -1;
+    }
+
+    server->clients = clients;
+    server->client_capacity = capacity;
+    return 0;
+}
+
+/** Accept all connections currently queued on one listener. */
+static void accept_clients(Server *server, int listen_fd) {
+    for (;;) {
+        struct sockaddr_storage address;
+        socklen_t address_length = sizeof(address);
+        char ip[IRC_IP_MAX + 1U];
+        Client *client;
+        int fd;
+
+        fd = accept(listen_fd, (struct sockaddr *)&address, &address_length);
+        if (fd < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return;
+        }
+
+        if (server->client_count >= server->config.max_clients ||
+            ensure_client_capacity(server) != 0 || set_nonblocking(fd) != 0 ||
+            peer_ip(&address, address_length, ip, sizeof(ip)) != 0) {
+            close(fd);
+            continue;
+        }
+
+        client = client_create(fd, ++server->next_client_id,
+                               ((struct sockaddr *)&address)->sa_family, ip);
+        if (client == NULL) {
+            close(fd);
+            continue;
+        }
+
+        server->clients[server->client_count++] = client;
+        client->dns_state = CLIENT_DNS_PENDING;
+        client->dns_deadline = time(NULL) + (time_t)server->config.dns_timeout_seconds;
+        client_sendf(client, NOTICE_STARTDNS, server->config.server_name);
+
+        if (dns_resolver_submit(&server->dns, client->id,
+                                client->address_family, client->ip) != 0) {
+            client->dns_state = CLIENT_DNS_FAILED;
+            client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
+        }
     }
 }
 
-/** Accept one pending connection and attach it to the server client array. */
-static void accept_client(Server *server) {
-    struct sockaddr_storage address;
-    socklen_t address_length = sizeof(address);
-    char host[IRC_HOST_MAX + 1U];
-    int fd;
-    Client *client;
-
-    fd = accept(server->listen_fd, (struct sockaddr *)&address, &address_length);
-    if (fd < 0) {
-        return;
-    }
-
-    if (server->client_count >= IRCD_MAX_CLIENTS) {
-        close(fd);
-        return;
-    }
-
-    peer_host(&address, address_length, host, sizeof(host));
-    client = client_create(fd, host);
-    if (client == NULL) {
-        close(fd);
-        return;
-    }
-
-    server->clients[server->client_count++] = client;
-}
-
-/**
- * Consume all complete LF-terminated IRC lines currently buffered for client.
- * Returns 1 if the command parser requests disconnection.
- */
+/** Consume complete LF-terminated IRC lines already buffered for client. */
 static int process_buffered_lines(Server *server, Client *client) {
     for (;;) {
         char *newline = memchr(client->inbuf, '\n', client->inbuf_len);
@@ -115,7 +184,6 @@ static int process_buffered_lines(Server *server, Client *client) {
 
         memcpy(line, client->inbuf, line_length);
         line[line_length] = '\0';
-
         memmove(client->inbuf, client->inbuf + consumed,
                 client->inbuf_len - consumed);
         client->inbuf_len -= consumed;
@@ -126,7 +194,7 @@ static int process_buffered_lines(Server *server, Client *client) {
     }
 }
 
-/** Read available socket data and dispatch complete IRC input lines. */
+/** Read currently available data without ever blocking the event loop. */
 static int read_client(Server *server, Client *client) {
     ssize_t received;
     size_t available;
@@ -137,6 +205,9 @@ static int read_client(Server *server, Client *client) {
 
     available = sizeof(client->inbuf) - client->inbuf_len - 1U;
     received = recv(client->fd, client->inbuf + client->inbuf_len, available, 0);
+    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return 0;
+    }
     if (received <= 0) {
         return 1;
     }
@@ -146,27 +217,95 @@ static int read_client(Server *server, Client *client) {
     return process_buffered_lines(server, client);
 }
 
-int server_init(Server *server, const char *bind_addr, const char *port) {
-    if (server == NULL || port == NULL) {
+Client *server_find_client_by_id(Server *server, uint64_t id) {
+    size_t index;
+
+    if (server == NULL) {
+        return NULL;
+    }
+    for (index = 0U; index < server->client_count; ++index) {
+        if (server->clients[index]->id == id) {
+            return server->clients[index];
+        }
+    }
+    return NULL;
+}
+
+/** Apply one completed FCrDNS result on the event-loop thread. */
+static void handle_dns_result(Server *server, const DnsResult *result) {
+    Client *client = server_find_client_by_id(server, result->client_id);
+
+    if (client == NULL || client->dns_state != CLIENT_DNS_PENDING) {
+        return;
+    }
+
+    (void)snprintf(client->reverse_host, sizeof(client->reverse_host),
+                   "%s", result->reverse_host);
+
+    if (result->verified) {
+        client->dns_state = CLIENT_DNS_VERIFIED;
+        (void)snprintf(client->forward_host, sizeof(client->forward_host),
+                       "%s", result->forward_host);
+        (void)snprintf(client->host, sizeof(client->host),
+                       "%s", result->forward_host);
+        if (!client->is_webirc) {
+            (void)snprintf(client->socket_host, sizeof(client->socket_host),
+                           "%s", result->forward_host);
+        }
+        client_sendf(client, NOTICE_GOTDNS, server->config.server_name);
+    } else {
+        client->dns_state = CLIENT_DNS_FAILED;
+        client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
+    }
+
+    command_maybe_register(server, client);
+}
+
+/** Drain all DNS answers currently available from the resolver result pipe. */
+static void drain_dns_results(Server *server) {
+    DnsResult result;
+    int rc;
+
+    while ((rc = dns_resolver_read_result(&server->dns, &result)) == 1) {
+        handle_dns_result(server, &result);
+    }
+}
+
+/** Expire DNS waits so resolver failures can never hold registration forever. */
+static void expire_dns(Server *server) {
+    time_t now = time(NULL);
+    size_t index;
+
+    for (index = 0U; index < server->client_count; ++index) {
+        Client *client = server->clients[index];
+        if (client->dns_state == CLIENT_DNS_PENDING &&
+            client->dns_deadline <= now) {
+            client->dns_state = CLIENT_DNS_TIMEOUT;
+            client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
+            command_maybe_register(server, client);
+        }
+    }
+}
+
+int server_init(Server *server, const ServerConfig *config) {
+    if (server == NULL || config == NULL) {
         return -1;
     }
 
     memset(server, 0, sizeof(*server));
-    server->listen_fd = -1;
+    server->config = *config;
 
-    if (hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) < 0) {
-        return -1;
-    }
-    if (hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) < 0) {
-        hash_destroy(&server->clients_by_nick, NULL);
-        return -1;
-    }
-
-    server->listen_fd = make_listener(bind_addr, port);
-    if (server->listen_fd < 0) {
+    if (hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 ||
+        hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0) {
         server_destroy(server);
         return -1;
     }
+
+    if (dns_resolver_init(&server->dns) != 0 || make_listeners(server) != 0) {
+        server_destroy(server);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -187,7 +326,7 @@ Channel *server_get_or_create_channel(Server *server, const char *name) {
         return NULL;
     }
 
-    if (hash_set(&server->channels_by_name, channel->name, channel) < 0) {
+    if (hash_set(&server->channels_by_name, channel->name, channel) != 0) {
         channel_free(channel);
         return NULL;
     }
@@ -213,9 +352,9 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     }
 
     if (client->registered) {
-        snprintf(quit_message, sizeof(quit_message),
-                 ":%s!%s@%s QUIT :%s\r\n",
-                 client->nick, client->user, client->host, quit_reason);
+        (void)snprintf(quit_message, sizeof(quit_message),
+                       ":%s!%s@%s QUIT :%s\r\n",
+                       client->nick, client->user, client->host, quit_reason);
     }
 
     while (client->channels != NULL) {
@@ -232,78 +371,97 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     }
 
     close(client->fd);
-
     for (index = 0U; index < server->client_count; ++index) {
         if (server->clients[index] == client) {
             server->clients[index] = server->clients[server->client_count - 1U];
-            server->clients[server->client_count - 1U] = NULL;
             --server->client_count;
             break;
         }
     }
-
     client_free(client);
 }
 
 void server_run(Server *server) {
-    struct pollfd poll_fds[IRCD_MAX_CLIENTS + 1U];
-    Client *poll_clients[IRCD_MAX_CLIENTS];
-
     if (server == NULL) {
         return;
     }
 
     for (;;) {
-        nfds_t count;
+        const size_t dns_index = server->listener_count;
+        const size_t client_base = server->listener_count + 1U;
+        const size_t total = client_base + server->client_count;
+        struct pollfd *poll_fds = calloc(total, sizeof(*poll_fds));
+        Client **snapshot = calloc(server->client_count, sizeof(*snapshot));
         size_t index;
         int ready;
 
-        memset(poll_fds, 0, sizeof(poll_fds));
-        memset(poll_clients, 0, sizeof(poll_clients));
-
-        poll_fds[0].fd = server->listen_fd;
-        poll_fds[0].events = POLLIN;
-
-        for (index = 0U; index < server->client_count; ++index) {
-            poll_fds[index + 1U].fd = server->clients[index]->fd;
-            poll_fds[index + 1U].events = POLLIN;
-            poll_clients[index] = server->clients[index];
-        }
-
-        count = (nfds_t)(server->client_count + 1U);
-        ready = poll(poll_fds, count, -1);
-        if (ready < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            perror("poll");
+        if (poll_fds == NULL || (server->client_count > 0U && snapshot == NULL)) {
+            free(poll_fds);
+            free(snapshot);
             return;
         }
 
-        if ((poll_fds[0].revents & POLLIN) != 0) {
-            accept_client(server);
+        for (index = 0U; index < server->listener_count; ++index) {
+            poll_fds[index].fd = server->listen_fds[index];
+            poll_fds[index].events = POLLIN;
         }
 
-        /* Snapshot pointers let server_disconnect() safely compact clients[]. */
-        for (index = 0U; index + 1U < (size_t)count; ++index) {
-            Client *client = poll_clients[index];
-            short events = poll_fds[index + 1U].revents;
+        poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns);
+        poll_fds[dns_index].events = POLLIN;
 
-            if (client == NULL || events == 0) {
-                continue;
+        for (index = 0U; index < server->client_count; ++index) {
+            snapshot[index] = server->clients[index];
+            poll_fds[client_base + index].fd = snapshot[index]->fd;
+            poll_fds[client_base + index].events = POLLIN;
+        }
+
+        ready = poll(poll_fds, (nfds_t)total, 1000);
+        if (ready < 0 && errno != EINTR) {
+            perror("poll");
+            free(snapshot);
+            free(poll_fds);
+            return;
+        }
+
+        if (ready > 0) {
+            for (index = 0U; index < server->listener_count; ++index) {
+                if ((poll_fds[index].revents & POLLIN) != 0) {
+                    accept_clients(server, server->listen_fds[index]);
+                }
             }
-            if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0 ||
-                ((events & POLLIN) != 0 && read_client(server, client) != 0)) {
-                server_disconnect(server, client,
-                                  client->quit_reason[0] != '\0'
-                                      ? client->quit_reason
-                                      : IRC_DEFAULT_QUIT_REASON);
+
+            if ((poll_fds[dns_index].revents & POLLIN) != 0) {
+                drain_dns_results(server);
+            }
+
+            for (index = 0U; index + client_base < total; ++index) {
+                Client *client = snapshot[index];
+                short events = poll_fds[client_base + index].revents;
+
+                if (client == NULL || events == 0 ||
+                    server_find_client_by_id(server, client->id) != client) {
+                    continue;
+                }
+
+                if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0 ||
+                    ((events & POLLIN) != 0 && read_client(server, client) != 0)) {
+                    server_disconnect(server, client,
+                                      client->quit_reason[0] != '\0'
+                                          ? client->quit_reason
+                                          : IRC_DEFAULT_QUIT_REASON);
+                }
             }
         }
+
+        free(snapshot);
+        free(poll_fds);
+        expire_dns(server);
     }
 }
 
 void server_destroy(Server *server) {
+    size_t index;
+
     if (server == NULL) {
         return;
     }
@@ -312,12 +470,20 @@ void server_destroy(Server *server) {
         server_disconnect(server, server->clients[server->client_count - 1U],
                           IRCD_SHUTDOWN_REASON);
     }
+    free(server->clients);
+    server->clients = NULL;
+    server->client_capacity = 0U;
 
-    if (server->listen_fd >= 0) {
-        close(server->listen_fd);
-        server->listen_fd = -1;
+    if (server->listen_fds != NULL) {
+        for (index = 0U; index < server->listener_count; ++index) {
+            close(server->listen_fds[index]);
+        }
+        free(server->listen_fds);
+        server->listen_fds = NULL;
+        server->listener_count = 0U;
     }
 
+    dns_resolver_destroy(&server->dns);
     hash_destroy(&server->channels_by_name, channel_free);
     hash_destroy(&server->clients_by_nick, NULL);
 }
