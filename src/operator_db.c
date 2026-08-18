@@ -2,8 +2,8 @@
  * @file operator_db.c
  * @brief SQLite implementation of persistent IRC operator accounts.
  *
- * The schema is intentionally created exactly as specified by the project.
- * All update helpers also refresh updated_at using SQLite's unixepoch().
+ * The schema is intentionally created with the exact columns requested by the
+ * project. All mutable account fields refresh updated_at using unixepoch().
  */
 
 #include "operator_db.h"
@@ -69,20 +69,20 @@ int operator_db_get(OperatorDb *db, const char *name, OperatorRecord *record) {
         "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at "
         "FROM operators WHERE name=?1";
     sqlite3_stmt *stmt = NULL;
-    int result = -1;
+    int rc;
 
     if (db == NULL || db->handle == NULL || name == NULL || record == NULL) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     (void)sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
 
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
         record_from_stmt(stmt, record);
-        result = 1;
-    } else {
-        result = 0;
+        sqlite3_finalize(stmt);
+        return 1;
     }
     sqlite3_finalize(stmt);
-    return result;
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int operator_db_add(OperatorDb *db, const OperatorRecord *record) {
@@ -127,23 +127,37 @@ static int update_text(OperatorDb *db, const char *sql, const char *name, const 
     return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
 }
 
+int operator_db_set_name(OperatorDb *db, const char *name, const char *new_name) {
+    return update_text(db,
+        "UPDATE operators SET name=?1,updated_at=unixepoch() WHERE name=?2",
+        name, new_name);
+}
+
 int operator_db_set_password(OperatorDb *db, const char *name, const char *password_hash) {
-    return update_text(db, "UPDATE operators SET password_hash=?1,updated_at=unixepoch() WHERE name=?2", name, password_hash);
+    return update_text(db,
+        "UPDATE operators SET password_hash=?1,updated_at=unixepoch() WHERE name=?2",
+        name, password_hash);
 }
 
 int operator_db_set_permissions(OperatorDb *db, const char *name, const char *permissions) {
-    return update_text(db, "UPDATE operators SET permissions=?1,updated_at=unixepoch() WHERE name=?2", name, permissions);
+    return update_text(db,
+        "UPDATE operators SET permissions=?1,updated_at=unixepoch() WHERE name=?2",
+        name, permissions);
 }
 
 int operator_db_set_vhost(OperatorDb *db, const char *name, const char *vhost) {
-    return update_text(db, "UPDATE operators SET vhost=?1,updated_at=unixepoch() WHERE name=?2", name, vhost);
+    return update_text(db,
+        "UPDATE operators SET vhost=?1,updated_at=unixepoch() WHERE name=?2",
+        name, vhost);
 }
 
 int operator_db_set_enabled(OperatorDb *db, const char *name, int enabled) {
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || name == NULL) return -1;
-    if (sqlite3_prepare_v2(db->handle, "UPDATE operators SET enabled=?1,updated_at=unixepoch() WHERE name=?2", -1, &stmt, NULL) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+            "UPDATE operators SET enabled=?1,updated_at=unixepoch() WHERE name=?2",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, enabled ? 1 : 0);
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
@@ -157,14 +171,18 @@ int operator_db_list(OperatorDb *db, OperatorDbListCallback callback, void *cont
 
     if (db == NULL || db->handle == NULL || callback == NULL) return -1;
     if (sqlite3_prepare_v2(db->handle,
-            "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at FROM operators ORDER BY name COLLATE NOCASE",
+            "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at "
+            "FROM operators ORDER BY name COLLATE NOCASE",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         OperatorRecord record;
         record_from_stmt(stmt, &record);
-        if (callback(&record, context) != 0) break;
+        if (callback(&record, context) != 0) {
+            sqlite3_finalize(stmt);
+            return 0;
+        }
     }
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE || rc == SQLITE_ROW ? 0 : -1;
+    return rc == SQLITE_DONE ? 0 : -1;
 }
