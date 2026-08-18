@@ -19,6 +19,7 @@ add_executable(scratchircd
     src/server.c
     src/client.c
     src/channel.c
+    src/channel_policy.c
     src/hash.c
     src/irc.c
     src/runtime_config.c
@@ -31,6 +32,7 @@ add_executable(scratchircd
     src/commands/user.c
     src/commands/ping.c
     src/commands/joinpart.c
+    src/commands/invite.c
     src/commands/mode.c
     src/commands/privmsg.c
     src/commands/quit.c
@@ -49,16 +51,25 @@ add_executable(test_modes
     src/modes.c
 )
 
-target_include_directories(test_modes
+target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_test(NAME modes COMMAND test_modes)
+
+add_executable(test_channel_policy
+    tests/test_channel_policy.c
+    src/channel.c
+    src/channel_policy.c
+)
+
+target_include_directories(test_channel_policy
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-
-add_test(NAME modes COMMAND test_modes)
+add_test(NAME channel_policy COMMAND test_channel_policy)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(scratchircd PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(test_modes PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_channel_policy PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 install(TARGETS scratchircd RUNTIME DESTINATION bin)
