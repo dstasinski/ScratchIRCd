@@ -2,9 +2,9 @@
  * @file oper.c
  * @brief IRC OPER authentication for bootstrap netadmin and SQLite operators.
  *
- * Only the network administrator is configured in ircd.conf.  All ordinary
- * IRC operators are loaded from operators.db using the exact operators table
- * schema defined by the project.
+ * Only the network administrator is configured in ircd.conf. All ordinary
+ * IRC operators are loaded from operators.db. Database records are never
+ * allowed to grant netadmin, even if the database is edited outside IRC.
  */
 
 #include "commands.h"
@@ -68,7 +68,6 @@ CommandResult command_oper(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* Bootstrap network administrator: ircd.conf only. */
     if (server->config.netadmin_name[0] != '\0' &&
         strcasecmp(name, server->config.netadmin_name) == 0) {
         if (server->config.netadmin_password_hash[0] == '\0' ||
@@ -92,7 +91,6 @@ CommandResult command_oper(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* Ordinary operator: operators.db only. */
     {
         OperatorDb db;
         OperatorRecord record;
@@ -118,7 +116,8 @@ CommandResult command_oper(Server *server, Client *client, char *params) {
                          server->config.server_name, client->nick);
             return COMMAND_KEEP_CLIENT;
         }
-        if (oper_permissions_parse(record.permissions, &permissions) != 0) {
+        if (oper_permissions_parse(record.permissions, &permissions) != 0 ||
+            oper_permission_has(permissions, OPER_PERMISSION_NETADMIN)) {
             client_sendf(client, ERR_NOPRIVILEGES,
                          server->config.server_name, client->nick);
             return COMMAND_KEEP_CLIENT;
