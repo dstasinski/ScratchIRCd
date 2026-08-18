@@ -33,17 +33,22 @@ int main(void) {
                  CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_OWNER;
     assert(channel_privilege_has(privileges, CHANNEL_PRIV_OWNER));
     assert(channel_privilege_prefix(privileges) == '~');
+    assert(channel_privilege_rank(privileges) == 4U);
     assert(channel_privilege_format(privileges, letters, sizeof(letters)) == 4U);
     assert(strcmp(letters, "qohv") == 0);
 
     privileges &= ~CHANNEL_PRIV_OWNER;
     assert(channel_privilege_prefix(privileges) == '@');
+    assert(channel_privilege_rank(privileges) == 3U);
     privileges &= ~CHANNEL_PRIV_OPERATOR;
     assert(channel_privilege_prefix(privileges) == '%');
+    assert(channel_privilege_rank(privileges) == 2U);
     privileges &= ~CHANNEL_PRIV_HALFOP;
     assert(channel_privilege_prefix(privileges) == '+');
+    assert(channel_privilege_rank(privileges) == 1U);
     privileges = 0U;
     assert(channel_privilege_prefix(privileges) == '\0');
+    assert(channel_privilege_rank(privileges) == 0U);
 
     return 0;
 }
