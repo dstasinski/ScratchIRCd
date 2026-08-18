@@ -23,10 +23,12 @@ admin_location1 =
 admin_location2 =
 admin_email =
 
-# All ScratchIRCd SQLite databases live under data/. Ordinary IRC operators
-# are NOT configured in this file. They are managed by the network
-# administrator through OPERADD / OPERDEL / OPERSET / OPERLIST.
+# All ScratchIRCd SQLite databases live under data/.
 operators_db = data/operators.db
+bans_db = data/bans.db
+
+# Ordinary IRC operators are NOT configured in this file. They are managed by
+# the network administrator through OPERADD / OPERDEL / OPERSET / OPERLIST.
 
 # Bootstrap network administrator only.
 # Generate netadmin_password_hash with:
