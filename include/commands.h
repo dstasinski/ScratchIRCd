@@ -28,6 +28,7 @@ CommandResult command_motd(Server *server, Client *client, char *params);
 CommandResult command_names(Server *server, Client *client, char *params);
 CommandResult command_nick(Server *server, Client *client, char *params);
 CommandResult command_notice(Server *server, Client *client, char *params);
+CommandResult command_oper(Server *server, Client *client, char *params);
 CommandResult command_part(Server *server, Client *client, char *params);
 CommandResult command_pass(Server *server, Client *client, char *params);
 CommandResult command_ping(Server *server, Client *client, char *params);
