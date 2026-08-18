@@ -37,19 +37,16 @@
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 
 /*
- * Mode letters remain empty here until MODE parsing and behavioral enforcement
- * are implemented.  Internal mode storage may exist before it is advertised.
+ * These strings remain intentionally conservative. MODE state exists, but
+ * RPL_AVAILABLE/ISUPPORT should advertise only behavior that is actually
+ * enforced end-to-end by the command and policy layers.
  */
 #define IRCD_SUPPORTED_USER_MODES ""
 #define IRCD_SUPPORTED_CHANNEL_MODES ""
 #define IRCD_ISUPPORT_BASE \
     "CASEMAPPING=rfc1459 CHANTYPES=#& NICKLEN=31 CHANNELLEN=63"
 
-/*
- * Transitional aliases used by command files not yet migrated to ServerConfig.
- * New code should prefer server->config.*.  These aliases remain defaults, not
- * runtime state, and will disappear as each command is upgraded.
- */
+/* Transitional aliases used by command files not yet migrated to ServerConfig. */
 #define IRCD_SERVER_NAME IRCD_DEFAULT_SERVER_NAME
 #define IRCD_NETWORK_NAME IRCD_DEFAULT_NETWORK_NAME
 #define IRCD_ISUPPORT IRCD_ISUPPORT_BASE
@@ -71,6 +68,9 @@
 #define IRCD_SHUTDOWN_REASON "Server shutting down"
 #define IRC_CANNOT_SEND_NOT_MEMBER_TEXT "not on channel"
 #define IRC_DEFAULT_PART_REASON "Leaving"
+
+/** Maximum number of separate arguments accepted after a MODE string. */
+#define IRC_MODE_MAX_PARAMS 32U
 
 /* -------------------------------------------------------------------------
  * Channel limits and protocol constants
