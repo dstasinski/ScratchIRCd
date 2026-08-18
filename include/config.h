@@ -63,6 +63,7 @@
 #define IRC_UNKNOWN_HOST "unknown"
 #define IRC_DEFAULT_QUIT_REASON "Client quit"
 #define IRC_QUIT_REASON_MAX 255U
+#define IRC_AWAY_MAX 255U
 #define IRCD_SHUTDOWN_REASON "Server shutting down"
 #define IRC_CANNOT_SEND_NOT_MEMBER_TEXT "not on channel"
 #define IRC_DEFAULT_PART_REASON "Leaving"
