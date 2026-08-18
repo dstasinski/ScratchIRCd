@@ -1,8 +1,6 @@
 #ifndef IRCD_COMMANDS_H
 #define IRCD_COMMANDS_H
 
-/* Public interface for modular IRC command dispatch. */
-
 #include "server.h"
 
 typedef enum CommandResult {
@@ -29,6 +27,10 @@ CommandResult command_names(Server *server, Client *client, char *params);
 CommandResult command_nick(Server *server, Client *client, char *params);
 CommandResult command_notice(Server *server, Client *client, char *params);
 CommandResult command_oper(Server *server, Client *client, char *params);
+CommandResult command_operadd(Server *server, Client *client, char *params);
+CommandResult command_operdel(Server *server, Client *client, char *params);
+CommandResult command_operlist(Server *server, Client *client, char *params);
+CommandResult command_operset(Server *server, Client *client, char *params);
 CommandResult command_part(Server *server, Client *client, char *params);
 CommandResult command_pass(Server *server, Client *client, char *params);
 CommandResult command_ping(Server *server, Client *client, char *params);
