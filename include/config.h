@@ -5,15 +5,7 @@
  * config.h
  *
  * Compile-time limits and safe defaults for ScratchIRCd.
- *
- * Settings that administrators should be able to change without recompiling
- * belong in the runtime ServerConfig structure (runtime_config.h). This file
- * defines storage sizes, hard limits, protocol constants, and defaults.
  */
-
-/* -------------------------------------------------------------------------
- * Server defaults and hard limits
- * ------------------------------------------------------------------------- */
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
@@ -38,27 +30,23 @@
 #define IRCD_DEFAULT_CONFIG_FILE "ircd.conf"
 #define IRCD_DEFAULT_MOTD_FILE "motd.txt"
 #define IRCD_DEFAULT_RULES_FILE "rules.txt"
+#define IRCD_DEFAULT_OPERATORS_DB "operators.db"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 
-/* Bootstrap OPER configuration storage. */
+/* Operator/network-administrator storage limits. */
 #define IRCD_OPER_NAME_MAX 63U
 #define IRCD_OPER_HASH_MAX 255U
 #define IRCD_OPER_FLAGS_MAX 255U
 #define IRCD_OPER_HOSTMASK_MAX 255U
 #define IRCD_OPER_VHOST_MAX IRC_HOST_MAX
 
-/* Argon2id parameters used by scratchircd-mkpasswd. */
+/* Argon2id parameters used for OPER credentials. */
 #define IRCD_ARGON2_TIME_COST 3U
 #define IRCD_ARGON2_MEMORY_COST_KIB 65536U
 #define IRCD_ARGON2_PARALLELISM 1U
 #define IRCD_ARGON2_SALT_BYTES 16U
 #define IRCD_ARGON2_HASH_BYTES 32U
 
-/*
- * These strings remain intentionally conservative. MODE state exists, but
- * RPL_AVAILABLE/ISUPPORT should advertise only behavior actually enforced
- * end-to-end by the command and policy layers.
- */
 #define IRCD_SUPPORTED_USER_MODES ""
 #define IRCD_SUPPORTED_CHANNEL_MODES ""
 #define IRCD_ISUPPORT_BASE \
@@ -67,10 +55,6 @@
 #define IRCD_SERVER_NAME IRCD_DEFAULT_SERVER_NAME
 #define IRCD_NETWORK_NAME IRCD_DEFAULT_NETWORK_NAME
 #define IRCD_ISUPPORT IRCD_ISUPPORT_BASE
-
-/* -------------------------------------------------------------------------
- * Client limits and defaults
- * ------------------------------------------------------------------------- */
 
 #define IRC_NICK_MAX 31U
 #define IRC_USER_MAX 31U
@@ -88,10 +72,6 @@
 #define IRC_DEFAULT_PART_REASON "Leaving"
 #define IRC_MODE_MAX_PARAMS 32U
 
-/* -------------------------------------------------------------------------
- * Channel limits and protocol constants
- * ------------------------------------------------------------------------- */
-
 #define IRC_CHANNEL_NAME_MAX 63U
 #define IRC_CHANNEL_KEY_MAX 63U
 #define IRC_CHANNEL_MASK_MAX 255U
@@ -104,8 +84,6 @@
 #define IRC_NAMES_BUFFER_SIZE 768U
 #define IRC_DEFAULT_KICK_REASON "Kicked"
 #define IRC_KICK_REASON_MAX 255U
-
-/** Maximum chained +L/+B redirects followed for one JOIN request. */
 #define IRC_JOIN_REDIRECT_MAX 4U
 
 #endif /* IRCD_CONFIG_H */
