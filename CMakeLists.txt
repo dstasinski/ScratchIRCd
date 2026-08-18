@@ -71,6 +71,7 @@ add_test(NAME oper_permissions COMMAND test_oper)
 
 add_executable(test_operator_db tests/test_operator_db.c src/operator_db.c)
 target_include_directories(test_operator_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_operator_db PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_operator_db PRIVATE SQLite::SQLite3)
 add_test(NAME operator_database COMMAND test_operator_db)
 
