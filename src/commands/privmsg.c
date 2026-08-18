@@ -2,11 +2,8 @@
  * @file privmsg.c
  * @brief Implementation of the IRC PRIVMSG command.
  *
- * PRIVMSG sends a message to exactly one target in this iteration.  A target
- * beginning with IRC_CHANNEL_PREFIX is resolved through the server's
- * case-insensitive channel hash table; other targets are resolved through the
- * case-insensitive nickname hash table.  Channel messages are broadcast to all
- * members except the sender.
+ * PRIVMSG currently supports one target. Targets beginning with '#' or '&'
+ * are resolved as channels; all other targets are resolved as nicknames.
  */
 
 #include "commands.h"
@@ -28,7 +25,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
 
     if (params == NULL) {
         client_sendf(client, ERR_NORECIPIENT,
-                     IRCD_SERVER_NAME, client->nick, "PRIVMSG");
+                     server->config.server_name, client->nick, "PRIVMSG");
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -37,13 +34,13 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
 
     if (target == NULL || *target == '\0') {
         client_sendf(client, ERR_NORECIPIENT,
-                     IRCD_SERVER_NAME, client->nick, "PRIVMSG");
+                     server->config.server_name, client->nick, "PRIVMSG");
         return COMMAND_KEEP_CLIENT;
     }
 
     if (text == NULL || *text == '\0' || (text[0] == ':' && text[1] == '\0')) {
         client_sendf(client, ERR_NOTEXTTOSEND,
-                     IRCD_SERVER_NAME, client->nick);
+                     server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -51,21 +48,21 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         ++text;
     }
 
-    snprintf(message, sizeof(message), ":%s!%s@%s PRIVMSG %s :%s\r\n",
-             client->nick, client->user, client->host, target, text);
+    (void)snprintf(message, sizeof(message), ":%s!%s@%s PRIVMSG %s :%s\r\n",
+                   client->nick, client->user, client->host, target, text);
 
-    if (target[0] == IRC_CHANNEL_PREFIX) {
+    if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
 
         if (channel == NULL) {
             client_sendf(client, ERR_NOSUCHCHANNEL,
-                         IRCD_SERVER_NAME, client->nick, target);
+                         server->config.server_name, client->nick, target);
             return COMMAND_KEEP_CLIENT;
         }
 
         if (!channel_has_client(channel, client)) {
             client_sendf(client, ERR_CANNOTSENDTOCHAN,
-                         IRCD_SERVER_NAME, client->nick, channel->name,
+                         server->config.server_name, client->nick, channel->name,
                          IRC_CANNOT_SEND_NOT_MEMBER_TEXT);
             return COMMAND_KEEP_CLIENT;
         }
@@ -76,7 +73,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
 
         if (destination == NULL) {
             client_sendf(client, ERR_NOSUCHNICK,
-                         IRCD_SERVER_NAME, client->nick, target);
+                         server->config.server_name, client->nick, target);
             return COMMAND_KEEP_CLIENT;
         }
 
