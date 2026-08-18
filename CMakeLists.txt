@@ -23,7 +23,6 @@ add_executable(scratchircd
     src/commands/joinpart.c src/commands/kick.c src/commands/list.c
     src/commands/lusers.c src/commands/mode.c src/commands/motd.c
     src/commands/names.c src/commands/nick.c src/commands/notice.c
-    src/commands/part.c
     src/commands/pass.c src/commands/ping.c src/commands/privmsg.c
     src/commands/quit.c src/commands/rules.c src/commands/topic.c
     src/commands/user.c src/commands/userhost.c src/commands/userip.c
