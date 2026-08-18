@@ -2,22 +2,20 @@
  * @file ping.c
  * @brief Implementation of the IRC PING command.
  *
- * PING is intentionally available before registration so clients can verify
- * that the connection remains alive during registration.  PONG is a protocol
- * command rather than a numeric server reply, so its wire format is generated
- * directly here rather than through numerics.h.
+ * PING remains available before registration so clients can keep the
+ * connection alive while asynchronous DNS is being resolved.
  */
 
 #include "commands.h"
-#include "config.h"
 
 CommandResult command_ping(Server *server, Client *client, char *params) {
-    const char *token;
-
-    (void)server;
-    token = (params != NULL && *params != '\0') ? params : IRCD_SERVER_NAME;
+    const char *token = (params != NULL && *params != '\0')
+                            ? params
+                            : server->config.server_name;
 
     client_sendf(client, ":%s PONG %s :%s",
-                 IRCD_SERVER_NAME, IRCD_SERVER_NAME, token);
+                 server->config.server_name,
+                 server->config.server_name,
+                 token);
     return COMMAND_KEEP_CLIENT;
 }
