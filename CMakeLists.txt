@@ -31,6 +31,7 @@ add_executable(scratchircd
     src/commands/user.c
     src/commands/ping.c
     src/commands/joinpart.c
+    src/commands/mode.c
     src/commands/privmsg.c
     src/commands/quit.c
 )
