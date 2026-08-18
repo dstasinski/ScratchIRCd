@@ -6,10 +6,17 @@
 #include <time.h>
 
 #include "config.h"
+#include "modes.h"
 
 struct Channel;
 
-/** Link from a client to one channel it has joined. */
+/**
+ * Link from a client to one channel it has joined.
+ *
+ * Channel privilege state is deliberately stored on ChannelMember rather than
+ * here, because that structure is the canonical client/channel relationship.
+ * This reverse link exists to make client disconnect cleanup efficient.
+ */
 typedef struct ClientChannelLink {
     struct Channel *channel;            /**< Joined channel. */
     struct ClientChannelLink *next;     /**< Next channel joined by client. */
@@ -28,7 +35,7 @@ typedef enum ClientDnsState {
  * State associated with one connected IRC client.
  *
  * ScratchIRCd intentionally distinguishes the physical socket peer from the
- * effective IRC identity.  For ordinary clients they are the same.  A future
+ * effective IRC identity.  For ordinary clients they are the same.  An
  * authenticated WEBIRC command may replace ip/host with the end-user address
  * while socket_ip/socket_host continue to identify the gateway for auditing.
  */
@@ -38,6 +45,7 @@ typedef struct Client {
     int address_family;                 /**< AF_INET or AF_INET6. */
     int registered;                     /**< Non-zero after registration completes. */
     int is_webirc;                      /**< Non-zero after authorized WEBIRC use. */
+    ClientModeSet modes;                /**< User modes defined in modes.h. */
 
     char nick[IRC_NICK_MAX + 1U];       /**< Current nickname. */
     char user[IRC_USER_MAX + 1U];       /**< USER/ident value. */
