@@ -36,6 +36,7 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->motd_file, sizeof(config->motd_file), IRCD_DEFAULT_MOTD_FILE);
     (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
     (void)copy_value(config->operators_db, sizeof(config->operators_db), IRCD_DEFAULT_OPERATORS_DB);
+    (void)copy_value(config->bans_db, sizeof(config->bans_db), IRCD_DEFAULT_BANS_DB);
     (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
@@ -61,6 +62,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("admin_location2", admin_location2)
     STRING_OPTION("admin_email", admin_email)
     STRING_OPTION("operators_db", operators_db)
+    STRING_OPTION("bans_db", bans_db)
     STRING_OPTION("netadmin_name", netadmin_name)
     STRING_OPTION("netadmin_password_hash", netadmin_password_hash)
     STRING_OPTION("netadmin_hostmask", netadmin_hostmask)
@@ -126,5 +128,6 @@ int runtime_config_load(ServerConfig *config, const char *path) {
         return -1;
     }
     fclose(file);
+    (void)copy_value(config->source_path, sizeof(config->source_path), path);
     return 0;
 }
