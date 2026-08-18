@@ -1,97 +1,70 @@
 # ScratchIRCd
 
 ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
-single-server: it will never link to other IRC servers. Development currently
+single-server and will never link to other IRC servers. Development currently
 happens directly on the `Genesis` branch.
-
-The project is being built incrementally, with networking, client/channel
-state, protocol parsing, commands, DNS, modes, services, persistence, TLS,
-SASL, IRCv3, WebIRC, and operator policy kept as separate subsystems rather
-than allowing the daemon to grow into one monolithic source file.
 
 ## Current foundation
 
-The current code provides:
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6
+listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS,
+runtime configuration, modular IRC commands, user/channel mode state, and
+per-channel membership privileges.
 
-- C11/CMake Linux build.
-- Multiple simultaneous clients through a `poll()` event loop.
-- Dynamic client storage rather than a fixed compile-time client array.
-- Multiple IPv4 and IPv6 listening sockets.
-- RFC1459 casemapping for nickname and channel hash-table lookup.
-- `#channel` and `&channel` channel prefixes.
-- Bidirectional client/channel membership tracking.
-- Dedicated user-mode, channel-mode, and per-membership privilege bitsets.
-- Channel storage for key/limit, join throttle, redirects, bans, exceptions,
-  and invite exceptions.
-- Owner/operator/halfop/voice state stored on each channel membership.
-- NAMES prefixes for `~` owner, `@` operator, `%` halfop, and `+` voice.
-- First-member `+qo` initialization for newly empty unregistered channels.
-- A modular `MODE` command for user and channel mode state.
-- Foundational JOIN enforcement for `+k`, `+l`, `+R`, `+O`, `+A`, and `+z`.
-- Foundational PRIVMSG enforcement for channel `+n`, `+m`, `+M` and user
-  `+R`/`+T`.
-- Modular command implementations under `src/commands/`.
-- Numeric replies based on `include/numerics.h`.
-- Runtime `ircd.conf` configuration with compile-time limits/defaults in
-  `include/config.h`.
-- Asynchronous client DNS using a dedicated resolver worker and pollable pipes.
-- Forward-confirmed reverse DNS (FCrDNS).
-- Separate effective client and physical socket identities in preparation for
-  authorized WebIRC gateways.
-- CTest unit tests and a Linux GitHub Actions build/test workflow.
+Client identity keeps the effective IRC IP/host separate from the physical
+socket peer so authenticated WebIRC can later substitute the real user's
+identity without losing gateway audit information.
 
-## MODE foundation
+## Modes and channel access
 
-`MODE` now supports querying user and channel mode state and parsing grouped
-`+`/`-` mode strings.  Channel owner/operator privilege is required to mutate
-channel modes.  Membership modes `q`, `o`, `h`, and `v` modify the canonical
-`ChannelMember` privilege state.
+`MODE` supports grouped user/channel mode changes, membership `+q/+o/+h/+v`,
+parameter modes `+k/+l/+j/+L/+B`, and mask lists `+b/+e/+I`.  Security-derived
+user modes and channel `+r` cannot be self-granted.
 
-Channel parameter/list mode storage is connected to MODE for:
+JOIN now enforces:
 
-- `+k <key>`
-- `+l <limit>`
-- `+j <joins:seconds>`
-- `+L <channel>`
-- `+B <channel>`
-- `+b <mask>`
-- `+e <mask>`
-- `+I <mask>`
+- `+k` channel keys
+- `+l` user limits
+- `+b` bans with `+e` exceptions
+- `+B` banned-client redirects
+- `+L` full-channel redirects
+- `+i` invite-only access
+- `+I` invite exceptions
+- `+j joins:seconds` per-client join throttling
+- `+R` registered-nickname requirement
+- `+O` IRC-operator requirement
+- `+A` network-administrator requirement
+- `+z` TLS-only access
 
-The `b`, `e`, and `I` lists can also be queried through MODE.  Channel `+r` is
-reserved for services and cannot be set by a normal user MODE command.
-Security-derived user modes such as operator, registered-account, service,
-WebIRC, and TLS state likewise cannot be self-granted.
+Redirect traversal is bounded so cyclic `+L`/`+B` configurations cannot recurse
+indefinitely.
 
-Some stored modes still depend on subsystems not yet implemented.  In
-particular, invite state, ban matching, join-throttle history, color filtering,
-and redirect policy will be completed in later milestones.  ScratchIRCd
-therefore intentionally keeps its advertised mode/ISUPPORT feature set
-conservative until behavior is enforced end-to-end.
+Channel masks use RFC1459-aware `*` and `?` wildcard matching and are tested
+against both `nick!user@host` and `nick!user@IP`.  Explicit INVITE state is keyed
+by stable connection ID, not nickname, and is consumed after a successful JOIN.
+
+`INVITE` is implemented for halfops and above. Channel mode `+V` disables
+invitations. An explicit invitation bypasses `+i` but intentionally does not
+bypass bans, keys, limits, account requirements, or TLS requirements.
+
+PRIVMSG currently enforces channel `+n`, `+m`, and `+M`, along with user `+R`
+and `+T` where applicable.
+
+Modes whose supporting behavior is still incomplete are kept out of the
+advertised ISUPPORT/mode set until they are genuinely enforced end-to-end.
 
 ## DNS and client identity
 
-Client DNS resolution never runs on the IRC event-loop thread. On connection,
-ScratchIRCd stores the numeric peer address immediately and queues DNS work to a
-resolver thread. The worker performs a PTR lookup and then forward-resolves the
-returned hostname. The hostname is trusted only when the original IPv4/IPv6
-address appears in the forward result set.
+DNS never blocks the IRC event loop. A resolver worker performs PTR lookup and
+forward confirmation, returning results through a pollable pipe. Failed or
+timed-out DNS falls back to the numeric address.
 
-Registration waits for DNS to complete, fail, or reach the configured timeout.
-A DNS failure never prevents registration; the numeric address remains the
-visible host.
+The `Client` structure distinguishes:
 
-The `Client` structure deliberately distinguishes:
-
-- `ip` / `host`: effective IRC identity used by protocol and policy.
-- `socket_ip` / `socket_host`: the physical TCP peer.
-- `reverse_host`: PTR result.
-- `forward_host`: FCrDNS-confirmed hostname.
-
-For ordinary clients the effective and socket identities are the same. When
-WebIRC is implemented, an authorized gateway will replace only the effective
-identity with the end user's IP/host. The gateway identity will remain stored
-for auditing and security policy.
+- `ip` / `host`: effective IRC identity
+- `socket_ip` / `socket_host`: physical TCP peer
+- `reverse_host`: PTR result
+- `forward_host`: FCrDNS-confirmed hostname
 
 ## Runtime configuration
 
@@ -106,9 +79,8 @@ max_clients = 1024
 dns_timeout_seconds = 5
 ```
 
-An empty `bind_address` listens on all usable local IPv4 and IPv6 addresses.
-Compile-time storage sizes, hard limits, protocol constants, and safe defaults
-remain in `include/config.h`.
+Compile-time storage sizes, protocol constants, and hard limits remain in
+`include/config.h`.
 
 ## Currently implemented commands
 
@@ -117,18 +89,17 @@ remain in `include/config.h`.
 - `PING`
 - `JOIN`
 - `PART`
+- `INVITE`
 - `MODE`
 - `PRIVMSG`
 - `QUIT`
-
-Additional IRC and operator commands will be added as authentication, services,
-persistence, and the remaining mode-policy layers are implemented.
 
 ## Source layout
 
 ```text
 include/
     channel.h
+    channel_policy.h
     client.h
     commands.h
     config.h
@@ -142,6 +113,7 @@ include/
 
 src/
     channel.c
+    channel_policy.c
     client.c
     dns.c
     hash.c
@@ -154,6 +126,7 @@ src/
     commands/
         common.c
         dispatch.c
+        invite.c
         joinpart.c
         mode.c
         nick.c
@@ -164,19 +137,20 @@ src/
 
 tests/
     test_modes.c
+    test_channel_policy.c
 ```
 
 ## Planned architecture
 
 The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ,
-and IRCv3 history; persistent ChanServ channels; SASL authentication; OpenSSL
-TLS connections; authorized WebIRC gateways; complete client/channel mode
-behavior; operator permissions; full applicable ISUPPORT advertising; and the
-planned standard and operator command set.
+and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized
+WebIRC gateways; complete client/channel mode behavior; operator permissions;
+full applicable ISUPPORT advertising; and the planned standard/operator command
+set.
 
 Services will be addressable virtual identities but will never join channels or
 appear in ordinary client lists. Persistent channels will be restored from
-ChanServ state rather than requiring a service client to remain in the channel.
+ChanServ state rather than requiring a service client in the channel.
 
 ## Building and testing
 
@@ -186,7 +160,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Run with defaults (and `ircd.conf` if present):
+Run with defaults or a local `ircd.conf`:
 
 ```sh
 ./build/scratchircd
@@ -197,5 +171,3 @@ Or specify a configuration file explicitly:
 ```sh
 ./build/scratchircd /path/to/ircd.conf
 ```
-
-When an explicit configuration path is supplied, failure to load it is fatal.
