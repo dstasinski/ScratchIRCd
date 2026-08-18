@@ -34,5 +34,7 @@ int ban_db_add(BanDb *db, BanType type, const char *mask,
                const char *reason, const char *set_by);
 int ban_db_delete(BanDb *db, BanType type, const char *mask);
 int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *context);
+int ban_db_match(BanDb *db, BanType type, const char *identity1,
+                 const char *identity2, BanRecord *record);
 
 #endif /* IRCD_BAN_DB_H */
