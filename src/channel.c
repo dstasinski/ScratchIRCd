@@ -59,6 +59,7 @@ void channel_free(void *ptr) {
     channel_mask_clear(&channel->exception_list);
     channel_mask_clear(&channel->invite_exception_list);
     channel_invite_clear(channel);
+    channel_join_throttle_clear(channel);
 
     member = channel->members;
     while (member != NULL) {
