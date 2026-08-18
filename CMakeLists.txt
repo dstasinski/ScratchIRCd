@@ -25,6 +25,7 @@ add_executable(scratchircd
     src/runtime_config.c
     src/dns.c
     src/modes.c
+    src/visibility.c
 
     src/commands/common.c
     src/commands/dispatch.c
@@ -34,10 +35,14 @@ add_executable(scratchircd
     src/commands/joinpart.c
     src/commands/invite.c
     src/commands/kick.c
+    src/commands/list.c
     src/commands/mode.c
+    src/commands/names.c
     src/commands/notice.c
     src/commands/privmsg.c
     src/commands/topic.c
+    src/commands/who.c
+    src/commands/whois.c
     src/commands/quit.c
 )
 
@@ -57,10 +62,20 @@ add_executable(test_channel_policy
 target_include_directories(test_channel_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME channel_policy COMMAND test_channel_policy)
 
+add_executable(test_visibility
+    tests/test_visibility.c
+    src/channel.c
+    src/modes.c
+    src/visibility.c
+)
+target_include_directories(test_visibility PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_test(NAME visibility COMMAND test_visibility)
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(scratchircd PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(test_modes PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(test_channel_policy PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_visibility PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 install(TARGETS scratchircd RUNTIME DESTINATION bin)
