@@ -61,6 +61,15 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
                                  encoded, encoded_size) == ARGON2_OK ? 0 : -1;
 }
 
+static int valid_oper_name(const Server *server, const char *name) {
+    if (name == NULL || *name == '\0' || strlen(name) > IRCD_OPER_NAME_MAX)
+        return 0;
+    if (server->config.netadmin_name[0] != '\0' &&
+        strcasecmp(name, server->config.netadmin_name) == 0)
+        return 0;
+    return strchr(name, ' ') == NULL && strchr(name, ',') == NULL;
+}
+
 /** Validate an ordinary-oper permission string and forbid netadmin. */
 static int normalized_permissions(const char *input, const char **output) {
     OperPermissionSet permissions;
@@ -68,7 +77,8 @@ static int normalized_permissions(const char *input, const char **output) {
 
     if (input == NULL || output == NULL) return 0;
     text = strcmp(input, "-") == 0 ? "" : input;
-    if (oper_permissions_parse(text, &permissions) != 0 ||
+    if (strlen(text) > IRCD_OPER_FLAGS_MAX ||
+        oper_permissions_parse(text, &permissions) != 0 ||
         oper_permission_has(permissions, OPER_PERMISSION_NETADMIN)) {
         return 0;
     }
@@ -82,6 +92,7 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
     char *vhost;
     char *permissions_arg;
     const char *permissions;
+    const char *stored_vhost;
     OperatorRecord record;
     OperatorDb db = {0};
 
@@ -98,19 +109,20 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
     vhost = strtok(NULL, " ");
     permissions_arg = strtok(NULL, "");
     if (permissions_arg != NULL && *permissions_arg == ':') ++permissions_arg;
-    if (name == NULL || password == NULL || vhost == NULL ||
-        permissions_arg == NULL || *name == '\0' || *password == '\0' ||
+    stored_vhost = vhost != NULL && strcmp(vhost, "-") == 0 ? "" : vhost;
+
+    if (!valid_oper_name(server, name) || password == NULL || *password == '\0' ||
+        stored_vhost == NULL || strlen(stored_vhost) > IRCD_OPER_VHOST_MAX ||
+        permissions_arg == NULL ||
         !normalized_permissions(permissions_arg, &permissions)) {
-        client_sendf(client, ERR_NEEDMOREPARAMS,
-                     server->config.server_name, client->nick, "OPERADD");
+        admin_notice(server, client, "OPERADD invalid parameters");
         return COMMAND_KEEP_CLIENT;
     }
 
     memset(&record, 0, sizeof(record));
     (void)snprintf(record.name, sizeof(record.name), "%s", name);
     (void)snprintf(record.permissions, sizeof(record.permissions), "%s", permissions);
-    (void)snprintf(record.vhost, sizeof(record.vhost), "%s",
-                   strcmp(vhost, "-") == 0 ? "" : vhost);
+    (void)snprintf(record.vhost, sizeof(record.vhost), "%s", stored_vhost);
     record.enabled = 1;
 
     if (hash_password(password, record.password_hash,
@@ -184,7 +196,8 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
     }
 
     if (strcasecmp(field, "NAME") == 0) {
-        rc = operator_db_set_name(&db, name, value);
+        if (valid_oper_name(server, value))
+            rc = operator_db_set_name(&db, name, value);
     } else if (strcasecmp(field, "PASSWORD") == 0) {
         char encoded[IRCD_OPER_HASH_MAX + 1U];
         if (hash_password(value, encoded, sizeof(encoded)) == 0)
@@ -194,8 +207,9 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
         if (normalized_permissions(value, &permissions))
             rc = operator_db_set_permissions(&db, name, permissions);
     } else if (strcasecmp(field, "VHOST") == 0) {
-        rc = operator_db_set_vhost(&db, name,
-                                   strcmp(value, "-") == 0 ? "" : value);
+        const char *vhost = strcmp(value, "-") == 0 ? "" : value;
+        if (strlen(vhost) <= IRCD_OPER_VHOST_MAX)
+            rc = operator_db_set_vhost(&db, name, vhost);
     } else if (strcasecmp(field, "ENABLED") == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
             rc = operator_db_set_enabled(&db, name, value[0] == '1');
@@ -215,10 +229,11 @@ static int list_one(const OperatorRecord *record, void *context) {
     ListContext *ctx = context;
     char line[IRCD_OUTPUT_BUFFER_SIZE];
     (void)snprintf(line, sizeof(line),
-                   "OPER %s enabled=%d vhost=%s permissions=%s",
+                   "OPER %s enabled=%d vhost=%s permissions=%s created=%lld updated=%lld",
                    record->name, record->enabled,
                    record->vhost[0] != '\0' ? record->vhost : "-",
-                   record->permissions[0] != '\0' ? record->permissions : "-");
+                   record->permissions[0] != '\0' ? record->permissions : "-",
+                   record->created_at, record->updated_at);
     admin_notice(ctx->server, ctx->client, line);
     return 0;
 }
