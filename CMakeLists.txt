@@ -12,6 +12,8 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
 
+enable_testing()
+
 add_executable(scratchircd
     src/main.c
     src/server.c
@@ -21,6 +23,7 @@ add_executable(scratchircd
     src/irc.c
     src/runtime_config.c
     src/dns.c
+    src/modes.c
 
     src/commands/common.c
     src/commands/dispatch.c
@@ -40,8 +43,21 @@ target_include_directories(scratchircd
 target_compile_definitions(scratchircd PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(scratchircd PRIVATE Threads::Threads)
 
+add_executable(test_modes
+    tests/test_modes.c
+    src/modes.c
+)
+
+target_include_directories(test_modes
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+add_test(NAME modes COMMAND test_modes)
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(scratchircd PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_modes PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 install(TARGETS scratchircd RUNTIME DESTINATION bin)
