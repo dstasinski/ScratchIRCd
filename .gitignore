@@ -1,0 +1,6 @@
+build/
+ircd.conf
+operators.db
+*.db-journal
+*.db-shm
+*.db-wal
