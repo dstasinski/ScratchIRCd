@@ -1,0 +1,12 @@
+# ScratchIRCd runtime configuration
+# Copy this file to ircd.conf and adjust values as needed.
+
+server_name = scratch.local
+network_name = ScratchNet
+
+# Empty means listen on all available IPv4 and IPv6 addresses.
+bind_address =
+port = 6667
+
+max_clients = 1024
+dns_timeout_seconds = 5
