@@ -1,3 +1,12 @@
+/**
+ * @file channel.c
+ * @brief Channel ownership, membership, privilege, mask-list, and broadcast helpers.
+ *
+ * This module owns channel data structures but deliberately does not decide
+ * IRC permission policy.  MODE/JOIN/KICK/INVITE and services code call these
+ * primitives after deciding whether an operation is permitted.
+ */
+
 #include "channel.h"
 
 #include <stdio.h>
@@ -21,6 +30,22 @@ Channel *channel_create(const char *name) {
     return channel;
 }
 
+void channel_mask_clear(ChannelMaskEntry **list) {
+    ChannelMaskEntry *entry;
+
+    if (list == NULL) {
+        return;
+    }
+
+    entry = *list;
+    while (entry != NULL) {
+        ChannelMaskEntry *next = entry->next;
+        free(entry);
+        entry = next;
+    }
+    *list = NULL;
+}
+
 void channel_free(void *ptr) {
     Channel *channel = ptr;
     ChannelMember *member;
@@ -28,6 +53,10 @@ void channel_free(void *ptr) {
     if (channel == NULL) {
         return;
     }
+
+    channel_mask_clear(&channel->ban_list);
+    channel_mask_clear(&channel->exception_list);
+    channel_mask_clear(&channel->invite_exception_list);
 
     member = channel->members;
     while (member != NULL) {
@@ -38,19 +67,23 @@ void channel_free(void *ptr) {
     free(channel);
 }
 
-int channel_has_client(const Channel *channel, const Client *client) {
+ChannelMember *channel_find_member(const Channel *channel, const Client *client) {
     ChannelMember *member;
 
     if (channel == NULL || client == NULL) {
-        return 0;
+        return NULL;
     }
 
     for (member = channel->members; member != NULL; member = member->next) {
         if (member->client == client) {
-            return 1;
+            return member;
         }
     }
-    return 0;
+    return NULL;
+}
+
+int channel_has_client(const Channel *channel, const Client *client) {
+    return channel_find_member(channel, client) != NULL;
 }
 
 int channel_add_client(Channel *channel, Client *client) {
@@ -60,7 +93,7 @@ int channel_add_client(Channel *channel, Client *client) {
     if (channel == NULL || client == NULL) {
         return -1;
     }
-    if (channel_has_client(channel, client)) {
+    if (channel_find_member(channel, client) != NULL) {
         return 0;
     }
 
@@ -119,6 +152,81 @@ void channel_remove_client(Channel *channel, Client *client) {
         }
         client_link = &(*client_link)->next;
     }
+}
+
+int channel_set_privileges(Channel *channel, Client *client,
+                           ChannelPrivilegeSet privileges) {
+    ChannelMember *member = channel_find_member(channel, client);
+    if (member == NULL) {
+        return -1;
+    }
+    member->privileges = privileges;
+    return 0;
+}
+
+int channel_add_privileges(Channel *channel, Client *client,
+                           ChannelPrivilegeSet privileges) {
+    ChannelMember *member = channel_find_member(channel, client);
+    if (member == NULL) {
+        return -1;
+    }
+    member->privileges |= privileges;
+    return 0;
+}
+
+int channel_remove_privileges(Channel *channel, Client *client,
+                              ChannelPrivilegeSet privileges) {
+    ChannelMember *member = channel_find_member(channel, client);
+    if (member == NULL) {
+        return -1;
+    }
+    member->privileges &= ~privileges;
+    return 0;
+}
+
+int channel_mask_add(ChannelMaskEntry **list, const char *mask) {
+    ChannelMaskEntry *entry;
+
+    if (list == NULL || mask == NULL || *mask == '\0' ||
+        strlen(mask) > IRC_CHANNEL_MASK_MAX) {
+        return -1;
+    }
+
+    for (entry = *list; entry != NULL; entry = entry->next) {
+        if (strcmp(entry->mask, mask) == 0) {
+            return 0;
+        }
+    }
+
+    entry = calloc(1U, sizeof(*entry));
+    if (entry == NULL) {
+        return -1;
+    }
+
+    snprintf(entry->mask, sizeof(entry->mask), "%s", mask);
+    entry->next = *list;
+    *list = entry;
+    return 0;
+}
+
+int channel_mask_remove(ChannelMaskEntry **list, const char *mask) {
+    ChannelMaskEntry **link;
+
+    if (list == NULL || mask == NULL) {
+        return 0;
+    }
+
+    link = list;
+    while (*link != NULL) {
+        if (strcmp((*link)->mask, mask) == 0) {
+            ChannelMaskEntry *dead = *link;
+            *link = dead->next;
+            free(dead);
+            return 1;
+        }
+        link = &(*link)->next;
+    }
+    return 0;
 }
 
 void channel_broadcast(Channel *channel, const Client *except, const char *message) {
