@@ -1,12 +1,13 @@
 /**
  * @file mkpasswd.c
- * @brief Generate an encoded Argon2id password hash for ScratchIRCd config.
+ * @brief Generate an encoded Argon2id bootstrap password hash.
  *
  * Usage: scratchircd-mkpasswd <password>
  *
- * The encoded result can be pasted directly into oper_password_hash. Salt is
- * generated from Linux getrandom(); short reads and EINTR are handled so a
- * partially filled salt can never be used accidentally.
+ * The encoded result can be pasted into netadmin_password_hash in ircd.conf.
+ * Ordinary operator passwords are hashed internally by OPERADD/OPERSET before
+ * being written to operators.db. Salt is generated from Linux getrandom();
+ * short reads and EINTR are handled so a partially filled salt is never used.
  */
 
 #include "config.h"
