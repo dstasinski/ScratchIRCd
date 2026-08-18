@@ -60,8 +60,8 @@ int irc_mask_match(const char *pattern, const char *text) {
 
 int channel_mask_matches_client(const ChannelMaskEntry *list,
                                 const Client *client) {
-    char hostmask[IRC_CHANNEL_MASK_MAX + 1U];
-    char ipmask[IRC_CHANNEL_MASK_MAX + 1U];
+    char hostmask[IRCD_MESSAGE_BUFFER_SIZE];
+    char ipmask[IRCD_MESSAGE_BUFFER_SIZE];
     const ChannelMaskEntry *entry;
 
     if (client == NULL) {
