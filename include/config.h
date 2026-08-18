@@ -17,7 +17,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.4"
+#define IRCD_VERSION "ScratchIRCd-0.5"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_BIND_ADDRESS ""
@@ -39,6 +39,20 @@
 #define IRCD_DEFAULT_MOTD_FILE "motd.txt"
 #define IRCD_DEFAULT_RULES_FILE "rules.txt"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
+
+/* Bootstrap OPER configuration storage. */
+#define IRCD_OPER_NAME_MAX 63U
+#define IRCD_OPER_HASH_MAX 255U
+#define IRCD_OPER_FLAGS_MAX 255U
+#define IRCD_OPER_HOSTMASK_MAX 255U
+#define IRCD_OPER_VHOST_MAX IRC_HOST_MAX
+
+/* Argon2id parameters used by scratchircd-mkpasswd. */
+#define IRCD_ARGON2_TIME_COST 3U
+#define IRCD_ARGON2_MEMORY_COST_KIB 65536U
+#define IRCD_ARGON2_PARALLELISM 1U
+#define IRCD_ARGON2_SALT_BYTES 16U
+#define IRCD_ARGON2_HASH_BYTES 32U
 
 /*
  * These strings remain intentionally conservative. MODE state exists, but
