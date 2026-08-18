@@ -5,6 +5,8 @@
 
 #include "ban_db.h"
 
+#include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 static const char *schema_sql =
@@ -16,6 +18,42 @@ static const char *schema_sql =
     "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
     "PRIMARY KEY(type,mask)"
     ");";
+
+static int wildcard_match(const char *pattern, const char *text) {
+    const char *star = NULL;
+    const char *retry = NULL;
+    if (pattern == NULL || text == NULL) return 0;
+    while (*text != '\0') {
+        if (*pattern == '*') {
+            star = pattern++;
+            retry = text;
+        } else if (*pattern == '?' ||
+                   tolower((unsigned char)*pattern) == tolower((unsigned char)*text)) {
+            ++pattern;
+            ++text;
+        } else if (star != NULL) {
+            pattern = star + 1;
+            text = ++retry;
+        } else {
+            return 0;
+        }
+    }
+    while (*pattern == '*') ++pattern;
+    return *pattern == '\0';
+}
+
+static void record_from_stmt(sqlite3_stmt *stmt, BanRecord *record) {
+    const unsigned char *text;
+    memset(record, 0, sizeof(*record));
+    record->type = (BanType)sqlite3_column_int(stmt, 0);
+    text = sqlite3_column_text(stmt, 1);
+    if (text != NULL) snprintf(record->mask, sizeof(record->mask), "%s", (const char *)text);
+    text = sqlite3_column_text(stmt, 2);
+    if (text != NULL) snprintf(record->reason, sizeof(record->reason), "%s", (const char *)text);
+    text = sqlite3_column_text(stmt, 3);
+    if (text != NULL) snprintf(record->set_by, sizeof(record->set_by), "%s", (const char *)text);
+    record->created_at = sqlite3_column_int64(stmt, 4);
+}
 
 int ban_db_open(BanDb *db, const char *path) {
     char *error = NULL;
@@ -83,19 +121,33 @@ int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *conte
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         BanRecord record;
-        const unsigned char *text;
-        memset(&record, 0, sizeof(record));
-        record.type = (BanType)sqlite3_column_int(stmt, 0);
-        text = sqlite3_column_text(stmt, 1);
-        if (text != NULL) snprintf(record.mask, sizeof(record.mask), "%s", (const char *)text);
-        text = sqlite3_column_text(stmt, 2);
-        if (text != NULL) snprintf(record.reason, sizeof(record.reason), "%s", (const char *)text);
-        text = sqlite3_column_text(stmt, 3);
-        if (text != NULL) snprintf(record.set_by, sizeof(record.set_by), "%s", (const char *)text);
-        record.created_at = sqlite3_column_int64(stmt, 4);
+        record_from_stmt(stmt, &record);
         if (callback(&record, context) != 0) {
             sqlite3_finalize(stmt);
             return 0;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int ban_db_match(BanDb *db, BanType type, const char *identity1,
+                 const char *identity2, BanRecord *record) {
+    static const char sql[] =
+        "SELECT type,mask,reason,set_by,created_at FROM bans WHERE type=?1";
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || record == NULL) return -1;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)type);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        BanRecord candidate;
+        record_from_stmt(stmt, &candidate);
+        if ((identity1 != NULL && wildcard_match(candidate.mask, identity1)) ||
+            (identity2 != NULL && wildcard_match(candidate.mask, identity2))) {
+            *record = candidate;
+            sqlite3_finalize(stmt);
+            return 1;
         }
     }
     sqlite3_finalize(stmt);
