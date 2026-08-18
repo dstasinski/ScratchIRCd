@@ -17,7 +17,7 @@ NICK <nickname>
 USER <username> 0 * :<real name>
 ```
 
-ScratchIRCd supports IPv4 and IPv6 connections. DNS lookup is asynchronous and does not block other clients.
+ScratchIRCd supports IPv4 and IPv6 connections. DNS lookup is asynchronous and does not block other clients. Persistent KLINE/ZLINE policy is checked before registration completes.
 
 ## Currently implemented client commands
 
@@ -246,7 +246,7 @@ ScratchIRCd defines these client modes:
 - `t` — using a vhost.
 - `V` — WebIRC client marker.
 - `W` — WHOIS notification for IRCops; behavior still planned.
-- `w` — wallops reception; behavior still planned.
+- `w` — receive WALLOPS messages.
 - `x` — hidden hostname; behavior still planned.
 - `z` — secure/TLS client marker.
 
