@@ -46,11 +46,8 @@ int visibility_list_channel(const Client *requester, const Channel *channel) {
         return 1;
     }
 
-    if (channel_mode_has(channel->modes,
-                         CHANNEL_MODE_PRIVATE | CHANNEL_MODE_SECRET)) {
-        return 0;
-    }
-    return 1;
+    return !channel_mode_has(channel->modes,
+                             CHANNEL_MODE_PRIVATE | CHANNEL_MODE_SECRET);
 }
 
 int visibility_names_channel(const Client *requester, const Channel *channel) {
@@ -61,7 +58,12 @@ int visibility_names_channel(const Client *requester, const Channel *channel) {
         channel_has_client(channel, requester)) {
         return 1;
     }
-    return !channel_mode_has(channel->modes, CHANNEL_MODE_SECRET);
+
+    if (channel->name[0] == '&') {
+        return 0;
+    }
+    return !channel_mode_has(channel->modes,
+                             CHANNEL_MODE_PRIVATE | CHANNEL_MODE_SECRET);
 }
 
 int visibility_who_user(const Client *requester, const Client *subject) {
