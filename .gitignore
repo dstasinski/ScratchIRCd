@@ -1,6 +1,15 @@
 build/
 ircd.conf
-operators.db
+
+# Runtime databases live under data/. Keep the directory available for local
+# use while preventing live database contents and SQLite sidecars from being
+# committed.
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+
+# Also ignore SQLite sidecars for explicitly configured alternate paths.
 *.db-journal
 *.db-shm
 *.db-wal
