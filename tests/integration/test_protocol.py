@@ -93,7 +93,7 @@ def wait_listen(port, proc):
     raise RuntimeError("scratchircd did not begin listening")
 
 
-def write_config(path, port, motd, rules, password="", oper_hash=""):
+def write_config(path, port, motd, rules, operators_db, password="", netadmin_hash=""):
     with open(path, "w", encoding="utf-8") as f:
         f.write("server_name = test.local\nnetwork_name = TestNet\n")
         f.write("bind_address = 127.0.0.1\n")
@@ -102,12 +102,12 @@ def write_config(path, port, motd, rules, password="", oper_hash=""):
         f.write(f"motd_file = {motd}\nrules_file = {rules}\n")
         f.write("admin_location1 = Test Operations\nadmin_location2 = Test Lab\n")
         f.write("admin_email = admin@example.test\n")
-        if oper_hash:
-            f.write("oper_name = root\n")
-            f.write(f"oper_password_hash = {oper_hash}\n")
-            f.write("oper_hostmask = *!*@127.0.0.1\n")
-            f.write("oper_flags = oper,can_rehash,can_kill,can_kline,can_unkline,can_zline,can_override,get_host,helpop,can_wallops,netadmin\n")
-            f.write("oper_vhost = staff.test.local\n")
+        f.write(f"operators_db = {operators_db}\n")
+        if netadmin_hash:
+            f.write("netadmin_name = root\n")
+            f.write(f"netadmin_password_hash = {netadmin_hash}\n")
+            f.write("netadmin_hostmask = *!*@127.0.0.1\n")
+            f.write("netadmin_vhost = admin.test.local\n")
 
 
 def register(client, nick, password=None):
@@ -133,15 +133,17 @@ def run_unprotected(binary, mkpasswd, tempdir):
     port = free_port()
     motd = os.path.join(tempdir, "motd.txt")
     rules = os.path.join(tempdir, "rules.txt")
+    operators_db = os.path.join(tempdir, "operators.db")
     config = os.path.join(tempdir, "ircd.conf")
     with open(motd, "w", encoding="utf-8") as f:
         f.write("Welcome integration test\nSecond MOTD line\n")
     with open(rules, "w", encoding="utf-8") as f:
         f.write("Rule one\nRule two\n")
 
-    oper_hash = subprocess.check_output([mkpasswd, "operpass"], text=True).strip()
-    assert oper_hash.startswith("$argon2id$")
-    write_config(config, port, motd, rules, oper_hash=oper_hash)
+    netadmin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+    assert netadmin_hash.startswith("$argon2id$")
+    write_config(config, port, motd, rules, operators_db,
+                 netadmin_hash=netadmin_hash)
 
     proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True)
@@ -153,19 +155,75 @@ def run_unprotected(binary, mkpasswd, tempdir):
         register(a, "alice")
         register(b, "bob")
 
+        # Only the configured bootstrap identity becomes network administrator.
         a.send("OPER root wrong")
         a.expect(" 464 alice ")
-        a.send("OPER root operpass")
+        a.send("OPER root adminpass")
         a.expect(" 381 alice :You are now a Network Administrator")
         a.send("MODE alice")
         modes = a.expect(" 221 alice ")
         assert any("o" in line and "N" in line and "h" in line and "t" in line
                    for line in modes), modes
-        b.send("WHOIS alice")
-        whois = b.expect(" 318 bob alice ")
-        assert any(" 313 bob alice :is an Administrator" in line for line in whois), whois
+
+        # Ordinary users cannot manage operator records.
+        b.send("OPERADD nope pass - :can_kill")
+        b.expect(" 481 bob ")
+
+        # Netadmin creates an ordinary operator in SQLite.
+        a.send("OPERADD helper helperpass staff.test.local :can_kill,get_host,helpop")
+        a.expect("NOTICE alice :Operator added")
+        a.send("OPERLIST helper")
+        listed = a.expect("NOTICE alice :OPER helper enabled=1")
+        assert any("can_kill" in line and "get_host" in line for line in listed), listed
+
+        c = IRCClient("127.0.0.1", port); clients.append(c)
+        register(c, "charlie")
+        c.send("OPER helper wrong")
+        c.expect(" 464 charlie ")
+        c.send("OPER helper helperpass")
+        c.expect(" 381 charlie :You are now an IRC operator")
+        c.send("MODE charlie")
+        cmodes = c.expect(" 221 charlie ")
+        assert any("o" in line and "h" in line and "t" in line and "N" not in line
+                   for line in cmodes), cmodes
+        b.send("WHOIS charlie")
+        whois = b.expect(" 318 bob charlie ")
+        assert any(" 313 bob charlie :is an IRCop" in line for line in whois), whois
         assert any("staff.test.local" in line for line in whois), whois
 
+        # Disable the record and verify a new connection cannot OPER.
+        a.send("OPERSET helper ENABLED 0")
+        a.expect("NOTICE alice :Operator updated")
+        d = IRCClient("127.0.0.1", port); clients.append(d)
+        register(d, "delta")
+        d.send("OPER helper helperpass")
+        d.expect(" 491 delta ")
+
+        # Re-enable and edit password/permissions/vhost.
+        a.send("OPERSET helper ENABLED 1")
+        a.expect("NOTICE alice :Operator updated")
+        a.send("OPERSET helper PASSWORD newpass")
+        a.expect("NOTICE alice :Operator updated")
+        a.send("OPERSET helper PERMISSIONS :can_kline")
+        a.expect("NOTICE alice :Operator updated")
+        a.send("OPERSET helper VHOST -")
+        a.expect("NOTICE alice :Operator updated")
+        d.send("OPER helper newpass")
+        d.expect(" 381 delta :You are now an IRC operator")
+        d.send("MODE delta")
+        dmodes = d.expect(" 221 delta ")
+        assert any("o" in line and "N" not in line and "h" not in line and "t" not in line
+                   for line in dmodes), dmodes
+
+        # Delete record and verify subsequent logins fail.
+        a.send("OPERDEL helper")
+        a.expect("NOTICE alice :Operator deleted")
+        e = IRCClient("127.0.0.1", port); clients.append(e)
+        register(e, "echo")
+        e.send("OPER helper newpass")
+        e.expect(" 491 echo ")
+
+        # Existing protocol behavior remains covered.
         a.send("JOIN #test"); a.expect(" JOIN #test")
         b.send("JOIN #test"); b.expect(" JOIN #test")
         a.send("TOPIC #test :Integration topic")
@@ -200,10 +258,13 @@ def run_protected(binary, tempdir):
     port = free_port()
     motd = os.path.join(tempdir, "motd2.txt")
     rules = os.path.join(tempdir, "rules2.txt")
+    operators_db = os.path.join(tempdir, "operators2.db")
     config = os.path.join(tempdir, "protected.conf")
-    open(motd, "w", encoding="utf-8").write("Protected\n")
-    open(rules, "w", encoding="utf-8").write("Protected rule\n")
-    write_config(config, port, motd, rules, "secret")
+    with open(motd, "w", encoding="utf-8") as f:
+        f.write("Protected\n")
+    with open(rules, "w", encoding="utf-8") as f:
+        f.write("Protected rule\n")
+    write_config(config, port, motd, rules, operators_db, password="secret")
 
     proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True)
