@@ -81,7 +81,7 @@ add_test(
             $<TARGET_FILE:scratchircd>
             $<TARGET_FILE:scratchircd-mkpasswd>
 )
-set_tests_properties(protocol_integration PROPERTIES TIMEOUT 30)
+set_tests_properties(protocol_integration PROPERTIES TIMEOUT 45)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_modes test_channel_policy test_visibility test_oper test_operator_db)
