@@ -3,11 +3,12 @@
  * @brief Channel ownership, membership, privilege, mask-list, and broadcast helpers.
  *
  * This module owns channel data structures but deliberately does not decide
- * IRC permission policy.  MODE/JOIN/KICK/INVITE and services code call these
+ * IRC permission policy. MODE/JOIN/KICK/INVITE and services code call these
  * primitives after deciding whether an operation is permitted.
  */
 
 #include "channel.h"
+#include "channel_policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +58,7 @@ void channel_free(void *ptr) {
     channel_mask_clear(&channel->ban_list);
     channel_mask_clear(&channel->exception_list);
     channel_mask_clear(&channel->invite_exception_list);
+    channel_invite_clear(channel);
 
     member = channel->members;
     while (member != NULL) {
