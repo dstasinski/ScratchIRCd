@@ -44,11 +44,16 @@ int main(void) {
     assert(strcmp(got.permissions, "can_kill,can_kline") == 0);
     assert(strcmp(got.vhost, "oper.test") == 0);
     assert(got.enabled == 1);
+    assert(got.created_at > 0);
+    assert(got.updated_at > 0);
 
     assert(operator_db_set_permissions(&db, "TESTOPER", "can_kill") == 0);
     assert(operator_db_set_vhost(&db, "testoper", "new.oper.test") == 0);
     assert(operator_db_set_enabled(&db, "TestOper", 0) == 0);
-    assert(operator_db_get(&db, "testoper", &got) == 1);
+    assert(operator_db_set_name(&db, "testoper", "RenamedOper") == 0);
+    assert(operator_db_get(&db, "testoper", &got) == 0);
+    assert(operator_db_get(&db, "renamedoper", &got) == 1);
+    assert(strcmp(got.name, "RenamedOper") == 0);
     assert(strcmp(got.permissions, "can_kill") == 0);
     assert(strcmp(got.vhost, "new.oper.test") == 0);
     assert(got.enabled == 0);
@@ -57,8 +62,8 @@ int main(void) {
     assert(operator_db_list(&db, count_record, NULL) == 0);
     assert(seen_count == 1);
 
-    assert(operator_db_delete(&db, "testoper") == 0);
-    assert(operator_db_get(&db, "testoper", &got) == 0);
+    assert(operator_db_delete(&db, "renamedoper") == 0);
+    assert(operator_db_get(&db, "renamedoper", &got) == 0);
 
     operator_db_close(&db);
     unlink(path);
