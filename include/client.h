@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "modes.h"
+#include "oper.h"
 
 struct Channel;
 
@@ -32,6 +33,10 @@ typedef struct Client {
     int is_webirc;
     int pass_accepted;                   /**< PASS satisfied when required. */
     ClientModeSet modes;
+
+    /** Authorization granted by OPER or, later, an identified account. */
+    OperPermissionSet oper_permissions;
+    char oper_name[IRCD_OPER_NAME_MAX + 1U]; /**< Matched operator/account name. */
 
     char nick[IRC_NICK_MAX + 1U];
     char user[IRC_USER_MAX + 1U];
