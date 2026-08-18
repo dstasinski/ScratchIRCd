@@ -22,3 +22,19 @@ rules_file = rules.txt
 admin_location1 =
 admin_location2 =
 admin_email =
+
+# Bootstrap IRC operator definition.
+# Generate oper_password_hash with:
+#   ./build/scratchircd-mkpasswd 'your password'
+#
+# The host mask is checked against the effective IRC client host/IP, not the
+# physical WebIRC gateway identity. Leave oper_name/hash empty to disable OPER.
+oper_name =
+oper_password_hash =
+oper_hostmask = *!*@*
+oper_flags = oper
+oper_vhost =
+
+# Available oper_flags:
+# oper, netadmin, can_rehash, can_die, can_restart, helpop, can_wallops,
+# can_kill, can_kline, can_unkline, can_zline, get_host, can_override
