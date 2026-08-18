@@ -5,6 +5,9 @@
  * Registration deliberately waits while asynchronous DNS is pending.  A
  * failed or timed-out lookup does not reject the client; the numeric address
  * remains the effective hostname and registration proceeds normally.
+ *
+ * NAMES rendering uses the canonical per-channel membership privilege state,
+ * showing the highest of owner (~), operator (@), halfop (%), or voice (+).
  */
 
 #include "commands.h"
@@ -63,16 +66,30 @@ void command_send_names(Channel *channel, Client *client) {
     char names[IRC_NAMES_BUFFER_SIZE];
     size_t used = 0U;
     ChannelMember *member;
+    char marker;
 
     if (channel == NULL || client == NULL) {
         return;
     }
 
+    marker = channel->name[0] == '&' ? IRC_NAMES_PRIVATE_MARKER
+                                     : IRC_NAMES_PUBLIC_MARKER;
     names[0] = '\0';
+
     for (member = channel->members; member != NULL; member = member->next) {
-        int written = snprintf(names + used, sizeof(names) - used,
+        char prefix = channel_privilege_prefix(member->privileges);
+        int written;
+
+        if (prefix != '\0') {
+            written = snprintf(names + used, sizeof(names) - used,
+                               "%s%c%s", used != 0U ? " " : "",
+                               prefix, member->client->nick);
+        } else {
+            written = snprintf(names + used, sizeof(names) - used,
                                "%s%s", used != 0U ? " " : "",
                                member->client->nick);
+        }
+
         if (written < 0 || (size_t)written >= sizeof(names) - used) {
             break;
         }
@@ -81,7 +98,7 @@ void command_send_names(Channel *channel, Client *client) {
 
     client_sendf(client, RPL_NAMREPLY,
                  IRCD_DEFAULT_SERVER_NAME, client->nick,
-                 IRC_NAMES_PUBLIC_MARKER, channel->name, names);
+                 marker, channel->name, names);
     client_sendf(client, RPL_ENDOFNAMES,
                  IRCD_DEFAULT_SERVER_NAME, client->nick, channel->name);
 }
