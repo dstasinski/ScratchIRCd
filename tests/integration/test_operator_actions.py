@@ -126,7 +126,7 @@ def main():
             admin.expect(" 381 alice :You are now a Network Administrator")
 
             receiver.send("MODE bob +w")
-            receiver.expect(" MODE bob +w")
+            receiver.expect(" 221 bob +w")
             admin.send("WALLOPS :maintenance test")
             receiver.expect(" WALLOPS :maintenance test")
 
