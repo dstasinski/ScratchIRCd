@@ -13,6 +13,7 @@
 #include "numerics.h"
 #include "oper.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static ClientModeSet allowed_user_mode(char letter) {
