@@ -29,9 +29,7 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     unsigned int target_rank;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "KICK");
@@ -46,12 +44,8 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
                      server->config.server_name, client->nick, "KICK");
         return COMMAND_KEEP_CLIENT;
     }
-    if (reason != NULL && *reason == ':') {
-        ++reason;
-    }
-    if (reason == NULL || *reason == '\0') {
-        reason = IRC_DEFAULT_KICK_REASON;
-    }
+    if (reason != NULL && *reason == ':') ++reason;
+    if (reason == NULL || *reason == '\0') reason = IRC_DEFAULT_KICK_REASON;
 
     channel = hash_get(&server->channels_by_name, channel_name);
     if (channel == NULL) {
@@ -99,7 +93,7 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
 
     (void)snprintf(message, sizeof(message),
                    ":%s!%s@%s KICK %s %s :%s\r\n",
-                   client->nick, client->user, client->host,
+                   client->nick, client->user, client->display_host,
                    channel->name, target->nick, reason);
     channel_broadcast(channel, NULL, message);
 
