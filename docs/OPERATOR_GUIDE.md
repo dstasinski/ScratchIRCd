@@ -2,13 +2,27 @@
 
 This guide documents ordinary IRC operator authentication, permissions, modes, and commands. Ordinary operators are stored in `data/operators.db` and managed by the network administrator.
 
+## Client host identity
+
+ScratchIRCd keeps three host/address values for each client:
+
+- `real_ip` — actual end-user numeric IP.
+- `real_host` — FCrDNS-verified hostname for the actual IP, when available.
+- `display_host` — the public hostname shown to ordinary IRC users.
+
+WHO, ordinary WHOIS, USERHOST, channel traffic, and channel bans use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE and ZLINE ignore the displayed hostname and use the real security identity.
+
+IRC operators may inspect the real identity through operator WHOIS output (numeric 378) and USERIP. Ordinary users are denied USERIP.
+
+For future WebIRC clients, `real_ip` and `real_host` will describe the actual end user rather than the WebIRC gateway.
+
 ## Authentication
 
 ```text
 OPER <operator-name> <password>
 ```
 
-A successful login grants user mode `+o` and loads the permissions from the SQLite operator record. The record must be enabled. `helpop` grants `+h`; `get_host` applies the configured vhost and grants `+t`. Database operators cannot receive `+N`.
+A successful login grants user mode `+o` and loads the permissions from the SQLite operator record. The record must be enabled. `helpop` grants `+h`; `get_host` applies the configured vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
 
 ## Permission flags
 
@@ -43,7 +57,7 @@ KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 ```
 
-Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported, and matching checks both effective `user@host` and `user@IP`. Matching connected clients are removed immediately and new matches are rejected before registration.
+Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported. Matching checks `user@real_host` when a verified hostname exists and also `user@real_ip`. `display_host`, including cloaks and vhosts, is never used for KLINE. Matching connected clients are removed immediately and new matches are rejected before registration.
 
 ### ZLINE
 
@@ -52,7 +66,7 @@ ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 ```
 
-Requires `can_zline`. ZLINE matches the effective numeric client IP and persists in `data/bans.db`.
+Requires `can_zline`. ZLINE matches only `real_ip` and persists in `data/bans.db`.
 
 ### WALLOPS
 
@@ -69,6 +83,22 @@ REHASH
 ```
 
 Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.conf`. Listener address, port, server-name changes, or reducing `max_clients` below the current connection count require a restart instead and are rejected by REHASH.
+
+### USERIP
+
+```text
+USERIP <nick1> [nick2 ...]
+```
+
+Requires IRC operator status. Returns each target's `real_ip`; this information is not exposed to ordinary users.
+
+### WHOIS real identity
+
+```text
+WHOIS <nickname>
+```
+
+Operators receive the normal WHOIS information plus numeric 378 containing the target's `real_host` (or real IP when no verified hostname exists) and `real_ip`. Normal clients receive only `display_host` through the standard WHOIS user reply.
 
 ## Network-administrator-only commands
 
@@ -141,4 +171,5 @@ ZLINE
 - `+s` — server-notice reception; full behavior still planned.
 - `+w` — receive WALLOPS.
 - `+W` — WHOIS notification for IRCops; full behavior still planned.
-- `+t` — using an operator vhost.
+- `+t` — using an operator/NickServ vhost; changes `display_host` only.
+- `+x` — cloaked displayed hostname; cloak-generation behavior is still planned.
