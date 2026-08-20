@@ -4,7 +4,8 @@
  *
  * PRIVMSG supports one target. Channel delivery enforces +n, +m and +M.
  * Direct delivery enforces recipient +R/+T and returns RPL_AWAY when the
- * destination has an active AWAY message.
+ * destination has an active AWAY message. All client-visible source prefixes
+ * use display_host.
  */
 
 #include "commands.h"
@@ -42,7 +43,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     if (*text == ':') ++text;
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s PRIVMSG %s :%s\r\n",
-                   client->nick, client->user, client->host, target, text);
+                   client->nick, client->user, client->display_host, target, text);
 
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
