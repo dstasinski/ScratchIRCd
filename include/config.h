@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.9"
+#define IRCD_VERSION "ScratchIRCd-0.10"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -35,6 +35,11 @@
 #define IRCD_DEFAULT_OPERATORS_DB IRCD_DEFAULT_DATA_DIR "/operators.db"
 #define IRCD_DEFAULT_BANS_DB IRCD_DEFAULT_DATA_DIR "/bans.db"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
+
+/* Authorized WebIRC gateways. */
+#define IRCD_MAX_WEBIRC_GATEWAYS 16U
+#define IRCD_WEBIRC_PASSWORD_MAX 127U
+#define IRCD_WEBIRC_GATEWAY_NAME_MAX 127U
 
 /* Operator/network-administrator storage limits. */
 #define IRCD_OPER_NAME_MAX 63U
