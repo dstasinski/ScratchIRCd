@@ -41,20 +41,9 @@ Generate the bootstrap Argon2id password hash with:
 ./build/scratchircd-mkpasswd 'your password'
 ```
 
-Relevant configuration:
+The network administrator manages ordinary operators with `OPERADD`, `OPERDEL`, `OPERSET`, and `OPERLIST`. Operator authority is stored in a separate permission bitset and is never inferred merely from user mode `+o`.
 
-```text
-operators_db = data/operators.db
-bans_db = data/bans.db
-netadmin_name = root
-netadmin_password_hash = $argon2id$...
-netadmin_hostmask = *!*@*
-netadmin_vhost = admin.example.net
-```
-
-The network administrator manages ordinary operators with `OPERADD`, `OPERDEL`, `OPERSET`, and `OPERLIST`. Ordinary operator authority is stored in a separate permission bitset and is never inferred merely from user mode `+o`.
-
-Implemented permission-controlled commands now include `KILL`, `KLINE`, `ZLINE`, `WALLOPS`, and `REHASH`. KLINE/ZLINE records persist in `data/bans.db`, disconnect existing matches, and reject matching future registrations.
+Permission-controlled commands include KILL, KLINE, ZLINE, WALLOPS, REHASH, RESTART, SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME. SETHOST changes only `display_host`; real security identity remains untouched.
 
 ## Documentation
 
@@ -62,13 +51,11 @@ User-facing command documentation is maintained separately by role:
 
 - `docs/CLIENT_GUIDE.md` — ordinary client commands, user modes, and channel modes.
 - `docs/OPERATOR_GUIDE.md` — ordinary IRC operator authentication, permissions, real-identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, persistent bans, and network-administrator commands.
-
-These guides distinguish implemented behavior from planned features.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, persistent bans, override commands, and network-administrator commands.
 
 ## Currently implemented commands
 
-`ADMIN`, `AWAY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NOTICE`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RULES`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WHO`, `WHOIS`, and `ZLINE`.
+`ADMIN`, `AWAY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NOTICE`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WHO`, `WHOIS`, and `ZLINE`.
 
 ## Dependencies
 
@@ -86,10 +73,18 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus real socket-level integration tests for the core protocol and permission-controlled operator actions.
+CTest includes unit tests for client identity, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus real socket-level integration tests for core protocol behavior, operator actions, and server-authority overrides/restart.
+
+## Planned connection policy: WebIRC, DNSBL, and GeoIP
+
+WebIRC will establish the final end-user `real_ip` before security/enrichment policy runs. DNSBL and GeoIP will therefore always operate on the real client address rather than a gateway peer address.
+
+Configured DNSBL zones will be queried asynchronously. A configured positive match can automatically create a persistent ZLINE in `data/bans.db` and reject the connection.
+
+GeoIP will use libmaxminddb directly with downloaded `data/GeoLite2-City.mmdb` and `data/GeoLite2-ASN.mmdb` files. A dedicated nested Client GeoIP record is planned with the fields `status`, `ip`, `network`, `source`, `continent_code`, `country_code`, `country_name`, `region_code`, `region_name`, `city`, `asn`, and `organization`.
 
 ## Planned architecture
 
-The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized WebIRC gateways; hostname cloaking for `+x`; complete client/channel mode behavior; remaining operator override/restart commands; full applicable ISUPPORT advertising; and the remaining planned standard command set.
+The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized WebIRC gateways; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN enrichment and policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
 
 Services will be addressable virtual identities but will never join channels or appear in ordinary client lists. Persistent channels will be restored from ChanServ state rather than requiring a service client in the channel.
