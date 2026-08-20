@@ -2,19 +2,19 @@
  * @file mode.c
  * @brief Implementation of IRC MODE for users and channels.
  *
- * MODE is deliberately kept in the command layer.  The core mode subsystem
+ * MODE is deliberately kept in the command layer. The core mode subsystem
  * (modes.h/modes.c) owns representation only, while this file owns parsing,
  * permissions, numeric replies, parameter consumption, and broadcasts.
  *
  * User MODE currently supports querying one's own modes and changing the
- * ordinary client-controlled mode flags.  Security-sensitive flags such as
- * operator, registered-account, service, WebIRC, and TLS state are internal
- * modes and cannot be granted by a normal MODE command.
+ * ordinary client-controlled mode flags. Security-sensitive flags such as
+ * operator, registered-account, service, WebIRC, TLS, vhost, and cloak state
+ * are internal modes and cannot be granted by a normal MODE command yet.
  *
  * Channel MODE supports boolean modes, membership privileges (+q/+o/+h/+v),
  * key/limit/throttle/redirect parameters (+k/+l/+j/+L/+B), and the +b/+e/+I
- * mask lists.  Channel owner or operator privilege is required to mutate
- * channel modes.  List modes may be queried without mutation privileges.
+ * mask lists. Channel owner or operator privilege is required to mutate
+ * channel modes. List modes may be queried without mutation privileges.
  */
 
 #include "commands.h"
@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/** Return the client-mode bit represented by letter, or zero if unknown. */
 static ClientModeSet client_mode_bit(char letter) {
     switch (letter) {
         case 'B': return CLIENT_MODE_BOT;
@@ -56,7 +55,6 @@ static ClientModeSet client_mode_bit(char letter) {
     }
 }
 
-/** Return non-zero if a normal client may change this mode on itself. */
 static int client_mode_self_settable(char letter) {
     switch (letter) {
         case 'B':
@@ -74,27 +72,21 @@ static int client_mode_self_settable(char letter) {
     }
 }
 
-/** Format one client's active modes in canonical ScratchIRCd order. */
 static void format_client_modes(const Client *client, char *out, size_t out_size) {
     static const char letters[] = "BdghHiNopRrSsTtVWwxz";
     size_t used = 0U;
     size_t i;
 
-    if (out == NULL || out_size == 0U) {
-        return;
-    }
+    if (out == NULL || out_size == 0U) return;
 
     out[used++] = '+';
     for (i = 0U; letters[i] != '\0' && used + 1U < out_size; ++i) {
         ClientModeSet bit = client_mode_bit(letters[i]);
-        if (bit != 0U && client_mode_has(client->modes, bit)) {
-            out[used++] = letters[i];
-        }
+        if (bit != 0U && client_mode_has(client->modes, bit)) out[used++] = letters[i];
     }
     out[used] = '\0';
 }
 
-/** Return the channel boolean bit represented by letter, or zero. */
 static ChannelModeSet channel_boolean_mode_bit(char letter) {
     switch (letter) {
         case 'A': return CHANNEL_MODE_ADMIN_ONLY;
@@ -118,7 +110,6 @@ static ChannelModeSet channel_boolean_mode_bit(char letter) {
     }
 }
 
-/** Map q/o/h/v to the membership privilege bit. */
 static ChannelPrivilegeSet channel_privilege_bit(char letter) {
     switch (letter) {
         case 'q': return CHANNEL_PRIV_OWNER;
@@ -129,63 +120,46 @@ static ChannelPrivilegeSet channel_privilege_bit(char letter) {
     }
 }
 
-/** Return non-zero when actor may mutate channel mode state. */
 static int may_change_channel(const Channel *channel, const Client *actor) {
     ChannelMember *member = channel_find_member(channel, actor);
-
-    if (member == NULL) {
-        return 0;
-    }
+    if (member == NULL) return 0;
     return channel_privilege_has(member->privileges,
                                  CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
 }
 
-/** Parse an unsigned decimal integer with strict full-string validation. */
 static int parse_uint(const char *text, unsigned long *value) {
     char *end = NULL;
     unsigned long parsed;
 
-    if (text == NULL || *text == '\0' || value == NULL) {
-        return -1;
-    }
+    if (text == NULL || *text == '\0' || value == NULL) return -1;
 
     errno = 0;
     parsed = strtoul(text, &end, 10);
-    if (errno != 0 || end == text || *end != '\0') {
-        return -1;
-    }
+    if (errno != 0 || end == text || *end != '\0') return -1;
 
     *value = parsed;
     return 0;
 }
 
-/** Append one mode character to an outbound change buffer. */
 static void append_mode(char *buffer, size_t size, size_t *used,
                         char *last_sign, char sign, char mode) {
     if (*last_sign != sign && *used + 1U < size) {
         buffer[(*used)++] = sign;
         *last_sign = sign;
     }
-    if (*used + 1U < size) {
-        buffer[(*used)++] = mode;
-    }
+    if (*used + 1U < size) buffer[(*used)++] = mode;
     buffer[*used] = '\0';
 }
 
-/** Append one parameter to a space-separated outbound parameter buffer. */
 static void append_param(char *buffer, size_t size, const char *param) {
     size_t used;
 
-    if (buffer == NULL || size == 0U || param == NULL) {
-        return;
-    }
-
+    if (buffer == NULL || size == 0U || param == NULL) return;
     used = strlen(buffer);
     (void)snprintf(buffer + used, size - used, "%s%s",
                    used != 0U ? " " : "", param);
 }
 
-/** Emit a channel mask list using the supplied numeric formats. */
 static void send_mask_list(Server *server, Client *client, Channel *channel,
                            char type) {
     ChannelMaskEntry *entry = NULL;
@@ -215,7 +189,6 @@ static void send_mask_list(Server *server, Client *client, Channel *channel,
     }
 }
 
-/** Format the currently active channel modes and their visible parameters. */
 static void send_channel_modes(Server *server, Client *client, Channel *channel) {
     static const char booleans[] = "AciKMmnOprRSstTVz";
     char modes[128] = "+";
@@ -226,9 +199,7 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
 
     for (i = 0U; booleans[i] != '\0' && used + 1U < sizeof(modes); ++i) {
         ChannelModeSet bit = channel_boolean_mode_bit(booleans[i]);
-        if (bit != 0U && channel_mode_has(channel->modes, bit)) {
-            modes[used++] = booleans[i];
-        }
+        if (bit != 0U && channel_mode_has(channel->modes, bit)) modes[used++] = booleans[i];
     }
 
     if (channel->key[0] != '\0' && used + 1U < sizeof(modes)) {
@@ -262,7 +233,6 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
                  params[0] != '\0' ? params : "");
 }
 
-/** Implement MODE <nick> [modes]. */
 static CommandResult mode_user(Server *server, Client *client,
                                const char *target, char *mode_string) {
     Client *target_client = hash_get(&server->clients_by_nick, target);
@@ -310,11 +280,8 @@ static CommandResult mode_user(Server *server, Client *client,
             continue;
         }
 
-        if (sign == '+') {
-            client->modes = client_mode_add(client->modes, bit);
-        } else {
-            client->modes = client_mode_remove(client->modes, bit);
-        }
+        if (sign == '+') client->modes = client_mode_add(client->modes, bit);
+        else client->modes = client_mode_remove(client->modes, bit);
     }
 
     format_client_modes(client, formatted, sizeof(formatted));
@@ -323,7 +290,6 @@ static CommandResult mode_user(Server *server, Client *client,
     return COMMAND_KEEP_CLIENT;
 }
 
-/** Implement MODE <channel> [modes [params...]]. */
 static CommandResult mode_channel(Server *server, Client *client,
                                   const char *target, char *mode_string,
                                   char **argv, size_t argc) {
@@ -361,7 +327,6 @@ static CommandResult mode_channel(Server *server, Client *client,
             continue;
         }
 
-        /* List modes without a parameter are queries and require no privilege. */
         if ((letter == 'b' || letter == 'e' || letter == 'I') && param == NULL) {
             send_mask_list(server, client, channel, letter);
             continue;
@@ -375,20 +340,15 @@ static CommandResult mode_channel(Server *server, Client *client,
 
         boolean_bit = channel_boolean_mode_bit(letter);
         if (boolean_bit != 0U) {
-            /* +r is service-owned state and cannot be set through user MODE. */
             if (letter == 'r') {
                 client_sendf(client, ERR_ONLYSERVERSCANCHANGE,
                              server->config.server_name, client->nick,
                              channel->name);
                 continue;
             }
-            if (sign == '+') {
-                channel->modes = channel_mode_add(channel->modes, boolean_bit);
-            } else {
-                channel->modes = channel_mode_remove(channel->modes, boolean_bit);
-            }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            if (sign == '+') channel->modes = channel_mode_add(channel->modes, boolean_bit);
+            else channel->modes = channel_mode_remove(channel->modes, boolean_bit);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
@@ -413,13 +373,9 @@ static CommandResult mode_channel(Server *server, Client *client,
                              subject->nick, channel->name);
                 continue;
             }
-            if (sign == '+') {
-                (void)channel_add_privileges(channel, subject, privilege_bit);
-            } else {
-                (void)channel_remove_privileges(channel, subject, privilege_bit);
-            }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            if (sign == '+') (void)channel_add_privileges(channel, subject, privilege_bit);
+            else (void)channel_remove_privileges(channel, subject, privilege_bit);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), subject->nick);
             continue;
         }
@@ -441,8 +397,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                     append_param(changed_params, sizeof(changed_params), param);
                 }
             }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
@@ -461,8 +416,7 @@ static CommandResult mode_channel(Server *server, Client *client,
             } else {
                 channel->user_limit = 0U;
             }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
@@ -500,8 +454,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                 channel->join_throttle_count = 0U;
                 channel->join_throttle_seconds = 0U;
             }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
@@ -521,27 +474,20 @@ static CommandResult mode_channel(Server *server, Client *client,
             } else {
                 field[0] = '\0';
             }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
         if (letter == 'b' || letter == 'e' || letter == 'I') {
             ChannelMaskEntry **list;
-            if (param == NULL) {
-                continue;
-            }
+            if (param == NULL) continue;
             ++argi;
             list = letter == 'b' ? &channel->ban_list
                  : letter == 'e' ? &channel->exception_list
                                  : &channel->invite_exception_list;
-            if (sign == '+') {
-                (void)channel_mask_add(list, param);
-            } else {
-                (void)channel_mask_remove(list, param);
-            }
-            append_mode(changed, sizeof(changed), &used, &last_sign,
-                        sign, letter);
+            if (sign == '+') (void)channel_mask_add(list, param);
+            else (void)channel_mask_remove(list, param);
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), param);
             continue;
         }
@@ -553,7 +499,7 @@ static CommandResult mode_channel(Server *server, Client *client,
     if (changed[0] != '\0') {
         char message[IRCD_MESSAGE_BUFFER_SIZE];
         (void)snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s%s%s\r\n",
-                       client->nick, client->user, client->host,
+                       client->nick, client->user, client->display_host,
                        channel->name, changed,
                        changed_params[0] != '\0' ? " " : "",
                        changed_params);
@@ -570,9 +516,7 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
     size_t argc = 0U;
     char *token;
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
                      client->nick, "MODE");
@@ -581,9 +525,8 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
 
     target = strtok(params, " ");
     mode_string = strtok(NULL, " ");
-    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL) {
+    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL)
         argv[argc++] = token;
-    }
 
     if (target == NULL || *target == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
@@ -591,8 +534,7 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
+    if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL)
         return mode_channel(server, client, target, mode_string, argv, argc);
-    }
     return mode_user(server, client, target, mode_string);
 }
