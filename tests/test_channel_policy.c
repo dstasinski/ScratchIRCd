@@ -14,16 +14,25 @@ int main(void) {
     client.id = 42U;
     snprintf(client.nick, sizeof(client.nick), "%s", "Daniel");
     snprintf(client.user, sizeof(client.user), "%s", "daniel");
-    snprintf(client.host, sizeof(client.host), "%s", "Example.COM");
-    snprintf(client.ip, sizeof(client.ip), "%s", "192.0.2.10");
+    snprintf(client.real_ip, sizeof(client.real_ip), "%s", "192.0.2.10");
+    snprintf(client.real_host, sizeof(client.real_host), "%s", "real.example.net");
+    snprintf(client.display_host, sizeof(client.display_host), "%s", "Example.COM");
 
     assert(irc_mask_match("d?niel!*@example.*", "Daniel!daniel@Example.COM"));
     assert(irc_mask_match("[Test]", "{test}"));
     assert(!irc_mask_match("other!*@*", "Daniel!daniel@Example.COM"));
 
-    assert(channel_mask_add(&channel.ban_list, "Daniel!*@*") == 0);
+    /* Channel masks operate only on nick!user@display_host. */
+    assert(channel_mask_add(&channel.ban_list, "Daniel!*@example.com") == 0);
     assert(channel_client_is_banned(&channel, &client));
     assert(channel_mask_add(&channel.exception_list, "*!daniel@example.com") == 0);
+    assert(!channel_client_is_banned(&channel, &client));
+
+    channel_mask_clear(&channel.ban_list);
+    channel_mask_clear(&channel.exception_list);
+    assert(channel_mask_add(&channel.ban_list, "*!*@real.example.net") == 0);
+    assert(!channel_client_is_banned(&channel, &client));
+    assert(channel_mask_add(&channel.ban_list, "*!*@192.0.2.10") == 0);
     assert(!channel_client_is_banned(&channel, &client));
 
     assert(!channel_invite_has(&channel, client.id));
