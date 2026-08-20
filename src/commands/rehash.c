@@ -32,12 +32,15 @@ CommandResult command_rehash(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* Listener identity changes require RESTART so active sockets stay coherent. */
+    /* Listener/TLS identity changes require RESTART so active sockets stay coherent. */
     if (strcmp(updated.bind_address, server->config.bind_address) != 0 ||
         strcmp(updated.port, server->config.port) != 0 ||
+        strcmp(updated.tls_port, server->config.tls_port) != 0 ||
+        strcmp(updated.tls_cert_file, server->config.tls_cert_file) != 0 ||
+        strcmp(updated.tls_key_file, server->config.tls_key_file) != 0 ||
         strcmp(updated.server_name, server->config.server_name) != 0 ||
         updated.max_clients < server->client_count) {
-        client_sendf(client, ":%s NOTICE %s :REHASH rejected: listener/server identity change requires restart",
+        client_sendf(client, ":%s NOTICE %s :REHASH rejected: listener/TLS/server identity change requires restart",
                      server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
