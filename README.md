@@ -4,7 +4,20 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 
 ## Current foundation
 
-The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
+
+## TLS
+
+ScratchIRCd can expose plaintext and TLS listeners simultaneously. TLS uses OpenSSL and is enabled only when both certificate and private-key paths are configured:
+
+```text
+port = 6667
+tls_port = 6697
+tls_cert_file = /path/to/fullchain.pem
+tls_key_file = /path/to/privkey.pem
+```
+
+TLS handshakes are advanced non-blockingly by the event loop. A client receives user mode `+z` only after a successful TLS handshake. Channel mode `+z` therefore accepts only genuinely encrypted clients. TLS configuration/listener changes require RESTART rather than REHASH.
 
 ## Client identity model
 
@@ -51,7 +64,7 @@ User-facing command documentation is maintained separately by role:
 
 - `docs/CLIENT_GUIDE.md` — ordinary client commands, user modes, and channel modes.
 - `docs/OPERATOR_GUIDE.md` — ordinary IRC operator authentication, permissions, real-identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, persistent bans, override commands, and network-administrator commands.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, persistent bans, override commands, TLS, and network-administrator commands.
 
 ## Currently implemented commands
 
@@ -62,7 +75,7 @@ User-facing command documentation is maintained separately by role:
 On Debian/Ubuntu systems:
 
 ```sh
-sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev
+sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev libssl-dev openssl
 ```
 
 ## Building and testing
@@ -73,7 +86,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus real socket-level integration tests for core protocol behavior, operator actions, and server-authority overrides/restart.
+CTest includes unit tests for client identity, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus real socket-level integration tests for core protocol behavior, operator actions, server-authority overrides/restart, and TLS.
 
 ## Planned connection policy: WebIRC, DNSBL, and GeoIP
 
@@ -85,6 +98,6 @@ GeoIP will use libmaxminddb directly with downloaded `data/GeoLite2-City.mmdb` a
 
 ## Planned architecture
 
-The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; OpenSSL TLS; authorized WebIRC gateways; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN enrichment and policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
+The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; authorized WebIRC gateways; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN enrichment and policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
 
 Services will be addressable virtual identities but will never join channels or appear in ordinary client lists. Persistent channels will be restored from ChanServ state rather than requiring a service client in the channel.
