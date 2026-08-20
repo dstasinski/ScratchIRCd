@@ -18,6 +18,13 @@ tls_key_file =
 max_clients = 1024
 dns_timeout_seconds = 5
 
+# Authorized WebIRC gateways. Repeat this option for multiple gateways.
+# The first field must be the gateway's numeric IPv4/IPv6 peer address; the
+# second field is the WEBIRC password. Gateway DNS names are not trusted for
+# authorization.
+# webirc_gateway = 127.0.0.1 change-me
+# webirc_gateway = 2001:db8::10 another-secret
+
 # Optional connection password. Leave empty to disable PASS enforcement.
 server_password =
 
@@ -42,7 +49,7 @@ bans_db = data/bans.db
 #   ./build/scratchircd-mkpasswd 'your password'
 #
 # The host mask is checked against the real client hostname/IP, not display_host
-# and not a future WebIRC gateway identity. Leave name/hash empty to disable
+# and not the WebIRC gateway identity. Leave name/hash empty to disable
 # bootstrap netadmin authentication.
 netadmin_name =
 netadmin_password_hash =
