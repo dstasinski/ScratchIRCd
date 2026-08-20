@@ -5,7 +5,7 @@
  * Explicit invitations are one-use records stored by stable Client.id.  This
  * allows a user to change nickname after being invited without losing access
  * or transferring the invitation to another connection that takes the old
- * nickname.  Channel +V forbids INVITE entirely.
+ * nickname. Channel +V forbids INVITE entirely.
  */
 
 #include "commands.h"
@@ -24,9 +24,7 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
     ChannelMember *membership;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
@@ -85,9 +83,7 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (channel_invite_add(channel, target->id) != 0) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (channel_invite_add(channel, target->id) != 0) return COMMAND_KEEP_CLIENT;
 
     client_sendf(client, RPL_INVITING,
                  server->config.server_name, client->nick,
@@ -95,7 +91,7 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
 
     (void)snprintf(message, sizeof(message),
                    ":%s!%s@%s INVITE %s :%s",
-                   client->nick, client->user, client->host,
+                   client->nick, client->user, client->display_host,
                    target->nick, channel->name);
     (void)client_send_line(target, message);
 
