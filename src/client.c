@@ -23,11 +23,17 @@ Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     client->signon_time = now;
     client->last_activity = now;
 
-    (void)snprintf(client->ip, sizeof(client->ip), "%s",
+    /*
+     * A newly accepted direct connection begins with the peer address as its
+     * real IP and visible identity. real_host remains empty until asynchronous
+     * FCrDNS succeeds. WebIRC will later replace real_ip with the trusted
+     * gateway-supplied end-user address before resolving that address.
+     */
+    (void)snprintf(client->real_ip, sizeof(client->real_ip), "%s",
                    ip != NULL ? ip : IRC_UNKNOWN_HOST);
-    (void)snprintf(client->host, sizeof(client->host), "%s", client->ip);
-    (void)snprintf(client->socket_ip, sizeof(client->socket_ip), "%s", client->ip);
-    (void)snprintf(client->socket_host, sizeof(client->socket_host), "%s", client->ip);
+    client->real_host[0] = '\0';
+    (void)snprintf(client->display_host, sizeof(client->display_host), "%s",
+                   client->real_ip);
     return client;
 }
 
