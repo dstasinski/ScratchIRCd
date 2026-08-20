@@ -2,9 +2,9 @@
  * @file whois.c
  * @brief Implementation of the IRC WHOIS command.
  *
- * WHOIS exposes only effective IRC identity to ordinary users. Channel lists
- * respect privacy modes. Away state and real idle/signon times are reported;
- * user mode +I suppresses idle details from non-operators.
+ * Ordinary clients see only display_host. IRC operators additionally receive
+ * the actual FCrDNS hostname and real client IP. Cloaks and vhosts therefore
+ * never overwrite the security/audit identity.
  */
 
 #include "commands.h"
@@ -47,7 +47,7 @@ CommandResult command_whois(Server *server, Client *client, char *params) {
     }
 
     client_sendf(client, RPL_WHOISUSER, server->config.server_name, client->nick,
-                 target->nick, target->user, target->host, target->realname);
+                 target->nick, target->user, target->display_host, target->realname);
     client_sendf(client, RPL_WHOISSERVER, server->config.server_name, client->nick,
                  target->nick, server->config.server_name, server->config.network_name);
 
@@ -95,9 +95,13 @@ CommandResult command_whois(Server *server, Client *client, char *params) {
                      client->nick, target->nick, idle, (long)target->signon_time);
     }
 
-    if (visibility_is_oper(client))
+    if (visibility_is_oper(client)) {
+        const char *real_host = target->real_host[0] != '\0'
+                                    ? target->real_host
+                                    : target->real_ip;
         client_sendf(client, RPL_WHOISHOST, server->config.server_name,
-                     client->nick, target->nick, target->socket_host, target->socket_ip);
+                     client->nick, target->nick, real_host, target->real_ip);
+    }
 
     client_sendf(client, RPL_ENDOFWHOIS, server->config.server_name,
                  client->nick, target->nick);
