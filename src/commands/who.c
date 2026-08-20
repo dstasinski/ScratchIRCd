@@ -3,8 +3,8 @@
  * @brief Implementation of the IRC WHO command.
  *
  * WHO supports a channel target, a nickname target, or a general query. User
- * mode +i is respected for general WHO. The status field uses H for present
- * and G for away, then appends visible oper and channel-prefix indicators.
+ * mode +i is respected for general WHO. The hostname field is always the
+ * client's public display_host; real IP/DNS identity is never exposed here.
  */
 
 #include "commands.h"
@@ -37,7 +37,7 @@ static void send_who_reply(Server *server, Client *requester,
     client_sendf(requester, RPL_WHOREPLY,
                  server->config.server_name, requester->nick,
                  channel != NULL ? channel->name : "*",
-                 subject->user, subject->host,
+                 subject->user, subject->display_host,
                  server->config.server_name, subject->nick,
                  status, 0, subject->realname);
 }
