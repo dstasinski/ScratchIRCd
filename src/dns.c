@@ -2,14 +2,10 @@
  * @file dns.c
  * @brief Non-blocking DNS integration using a dedicated resolver thread.
  *
- * getnameinfo() and getaddrinfo() are allowed to block in this file because
- * they execute only on the resolver worker.  The IRC event-loop thread never
- * calls a name-service operation: it writes a request record to a non-blocking
- * pipe and receives completed records through a second pipe watched by poll().
- *
- * Forward-confirmed reverse DNS (FCrDNS) is performed by resolving the PTR
- * hostname back to addresses and requiring the original IPv4/IPv6 address to
- * appear in that result set before the hostname is trusted as client->host.
+ * getnameinfo() and getaddrinfo() may block here because they execute only on
+ * the resolver worker. The IRC event-loop thread never calls a name-service
+ * operation. Forward-confirmed reverse DNS (FCrDNS) is performed internally;
+ * only the final verified hostname is returned to the event loop.
  */
 
 #include "dns.h"
@@ -38,9 +34,7 @@ static int write_full(int fd, const void *buffer, size_t length) {
     while (length > 0U) {
         ssize_t written = write(fd, cursor, length);
         if (written < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+            if (errno == EINTR) continue;
             return -1;
         }
         cursor += (size_t)written;
@@ -54,13 +48,9 @@ static int read_full(int fd, void *buffer, size_t length) {
 
     while (length > 0U) {
         ssize_t received = read(fd, cursor, length);
-        if (received == 0) {
-            return 0;
-        }
+        if (received == 0) return 0;
         if (received < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+            if (errno == EINTR) continue;
             return -1;
         }
         cursor += (size_t)received;
@@ -77,9 +67,7 @@ static int request_sockaddr(const DnsRequest *request,
     if (request->address_family == AF_INET) {
         struct sockaddr_in *address = (struct sockaddr_in *)storage;
         address->sin_family = AF_INET;
-        if (inet_pton(AF_INET, request->ip, &address->sin_addr) != 1) {
-            return -1;
-        }
+        if (inet_pton(AF_INET, request->ip, &address->sin_addr) != 1) return -1;
         *length = (socklen_t)sizeof(*address);
         return 0;
     }
@@ -87,9 +75,7 @@ static int request_sockaddr(const DnsRequest *request,
     if (request->address_family == AF_INET6) {
         struct sockaddr_in6 *address = (struct sockaddr_in6 *)storage;
         address->sin6_family = AF_INET6;
-        if (inet_pton(AF_INET6, request->ip, &address->sin6_addr) != 1) {
-            return -1;
-        }
+        if (inet_pton(AF_INET6, request->ip, &address->sin6_addr) != 1) return -1;
         *length = (socklen_t)sizeof(*address);
         return 0;
     }
@@ -101,16 +87,14 @@ static int address_matches(const DnsRequest *request,
                            const struct sockaddr *address) {
     if (request->address_family == AF_INET && address->sa_family == AF_INET) {
         struct in_addr original;
-        const struct sockaddr_in *candidate =
-            (const struct sockaddr_in *)address;
+        const struct sockaddr_in *candidate = (const struct sockaddr_in *)address;
         return inet_pton(AF_INET, request->ip, &original) == 1 &&
                memcmp(&original, &candidate->sin_addr, sizeof(original)) == 0;
     }
 
     if (request->address_family == AF_INET6 && address->sa_family == AF_INET6) {
         struct in6_addr original;
-        const struct sockaddr_in6 *candidate =
-            (const struct sockaddr_in6 *)address;
+        const struct sockaddr_in6 *candidate = (const struct sockaddr_in6 *)address;
         return inet_pton(AF_INET6, request->ip, &original) == 1 &&
                memcmp(&original, &candidate->sin6_addr, sizeof(original)) == 0;
     }
@@ -124,18 +108,15 @@ static void resolve_request(const DnsRequest *request, DnsResult *result) {
     struct addrinfo hints;
     struct addrinfo *addresses = NULL;
     struct addrinfo *candidate;
+    char ptr_host[IRC_HOST_MAX + 1U];
 
     memset(result, 0, sizeof(*result));
     result->client_id = request->client_id;
 
-    if (request_sockaddr(request, &storage, &length) != 0) {
-        return;
-    }
+    if (request_sockaddr(request, &storage, &length) != 0) return;
 
     if (getnameinfo((const struct sockaddr *)&storage, length,
-                    result->reverse_host, sizeof(result->reverse_host),
-                    NULL, 0U, NI_NAMEREQD) != 0) {
-        result->reverse_host[0] = '\0';
+                    ptr_host, sizeof(ptr_host), NULL, 0U, NI_NAMEREQD) != 0) {
         return;
     }
 
@@ -143,15 +124,13 @@ static void resolve_request(const DnsRequest *request, DnsResult *result) {
     hints.ai_family = request->address_family;
     hints.ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(result->reverse_host, NULL, &hints, &addresses) != 0) {
-        return;
-    }
+    if (getaddrinfo(ptr_host, NULL, &hints, &addresses) != 0) return;
 
     for (candidate = addresses; candidate != NULL; candidate = candidate->ai_next) {
         if (address_matches(request, candidate->ai_addr)) {
             result->verified = 1;
-            (void)snprintf(result->forward_host, sizeof(result->forward_host),
-                           "%s", result->reverse_host);
+            (void)snprintf(result->resolved_host, sizeof(result->resolved_host),
+                           "%s", ptr_host);
             break;
         }
     }
@@ -166,13 +145,7 @@ static void *resolver_main(void *arg) {
     while (read_full(resolver->request_read_fd, &request, sizeof(request)) == 1) {
         DnsResult result;
         resolve_request(&request, &result);
-
-        /*
-         * Result delivery is deliberately non-blocking.  If the event loop is
-         * temporarily unable to drain the pipe, dropping this answer is safe:
-         * the client's DNS deadline will expire and registration will continue
-         * with the numeric address rather than stalling the daemon.
-         */
+        /* A dropped answer is safe: the client's DNS deadline will expire. */
         (void)write_full(resolver->result_write_fd, &result, sizeof(result));
     }
     return NULL;
@@ -182,9 +155,7 @@ int dns_resolver_init(DnsResolver *resolver) {
     int requests[2] = {-1, -1};
     int results[2] = {-1, -1};
 
-    if (resolver == NULL) {
-        return -1;
-    }
+    if (resolver == NULL) return -1;
     memset(resolver, 0, sizeof(*resolver));
     resolver->request_read_fd = -1;
     resolver->request_write_fd = -1;
@@ -221,9 +192,7 @@ int dns_resolver_init(DnsResolver *resolver) {
 }
 
 void dns_resolver_destroy(DnsResolver *resolver) {
-    if (resolver == NULL) {
-        return;
-    }
+    if (resolver == NULL) return;
 
     if (resolver->request_write_fd >= 0) {
         close(resolver->request_write_fd);
@@ -248,16 +217,12 @@ int dns_resolver_submit(DnsResolver *resolver, uint64_t client_id,
     DnsRequest request;
     ssize_t written;
 
-    if (resolver == NULL || !resolver->running || ip == NULL) {
-        return -1;
-    }
+    if (resolver == NULL || !resolver->running || ip == NULL) return -1;
 
     memset(&request, 0, sizeof(request));
     request.client_id = client_id;
     request.address_family = address_family;
-    if (snprintf(request.ip, sizeof(request.ip), "%s", ip) < 0) {
-        return -1;
-    }
+    if (snprintf(request.ip, sizeof(request.ip), "%s", ip) < 0) return -1;
 
     do {
         written = write(resolver->request_write_fd, &request, sizeof(request));
@@ -281,11 +246,7 @@ int dns_resolver_read_result(DnsResolver *resolver, DnsResult *result) {
         received = read(resolver->result_read_fd, result, sizeof(*result));
     } while (received < 0 && errno == EINTR);
 
-    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-        return 0;
-    }
-    if (received == (ssize_t)sizeof(*result)) {
-        return 1;
-    }
+    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return 0;
+    if (received == (ssize_t)sizeof(*result)) return 1;
     return received == 0 ? 0 : -1;
 }
