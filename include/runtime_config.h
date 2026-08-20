@@ -2,16 +2,13 @@
 #define IRCD_RUNTIME_CONFIG_H
 
 #include <stddef.h>
-
 #include "config.h"
 
-/**
- * Runtime server configuration loaded from ircd.conf.
- *
- * Ordinary IRC operator accounts are intentionally excluded from this
- * structure and live in operators.db. Only the bootstrap network
- * administrator remains in ircd.conf.
- */
+typedef struct WebIrcGatewayConfig {
+    char ip[IRC_IP_MAX + 1U];
+    char password[IRCD_WEBIRC_PASSWORD_MAX + 1U];
+} WebIrcGatewayConfig;
+
 typedef struct ServerConfig {
     char server_name[IRC_HOST_MAX + 1U];
     char network_name[IRCD_NETWORK_NAME_MAX + 1U];
@@ -20,14 +17,12 @@ typedef struct ServerConfig {
     size_t max_clients;
     unsigned int dns_timeout_seconds;
 
-    /**
-     * Optional TLS listener. TLS is enabled only when tls_cert_file and
-     * tls_key_file are both non-empty. tls_port is independent of the normal
-     * plaintext listener so both may operate at the same time.
-     */
     char tls_port[IRCD_PORT_TEXT_MAX + 1U];
     char tls_cert_file[IRCD_CONFIG_PATH_MAX + 1U];
     char tls_key_file[IRCD_CONFIG_PATH_MAX + 1U];
+
+    WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
+    size_t webirc_gateway_count;
 
     char server_password[IRCD_SERVER_PASSWORD_MAX + 1U];
     char motd_file[IRCD_CONFIG_PATH_MAX + 1U];
@@ -44,11 +39,10 @@ typedef struct ServerConfig {
     char netadmin_hostmask[IRCD_OPER_HOSTMASK_MAX + 1U];
     char netadmin_vhost[IRCD_OPER_VHOST_MAX + 1U];
 
-    /** Source file used by REHASH; not itself a parsed configuration key. */
     char source_path[IRCD_CONFIG_PATH_MAX + 1U];
 } ServerConfig;
 
 void runtime_config_defaults(ServerConfig *config);
 int runtime_config_load(ServerConfig *config, const char *path);
 
-#endif /* IRCD_RUNTIME_CONFIG_H */
+#endif
