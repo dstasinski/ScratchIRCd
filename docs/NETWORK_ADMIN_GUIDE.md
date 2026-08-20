@@ -16,6 +16,23 @@ KLINE and ZLINE are deliberately independent of public cloaks/vhosts. KLINE chec
 
 For future WebIRC connections, the real fields will contain the authenticated end user's identity, not the gateway address. Any retained gateway audit data will be maintained separately from the Client identity fields.
 
+## TLS configuration
+
+ScratchIRCd supports a normal plaintext listener and an OpenSSL TLS listener at the same time.
+
+```text
+port = 6667
+tls_port = 6697
+tls_cert_file = /etc/letsencrypt/live/irc.example.net/fullchain.pem
+tls_key_file = /etc/letsencrypt/live/irc.example.net/privkey.pem
+```
+
+TLS is enabled only when both `tls_cert_file` and `tls_key_file` are non-empty. The certificate chain and private key are validated at startup. TLS 1.2 is the minimum accepted protocol version.
+
+TLS handshakes are non-blocking. A client receives user mode `+z` only after the OpenSSL handshake completes successfully. Channel mode `+z` therefore restricts a channel to authenticated TLS transport rather than merely trusting a client-supplied mode.
+
+Changes to `tls_port`, `tls_cert_file`, or `tls_key_file` require `RESTART`; REHASH rejects listener/TLS identity changes.
+
 ## Bootstrap network administrator
 
 The network administrator is the only operator identity stored in `ircd.conf`. Ordinary IRC operators live in `data/operators.db`.
@@ -107,7 +124,7 @@ Requires `can_wallops`.
 REHASH
 ```
 
-Requires `can_rehash`. Reloads runtime configuration that can safely change without rebuilding listeners.
+Requires `can_rehash`. Reloads runtime configuration that can safely change without rebuilding listeners. Plain/TLS listener identity changes require RESTART.
 
 ### RESTART
 
@@ -115,7 +132,7 @@ Requires `can_rehash`. Reloads runtime configuration that can safely change with
 RESTART
 ```
 
-Requires `can_restart`. Disconnects current clients, reloads the active configuration, recreates listeners/databases, and starts a fresh Server instance in the same process.
+Requires `can_restart`. Disconnects current clients, reloads the active configuration, recreates plaintext/TLS listeners and databases, and starts a fresh Server instance in the same process.
 
 ### SAJOIN / SAPART
 
