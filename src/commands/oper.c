@@ -5,6 +5,10 @@
  * Only the network administrator is configured in ircd.conf. All ordinary
  * IRC operators are loaded from operators.db. Database records are never
  * allowed to grant netadmin, even if the database is edited outside IRC.
+ *
+ * OPER host authorization is based on the client's real identity, never the
+ * public display hostname. Applying an operator vhost changes display_host
+ * only; real_ip and real_host remain available to server security policy.
  */
 
 #include "commands.h"
@@ -24,11 +28,16 @@ static int netadmin_host_matches(const Client *client, const char *mask) {
     char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (client == NULL || mask == NULL || *mask == '\0') return 0;
-    (void)snprintf(host_identity, sizeof(host_identity), "%s!%s@%s",
-                   client->nick, client->user, client->host);
+
+    if (client->real_host[0] != '\0') {
+        (void)snprintf(host_identity, sizeof(host_identity), "%s!%s@%s",
+                       client->nick, client->user, client->real_host);
+        if (irc_mask_match(mask, host_identity)) return 1;
+    }
+
     (void)snprintf(ip_identity, sizeof(ip_identity), "%s!%s@%s",
-                   client->nick, client->user, client->ip);
-    return irc_mask_match(mask, host_identity) || irc_mask_match(mask, ip_identity);
+                   client->nick, client->user, client->real_ip);
+    return irc_mask_match(mask, ip_identity);
 }
 
 static void grant_oper(Client *client, const char *name,
@@ -43,7 +52,7 @@ static void grant_oper(Client *client, const char *name,
         client->modes = client_mode_add(client->modes, CLIENT_MODE_HELPOP);
     if (oper_permission_has(permissions, OPER_PERMISSION_GETHOST) &&
         vhost != NULL && *vhost != '\0') {
-        (void)snprintf(client->host, sizeof(client->host), "%s", vhost);
+        (void)snprintf(client->display_host, sizeof(client->display_host), "%s", vhost);
         client->modes = client_mode_add(client->modes, CLIENT_MODE_VHOST);
     }
 }
