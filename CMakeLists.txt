@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.6.0
+    VERSION 0.7.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -54,6 +54,10 @@ target_include_directories(scratchircd-mkpasswd PRIVATE
 )
 target_link_libraries(scratchircd-mkpasswd PRIVATE ${ARGON2_LIBRARY})
 
+add_executable(test_client_identity tests/test_client_identity.c src/client.c)
+target_include_directories(test_client_identity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_test(NAME client_identity COMMAND test_client_identity)
+
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME modes COMMAND test_modes)
@@ -101,7 +105,7 @@ add_test(
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
