@@ -12,9 +12,9 @@ ScratchIRCd keeps three host/address values for each client:
 
 WHO, ordinary WHOIS, USERHOST, channel traffic, and channel bans use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE and ZLINE ignore the displayed hostname and use the real security identity.
 
-IRC operators may inspect the real identity through operator WHOIS output (numeric 378) and USERIP. Ordinary users are denied USERIP.
+For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
 
-For future WebIRC clients, `real_ip` and `real_host` will describe the actual end user rather than the WebIRC gateway.
+IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP.
 
 ## Authentication
 
@@ -22,14 +22,14 @@ For future WebIRC clients, `real_ip` and `real_host` will describe the actual en
 OPER <operator-name> <password>
 ```
 
-A successful login grants user mode `+o` and loads the permissions from the SQLite operator record. The record must be enabled. `helpop` grants `+h`; `get_host` applies the configured vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
+Successful login grants `+o` and loads permissions from the SQLite operator record. `helpop` grants `+h`; `get_host` applies the configured vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
 
 ## Permission flags
 
 - `can_rehash` — use REHASH.
 - `can_die` — reserved for DIE; not implemented.
 - `can_restart` — use RESTART.
-- `helpop` — receive user mode `+h`.
+- `helpop` — receive `+h`.
 - `can_wallops` — send WALLOPS.
 - `can_kill` — use KILL.
 - `can_kline` — add KLINEs.
@@ -38,124 +38,37 @@ A successful login grants user mode `+o` and loads the permissions from the SQLi
 - `get_host` — receive the configured operator vhost and `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 
-`netadmin` is reserved for the bootstrap network administrator and cannot be assigned to ordinary operators.
+`netadmin` is reserved for the bootstrap network administrator.
 
 ## Implemented operator commands
 
-### KILL
-
 ```text
 KILL <nickname> :<reason>
-```
-
-Requires `can_kill`. Services-protected clients cannot be killed through ordinary KILL. Ordinary operators also cannot KILL a network administrator.
-
-### KLINE
-
-```text
 KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
-```
-
-Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported. Matching checks `user@real_host` when a verified hostname exists and also `user@real_ip`. `display_host`, including cloaks and vhosts, is never used for KLINE.
-
-### ZLINE
-
-```text
 ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
-```
-
-Requires `can_zline`. ZLINE matches only `real_ip` and persists in `data/bans.db`.
-
-### WALLOPS
-
-```text
 WALLOPS :<message>
-```
-
-Requires `can_wallops`. Messages are delivered to registered clients using user mode `+w`.
-
-### REHASH
-
-```text
 REHASH
-```
-
-Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.conf`. Listener address, port, server-name changes, or reducing `max_clients` below the current connection count require a restart instead.
-
-### RESTART
-
-```text
 RESTART
-```
-
-Requires `can_restart`. ScratchIRCd disconnects current clients, destroys the active Server instance, reloads the current configuration file, recreates listeners/databases, and starts a fresh Server instance in the same process.
-
-### SAJOIN
-
-```text
 SAJOIN <nick> <channel>[,<channel>...]
-```
-
-Requires `can_override`. Forces the target client into the requested channels without applying normal JOIN restrictions such as keys, bans, invite-only, limits, TLS-only, or account-only rules.
-
-### SAPART
-
-```text
 SAPART <nick> <channel>[,<channel>...]
-```
-
-Requires `can_override`. Forces the target client to leave the listed channels.
-
-### SAMODE
-
-```text
 SAMODE <nick> <modes>
 SAMODE <channel> <modes> [parameters...]
-```
-
-Requires `can_override`. Channel SAMODE uses the normal MODE parser with server authority, bypassing channel-ownership requirements. User SAMODE may force ordinary behavioral modes but cannot manufacture provenance/security modes such as network-admin, oper, registered-account, service, vhost, WebIRC, cloak, or TLS state.
-
-### SETHOST
-
-```text
 SETHOST <nick> <newhost>
-```
-
-Requires `can_override`. Changes only the target's `display_host`, sets `+t`, and clears `+x`. It never changes `real_ip` or `real_host`.
-
-### SETIDENT
-
-```text
 SETIDENT <nick> <newident>
-```
-
-Requires `can_override`. Changes the target's IRC ident/user field.
-
-### SETNAME
-
-```text
 SETNAME <nick> :<new real name>
-```
-
-Requires `can_override`. Changes the target's real-name/gecos field.
-
-### USERIP
-
-```text
 USERIP <nick1> [nick2 ...]
+WHOIS <nickname>
 ```
 
-Requires IRC operator status and returns each target's `real_ip`.
+KLINE matches `user@real_host` and `user@real_ip`; ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
-### WHOIS real identity
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
-Operators receive numeric 378 containing the target's `real_host` (or real IP when no verified hostname exists) and `real_ip`. Normal clients receive only `display_host` through the standard WHOIS user reply.
+User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
 ## Network-administrator-only commands
-
-Ordinary operators cannot use these database-management commands:
 
 ```text
 OPERADD
@@ -208,6 +121,8 @@ WHOIS
 ZLINE
 ```
 
+`WEBIRC` is implemented but is a pre-registration gateway command rather than an ordinary operator command.
+
 ## Operator-related user modes
 
 - `+o` — IRC operator.
@@ -220,4 +135,6 @@ ZLINE
 - `+w` — receive WALLOPS.
 - `+W` — WHOIS notification for IRCops; full behavior still planned.
 - `+t` — using an operator/NickServ vhost; changes `display_host` only.
-- `+x` — cloaked displayed hostname; cloak-generation behavior is still planned.
+- `+V` — authenticated WebIRC end user.
+- `+x` — cloaked displayed hostname; cloak generation is still planned.
+- `+z` — authenticated TLS transport.
