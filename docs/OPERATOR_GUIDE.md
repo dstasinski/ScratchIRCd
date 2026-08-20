@@ -28,7 +28,7 @@ A successful login grants user mode `+o` and loads the permissions from the SQLi
 
 - `can_rehash` — use REHASH.
 - `can_die` — reserved for DIE; not implemented.
-- `can_restart` — use RESTART when implemented.
+- `can_restart` — use RESTART.
 - `helpop` — receive user mode `+h`.
 - `can_wallops` — send WALLOPS.
 - `can_kill` — use KILL.
@@ -36,7 +36,7 @@ A successful login grants user mode `+o` and loads the permissions from the SQLi
 - `can_unkline` — remove KLINEs.
 - `can_zline` — add/remove ZLINEs.
 - `get_host` — receive the configured operator vhost and `+t`.
-- `can_override` — use server-authority override commands when implemented.
+- `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 
 `netadmin` is reserved for the bootstrap network administrator and cannot be assigned to ordinary operators.
 
@@ -57,7 +57,7 @@ KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 ```
 
-Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported. Matching checks `user@real_host` when a verified hostname exists and also `user@real_ip`. `display_host`, including cloaks and vhosts, is never used for KLINE. Matching connected clients are removed immediately and new matches are rejected before registration.
+Adding requires `can_kline`; removal requires `can_unkline`. KLINE records persist in `data/bans.db`. Wildcards `*` and `?` are supported. Matching checks `user@real_host` when a verified hostname exists and also `user@real_ip`. `display_host`, including cloaks and vhosts, is never used for KLINE.
 
 ### ZLINE
 
@@ -82,7 +82,64 @@ Requires `can_wallops`. Messages are delivered to registered clients using user 
 REHASH
 ```
 
-Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.conf`. Listener address, port, server-name changes, or reducing `max_clients` below the current connection count require a restart instead and are rejected by REHASH.
+Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.conf`. Listener address, port, server-name changes, or reducing `max_clients` below the current connection count require a restart instead.
+
+### RESTART
+
+```text
+RESTART
+```
+
+Requires `can_restart`. ScratchIRCd disconnects current clients, destroys the active Server instance, reloads the current configuration file, recreates listeners/databases, and starts a fresh Server instance in the same process.
+
+### SAJOIN
+
+```text
+SAJOIN <nick> <channel>[,<channel>...]
+```
+
+Requires `can_override`. Forces the target client into the requested channels without applying normal JOIN restrictions such as keys, bans, invite-only, limits, TLS-only, or account-only rules.
+
+### SAPART
+
+```text
+SAPART <nick> <channel>[,<channel>...]
+```
+
+Requires `can_override`. Forces the target client to leave the listed channels.
+
+### SAMODE
+
+```text
+SAMODE <nick> <modes>
+SAMODE <channel> <modes> [parameters...]
+```
+
+Requires `can_override`. Channel SAMODE uses the normal MODE parser with server authority, bypassing channel-ownership requirements. User SAMODE may force ordinary behavioral modes but cannot manufacture provenance/security modes such as network-admin, oper, registered-account, service, vhost, WebIRC, cloak, or TLS state.
+
+### SETHOST
+
+```text
+SETHOST <nick> <newhost>
+```
+
+Requires `can_override`. Changes only the target's `display_host`, sets `+t`, and clears `+x`. It never changes `real_ip` or `real_host`.
+
+### SETIDENT
+
+```text
+SETIDENT <nick> <newident>
+```
+
+Requires `can_override`. Changes the target's IRC ident/user field.
+
+### SETNAME
+
+```text
+SETNAME <nick> :<new real name>
+```
+
+Requires `can_override`. Changes the target's real-name/gecos field.
 
 ### USERIP
 
@@ -90,15 +147,11 @@ Requires `can_rehash`. Runtime configuration is reloaded from the active `ircd.c
 USERIP <nick1> [nick2 ...]
 ```
 
-Requires IRC operator status. Returns each target's `real_ip`; this information is not exposed to ordinary users.
+Requires IRC operator status and returns each target's `real_ip`.
 
 ### WHOIS real identity
 
-```text
-WHOIS <nickname>
-```
-
-Operators receive the normal WHOIS information plus numeric 378 containing the target's `real_host` (or real IP when no verified hostname exists) and `real_ip`. Normal clients receive only `display_host` through the standard WHOIS user reply.
+Operators receive numeric 378 containing the target's `real_host` (or real IP when no verified hostname exists) and `real_ip`. Normal clients receive only `display_host` through the standard WHOIS user reply.
 
 ## Network-administrator-only commands
 
@@ -109,18 +162,6 @@ OPERADD
 OPERDEL
 OPERSET
 OPERLIST
-```
-
-## Planned operator commands
-
-```text
-RESTART
-SAJOIN
-SAMODE
-SAPART
-SETHOST
-SETIDENT
-SETNAME
 ```
 
 ## General commands available to operators
@@ -149,7 +190,14 @@ PONG
 PRIVMSG
 QUIT
 REHASH
+RESTART
 RULES
+SAJOIN
+SAMODE
+SAPART
+SETHOST
+SETIDENT
+SETNAME
 TOPIC
 USER
 USERHOST
