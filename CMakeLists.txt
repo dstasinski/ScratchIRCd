@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.8.0
+    VERSION 0.9.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -13,6 +13,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_package(SQLite3 REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 find_path(ARGON2_INCLUDE_DIR argon2.h)
 find_library(ARGON2_LIBRARY NAMES argon2)
@@ -48,7 +49,7 @@ target_include_directories(scratchircd PRIVATE
     ${ARGON2_INCLUDE_DIR}
 )
 target_compile_definitions(scratchircd PRIVATE _POSIX_C_SOURCE=200809L)
-target_link_libraries(scratchircd PRIVATE Threads::Threads ${ARGON2_LIBRARY} SQLite::SQLite3)
+target_link_libraries(scratchircd PRIVATE Threads::Threads ${ARGON2_LIBRARY} SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 
 add_executable(scratchircd-mkpasswd tools/mkpasswd.c)
 target_include_directories(scratchircd-mkpasswd PRIVATE
@@ -59,6 +60,7 @@ target_link_libraries(scratchircd-mkpasswd PRIVATE ${ARGON2_LIBRARY})
 
 add_executable(test_client_identity tests/test_client_identity.c src/client.c)
 target_include_directories(test_client_identity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_client_identity PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME client_identity COMMAND test_client_identity)
 
 add_executable(test_modes tests/test_modes.c src/modes.c)
@@ -115,6 +117,14 @@ add_test(
             $<TARGET_FILE:scratchircd-mkpasswd>
 )
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
+
+add_test(
+    NAME tls_integration
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py
+            $<TARGET_FILE:scratchircd>
+)
+set_tests_properties(tls_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
