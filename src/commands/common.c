@@ -12,9 +12,7 @@
 #include <sys/socket.h>
 
 const char *command_reply_nick(const Client *client) {
-    if (client == NULL || client->nick[0] == '\0') {
-        return "*";
-    }
+    if (client == NULL || client->nick[0] == '\0') return "*";
     return client->nick;
 }
 
@@ -24,17 +22,32 @@ static int registration_banned(Server *server, Client *client) {
     BanRecord record;
     char host_identity[IRCD_MESSAGE_BUFFER_SIZE];
     char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+    const char *real_host_identity = NULL;
     int matched = 0;
 
     if (ban_db_open(&db, server->config.bans_db) != 0) return 0;
 
-    if (ban_db_match(&db, BAN_TYPE_ZLINE, client->ip, NULL, &record) == 1) {
+    /* ZLINE is always based on the actual end-user numeric IP. */
+    if (ban_db_match(&db, BAN_TYPE_ZLINE, client->real_ip, NULL, &record) == 1) {
         matched = 1;
     } else {
-        (void)snprintf(host_identity, sizeof(host_identity), "%s@%s", client->user, client->host);
-        (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s", client->user, client->ip);
-        if (ban_db_match(&db, BAN_TYPE_KLINE, host_identity, ip_identity, &record) == 1)
+        /*
+         * KLINE uses the actual user@resolved-host and user@real-IP identities.
+         * display_host is deliberately excluded so cloaks/vhosts cannot evade
+         * or accidentally trigger a server-level ban.
+         */
+        if (client->real_host[0] != '\0') {
+            (void)snprintf(host_identity, sizeof(host_identity), "%s@%s",
+                           client->user, client->real_host);
+            real_host_identity = host_identity;
+        }
+        (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s",
+                       client->user, client->real_ip);
+        if (ban_db_match(&db, BAN_TYPE_KLINE,
+                         real_host_identity != NULL ? real_host_identity : ip_identity,
+                         ip_identity, &record) == 1) {
             matched = 1;
+        }
     }
 
     if (matched) {
@@ -61,20 +74,20 @@ void command_maybe_register(Server *server, Client *client) {
 
     client->registered = 1;
     client_sendf(client, RPL_WELCOME, server->config.server_name, client->nick,
-                 server->config.network_name, client->nick, client->user, client->host);
+                 server->config.network_name, client->nick, client->user,
+                 client->display_host);
     client_sendf(client, RPL_YOURHOST, server->config.server_name, client->nick,
                  server->config.server_name, IRCD_VERSION);
     client_sendf(client, RPL_CREATED, server->config.server_name, client->nick, IRCD_CREATED);
     client_sendf(client, RPL_AVAILABLE, server->config.server_name, client->nick,
                  server->config.server_name, IRCD_VERSION,
                  IRCD_SUPPORTED_USER_MODES, IRCD_SUPPORTED_CHANNEL_MODES);
-    client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick, IRCD_ISUPPORT_BASE);
+    client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick,
+                 IRCD_ISUPPORT_BASE);
 }
 
 int command_require_registered(Client *client) {
-    if (client != NULL && client->registered) {
-        return 0;
-    }
+    if (client != NULL && client->registered) return 0;
     if (client != NULL) {
         client_sendf(client, ERR_NOTREGISTERED,
                      IRCD_DEFAULT_SERVER_NAME, command_reply_nick(client));
@@ -94,12 +107,15 @@ void command_send_names(Channel *channel, Client *client) {
     for (member = channel->members; member != NULL; member = member->next) {
         char prefix = channel_privilege_prefix(member->privileges);
         int written = prefix != '\0'
-            ? snprintf(names + used, sizeof(names) - used, "%s%c%s", used ? " " : "", prefix, member->client->nick)
-            : snprintf(names + used, sizeof(names) - used, "%s%s", used ? " " : "", member->client->nick);
+            ? snprintf(names + used, sizeof(names) - used, "%s%c%s",
+                       used ? " " : "", prefix, member->client->nick)
+            : snprintf(names + used, sizeof(names) - used, "%s%s",
+                       used ? " " : "", member->client->nick);
         if (written < 0 || (size_t)written >= sizeof(names) - used) break;
         used += (size_t)written;
     }
     client_sendf(client, RPL_NAMREPLY, IRCD_DEFAULT_SERVER_NAME, client->nick,
                  marker, channel->name, names);
-    client_sendf(client, RPL_ENDOFNAMES, IRCD_DEFAULT_SERVER_NAME, client->nick, channel->name);
+    client_sendf(client, RPL_ENDOFNAMES, IRCD_DEFAULT_SERVER_NAME,
+                 client->nick, channel->name);
 }
