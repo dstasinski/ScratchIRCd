@@ -19,6 +19,16 @@ USER <username> 0 * :<real name>
 
 ScratchIRCd supports IPv4 and IPv6 connections. DNS lookup is asynchronous and does not block other clients. Persistent KLINE/ZLINE policy is checked before registration completes.
 
+## Hostname privacy
+
+Ordinary IRC clients see only another user's **displayed hostname**. This is the hostname used by WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks.
+
+A user's actual IP address and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces the displayed hostname without changing the real identity. Planned cloak mode `+x` will similarly replace only the displayed hostname.
+
+Because channel bans are normal channel-visible policy, `+b`, `+e`, and `+I` masks match the displayed `nick!user@host` identity, not hidden real IP/DNS data.
+
+`USERIP` exists but is restricted to IRC operators.
+
 ## Currently implemented client commands
 
 ### ADMIN
@@ -197,15 +207,7 @@ Queries or changes a channel topic. With channel mode `+t`, halfop or higher is 
 USERHOST <nick1> [nick2 ...]
 ```
 
-Returns host information for online nicknames.
-
-### USERIP
-
-```text
-USERIP <nick1> [nick2 ...]
-```
-
-Returns effective client IP information. For future authenticated WebIRC users, this means the actual client identity rather than the gateway socket identity.
+Returns the displayed hostname for online nicknames. It does not reveal real IP/DNS identity.
 
 ### WHO
 
@@ -214,7 +216,7 @@ WHO <mask-or-channel>
 WHO 0
 ```
 
-Displays visible matching users while respecting invisibility and channel visibility rules.
+Displays visible matching users while respecting invisibility and channel visibility rules. WHO uses only displayed hostnames.
 
 ### WHOIS
 
@@ -222,7 +224,7 @@ Displays visible matching users while respecting invisibility and channel visibi
 WHOIS <nickname>
 ```
 
-Displays information about a user, including visible channel membership, away state, and idle/signon information where permitted.
+Displays public information about a user, including the displayed hostname, visible channel membership, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
 
 ## User modes
 
@@ -243,11 +245,11 @@ ScratchIRCd defines these client modes:
 - `S` — services daemon protection marker.
 - `s` — server notices; behavior still planned.
 - `T` — reject CTCPs.
-- `t` — using a vhost.
+- `t` — using a vhost; changes only the displayed hostname.
 - `V` — WebIRC client marker.
 - `W` — WHOIS notification for IRCops; behavior still planned.
 - `w` — receive WALLOPS messages.
-- `x` — hidden hostname; behavior still planned.
+- `x` — use a cloaked displayed hostname; cloak generation is still planned.
 - `z` — secure/TLS client marker.
 
 Security/service-derived modes cannot simply be self-granted.
@@ -258,12 +260,12 @@ ScratchIRCd defines the following channel modes. Some already have enforcement w
 
 - `A` — network administrators only.
 - `B <channel>` — redirect banned clients.
-- `b <mask>` — ban mask.
+- `b <mask>` — ban the displayed `nick!user@host` identity.
 - `c` — no ANSI color; full filtering behavior planned.
-- `e <mask>` — ban exception.
+- `e <mask>` — channel-ban exception against displayed identity.
 - `h <nick>` — halfop.
 - `i` — invite only.
-- `I <mask>` — invite exception.
+- `I <mask>` — invite exception against displayed identity.
 - `j <joins:seconds>` — per-client join throttle.
 - `K` — disallow KNOCK; KNOCK is not currently implemented.
 - `k <key>` — channel key.
