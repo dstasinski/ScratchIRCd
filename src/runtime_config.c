@@ -33,6 +33,7 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->network_name, sizeof(config->network_name), IRCD_DEFAULT_NETWORK_NAME);
     (void)copy_value(config->bind_address, sizeof(config->bind_address), IRCD_DEFAULT_BIND_ADDRESS);
     (void)copy_value(config->port, sizeof(config->port), IRCD_DEFAULT_PORT);
+    (void)copy_value(config->tls_port, sizeof(config->tls_port), IRCD_DEFAULT_TLS_PORT);
     (void)copy_value(config->motd_file, sizeof(config->motd_file), IRCD_DEFAULT_MOTD_FILE);
     (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
     (void)copy_value(config->operators_db, sizeof(config->operators_db), IRCD_DEFAULT_OPERATORS_DB);
@@ -55,6 +56,9 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("network_name", network_name)
     STRING_OPTION("bind_address", bind_address)
     STRING_OPTION("port", port)
+    STRING_OPTION("tls_port", tls_port)
+    STRING_OPTION("tls_cert_file", tls_cert_file)
+    STRING_OPTION("tls_key_file", tls_key_file)
     STRING_OPTION("server_password", server_password)
     STRING_OPTION("motd_file", motd_file)
     STRING_OPTION("rules_file", rules_file)
