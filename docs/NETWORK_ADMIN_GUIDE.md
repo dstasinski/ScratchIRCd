@@ -1,6 +1,6 @@
 # ScratchIRCd Network Administrator Guide
 
-This guide documents the commands and responsibilities available to the ScratchIRCd network administrator. It is updated as features are implemented.
+This guide documents commands and responsibilities available to the ScratchIRCd network administrator.
 
 ## Client identity and security policy
 
@@ -12,13 +12,9 @@ Every connected client has exactly three host/address identity fields:
 
 WHO, ordinary WHOIS, USERHOST, channel/user prefixes, and channel ban masks use `display_host`. Vhosts (`+t`) replace only `display_host`; planned cloaking (`+x`) will do the same.
 
-KLINE and ZLINE are deliberately independent of public cloaks/vhosts. KLINE checks `user@real_host` when a verified hostname exists and `user@real_ip`; ZLINE uses only `real_ip`. Network administrators and IRC operators can inspect real identity via operator WHOIS output and USERIP.
-
-For future WebIRC connections, the real fields will contain the authenticated end user's identity, not the gateway address. Any retained gateway audit data will be maintained separately from the Client identity fields.
+KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE uses only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP.
 
 ## TLS configuration
-
-ScratchIRCd supports a normal plaintext listener and an OpenSSL TLS listener at the same time.
 
 ```text
 port = 6667
@@ -27,15 +23,39 @@ tls_cert_file = /etc/letsencrypt/live/irc.example.net/fullchain.pem
 tls_key_file = /etc/letsencrypt/live/irc.example.net/privkey.pem
 ```
 
-TLS is enabled only when both `tls_cert_file` and `tls_key_file` are non-empty. The certificate chain and private key are validated at startup. TLS 1.2 is the minimum accepted protocol version.
+TLS is enabled only when both certificate and private-key paths are configured. TLS 1.2 is the minimum accepted protocol version. Successful TLS clients receive `+z`. TLS listener/certificate changes require RESTART.
 
-TLS handshakes are non-blocking. A client receives user mode `+z` only after the OpenSSL handshake completes successfully. Channel mode `+z` therefore restricts a channel to authenticated TLS transport rather than merely trusting a client-supplied mode.
+## WebIRC gateways
 
-Changes to `tls_port`, `tls_cert_file`, or `tls_key_file` require `RESTART`; REHASH rejects listener/TLS identity changes.
+Authorized gateways are configured in `ircd.conf` by **numeric TCP peer IP** and password. Repeat the setting to authorize multiple gateways:
+
+```text
+webirc_gateway = 127.0.0.1 gateway-secret
+webirc_gateway = 2001:db8::10 another-secret
+```
+
+The gateway sends, before registration:
+
+```text
+WEBIRC <password> <gateway-name> <supplied-hostname> <client-ip>
+```
+
+Authorization requires both the configured numeric gateway IP and matching password. Gateway DNS names are not used for authorization.
+
+After successful WEBIRC:
+
+- the physical gateway IP is saved only in `Client.webirc.gateway_ip` audit metadata;
+- the supplied gateway name and hostname are retained only as WebIRC audit metadata;
+- `real_ip` becomes the supplied end-user IP;
+- ScratchIRCd performs fresh asynchronous FCrDNS on that `real_ip` to establish `real_host`;
+- `display_host` follows the actual client identity, not the gateway;
+- user mode `+V` is set.
+
+A failed/unauthorized WEBIRC attempt disconnects the connection before registration. The plaintext WEBIRC password is necessarily available to the gateway and server configuration; protect `ircd.conf` with appropriate filesystem permissions and prefer TLS between remote gateways and ScratchIRCd.
 
 ## Bootstrap network administrator
 
-The network administrator is the only operator identity stored in `ircd.conf`. Ordinary IRC operators live in `data/operators.db`.
+Only the bootstrap network administrator is stored in `ircd.conf`. Ordinary IRC operators live in `data/operators.db`.
 
 ```text
 operators_db = data/operators.db
@@ -46,7 +66,7 @@ netadmin_hostmask = *!*@*
 netadmin_vhost = admin.example.net
 ```
 
-Generate the Argon2id password hash with:
+Generate the hash with:
 
 ```sh
 ./build/scratchircd-mkpasswd 'your password'
@@ -58,11 +78,9 @@ Authenticate with:
 OPER root <password>
 ```
 
-A successful bootstrap login receives network-administrator mode `+N` and the complete operator permission set. The bootstrap hostmask is evaluated against the client's real resolved hostname and real IP, never a cloak or vhost.
+A successful bootstrap login receives `+N` and the complete operator permission set. The bootstrap hostmask is evaluated against real identity, never `display_host` or a WebIRC gateway.
 
 ## Operator database management
-
-Ordinary operator accounts are stored in `data/operators.db`. Plaintext passwords supplied through IRC are immediately converted to Argon2id hashes.
 
 ```text
 OPERADD <name> <password> <vhost|-> :<permissions|->
@@ -76,11 +94,9 @@ OPERLIST
 OPERLIST <name>
 ```
 
-`-` means no vhost or no permissions. Database operators may not receive `netadmin`.
+Ordinary operators are stored in `data/operators.db`; plaintext OPER passwords are immediately converted to Argon2id hashes. Database operators cannot receive `netadmin`.
 
 ## Persistent server bans
-
-KLINE and ZLINE records are stored in `data/bans.db` and survive server restarts.
 
 ### KLINE
 
@@ -89,7 +105,7 @@ KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 ```
 
-Adding a KLINE requires `can_kline`. Removing one requires `can_unkline`. Wildcards `*` and `?` are supported. Matching checks `user@real_host` when available and `user@real_ip`; `display_host` is not considered. Existing matching clients are disconnected immediately and new matching clients are rejected before registration.
+KLINE persists in `data/bans.db`, matches real host/IP identity, and ignores cloaks/vhosts.
 
 ### ZLINE
 
@@ -98,90 +114,44 @@ ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 ```
 
-ZLINE requires `can_zline`. It matches `real_ip`, supports `*` and `?`, persists in `data/bans.db`, disconnects currently matching clients, and rejects future matching connections before registration.
+ZLINE persists in `data/bans.db` and matches only `real_ip`. For WebIRC users this is the end-user IP, not the gateway IP.
 
 ## Implemented administrative/operator commands
 
-### KILL
-
 ```text
 KILL <nickname> :<reason>
-```
-
-Requires `can_kill`.
-
-### WALLOPS
-
-```text
 WALLOPS :<message>
-```
-
-Requires `can_wallops`.
-
-### REHASH
-
-```text
 REHASH
-```
-
-Requires `can_rehash`. Reloads runtime configuration that can safely change without rebuilding listeners. Plain/TLS listener identity changes require RESTART.
-
-### RESTART
-
-```text
 RESTART
-```
-
-Requires `can_restart`. Disconnects current clients, reloads the active configuration, recreates plaintext/TLS listeners and databases, and starts a fresh Server instance in the same process.
-
-### SAJOIN / SAPART
-
-```text
 SAJOIN <nick> <channel>[,<channel>...]
 SAPART <nick> <channel>[,<channel>...]
-```
-
-Require `can_override`. SAJOIN bypasses normal JOIN restrictions; SAPART forcibly removes the target from listed channels.
-
-### SAMODE
-
-```text
 SAMODE <nick> <modes>
 SAMODE <channel> <modes> [parameters...]
-```
-
-Requires `can_override`. Channel SAMODE uses normal MODE semantics with server authority. User SAMODE cannot create provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
-
-### SETHOST / SETIDENT / SETNAME
-
-```text
 SETHOST <nick> <newhost>
 SETIDENT <nick> <newident>
 SETNAME <nick> :<new real name>
+USERIP <nick1> [nick2 ...]
+WHOIS <nickname>
 ```
 
-Require `can_override`. SETHOST changes only `display_host`, sets `+t`, and leaves `real_ip`/`real_host` untouched.
-
-### USERIP and operator WHOIS
-
-`USERIP` is operator-only and returns `real_ip`. Operator WHOIS includes numeric 378 with `real_host` (or IP fallback) and `real_ip`.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC gateway authorization. Listener/TLS changes require RESTART.
 
 ## Operator permissions
 
 - `can_rehash` — use REHASH.
 - `can_die` — reserved for DIE; not implemented.
 - `can_restart` — use RESTART.
-- `helpop` — grants user mode `+h` on OPER login.
+- `helpop` — grants `+h` on OPER login.
 - `can_wallops` — send WALLOPS.
 - `can_kill` — use KILL.
 - `can_kline` — add KLINEs.
 - `can_unkline` — remove KLINEs.
 - `can_zline` — add/remove ZLINEs.
-- `get_host` — apply the configured operator vhost to `display_host` and grant `+t`.
+- `get_host` — apply the configured operator vhost and grant `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 - `netadmin` — bootstrap network administrator only.
 
-## Commands currently available to the network administrator
+## Complete implemented command set available to the network administrator
 
 ```text
 ADMIN
@@ -224,24 +194,27 @@ USER
 USERHOST
 USERIP
 WALLOPS
+WEBIRC
 WHO
 WHOIS
 ZLINE
 ```
 
+`WEBIRC` is normally emitted by an authorized gateway rather than typed by an administrator, but it is part of the implemented protocol command set.
+
 ## Planned DNSBL and GeoIP connection policy
 
-DNSBL and GeoIP will be attached to the finalized `real_ip` after direct/WebIRC identity is established and before registration completes. DNSBL queries will be asynchronous; configured blacklist hits may automatically create persistent ZLINE records in `data/bans.db` and reject the connection.
+DNSBL and GeoIP will attach to finalized `real_ip` after direct/WebIRC identity establishment and before registration completes. DNSBL checks will be asynchronous; configured hits may automatically create persistent ZLINE records in `data/bans.db`.
 
-GeoIP will use libmaxminddb directly with downloaded `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` files under `data/`. Client GeoIP state will expose: `status`, `ip`, `network`, `source`, `continent_code`, `country_code`, `country_name`, `region_code`, `region_name`, `city`, `asn`, and `organization`. These fields will be kept in a dedicated nested Client GeoIP structure rather than mixed into the three host identity fields.
+GeoIP will use libmaxminddb with `data/GeoLite2-City.mmdb` and `data/GeoLite2-ASN.mmdb`. The nested Client GeoIP record will expose `status`, `ip`, `network`, `source`, `continent_code`, `country_code`, `country_name`, `region_code`, `region_name`, `city`, `asn`, and `organization`.
 
 ## Security and runtime data
 
-All ScratchIRCd databases belong under `data/`. Current databases are:
+All runtime databases and MaxMind databases belong under `data/`. Current SQLite databases are:
 
 ```text
 data/operators.db
 data/bans.db
 ```
 
-Future service/history databases and MaxMind `.mmdb` files will use the same runtime-data directory convention. `ircd.conf`, runtime databases, SQLite journal/WAL files, and `build/` are excluded from source control.
+`ircd.conf`, runtime databases, SQLite journal/WAL files, and `build/` are excluded from source control.
