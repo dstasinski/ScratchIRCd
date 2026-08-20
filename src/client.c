@@ -20,15 +20,10 @@ Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     client->fd = fd;
     client->address_family = address_family;
     client->dns_state = CLIENT_DNS_NONE;
+    client->tls_state = CLIENT_TLS_NONE;
     client->signon_time = now;
     client->last_activity = now;
 
-    /*
-     * A newly accepted direct connection begins with the peer address as its
-     * real IP and visible identity. real_host remains empty until asynchronous
-     * FCrDNS succeeds. WebIRC will later replace real_ip with the trusted
-     * gateway-supplied end-user address before resolving that address.
-     */
     (void)snprintf(client->real_ip, sizeof(client->real_ip), "%s",
                    ip != NULL ? ip : IRC_UNKNOWN_HOST);
     client->real_host[0] = '\0';
@@ -45,6 +40,12 @@ void client_free(void *ptr) {
         return;
     }
 
+    if (client->ssl != NULL) {
+        (void)SSL_shutdown(client->ssl);
+        SSL_free(client->ssl);
+        client->ssl = NULL;
+    }
+
     link = client->channels;
     while (link != NULL) {
         ClientChannelLink *next = link->next;
@@ -52,6 +53,31 @@ void client_free(void *ptr) {
         link = next;
     }
     free(client);
+}
+
+/** Send already-framed bytes through either plaintext TCP or established TLS. */
+static int client_send_bytes(Client *client, const char *buffer, size_t length) {
+    if (client->ssl != NULL) {
+        int rc;
+        int error;
+
+        if (client->tls_state != CLIENT_TLS_ESTABLISHED) {
+            return -1;
+        }
+
+        rc = SSL_write(client->ssl, buffer, (int)length);
+        if (rc > 0) {
+            return rc;
+        }
+
+        error = SSL_get_error(client->ssl, rc);
+        if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
+            return 0;
+        }
+        return -1;
+    }
+
+    return (int)send(client->fd, buffer, length, MSG_NOSIGNAL);
 }
 
 int client_send_line(Client *client, const char *line) {
@@ -77,7 +103,7 @@ int client_send_line(Client *client, const char *line) {
         }
     }
 
-    return (int)send(client->fd, buffer, length, MSG_NOSIGNAL);
+    return client_send_bytes(client, buffer, length);
 }
 
 int client_sendf(Client *client, const char *fmt, ...) {
