@@ -4,9 +4,8 @@
  *
  * TOPIC with no trailing topic queries current state using numerics.h. Setting
  * a topic requires channel membership. When channel mode +t is set, halfop or
- * greater privilege is required; otherwise any channel member may set or clear
- * the topic. The channel records the full setter identity and timestamp so
- * queries can emit RPL_TOPICWHOTIME.
+ * greater privilege is required. The stored setter and broadcast prefix use
+ * display_host because topic metadata is client-visible IRC state.
  */
 
 #include "commands.h"
@@ -25,9 +24,7 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
     ChannelMember *member;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "TOPIC");
@@ -80,18 +77,16 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (*topic == ':') {
-        ++topic;
-    }
+    if (*topic == ':') ++topic;
 
     (void)snprintf(channel->topic, sizeof(channel->topic), "%s", topic);
     (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter),
-                   "%s!%s@%s", client->nick, client->user, client->host);
+                   "%s!%s@%s", client->nick, client->user, client->display_host);
     channel->topic_time = time(NULL);
 
     (void)snprintf(message, sizeof(message),
                    ":%s!%s@%s TOPIC %s :%s\r\n",
-                   client->nick, client->user, client->host,
+                   client->nick, client->user, client->display_host,
                    channel->name, channel->topic);
     channel_broadcast(channel, NULL, message);
     return COMMAND_KEEP_CLIENT;
