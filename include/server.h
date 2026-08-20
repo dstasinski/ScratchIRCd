@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <openssl/ssl.h>
+
 #include "channel.h"
 #include "client.h"
 #include "dns.h"
@@ -15,7 +17,9 @@ typedef struct Server {
     ServerConfig config;
 
     int *listen_fds;
+    unsigned char *listener_tls; /**< Parallel array: non-zero for TLS listeners. */
     size_t listener_count;
+    SSL_CTX *tls_ctx;            /**< Shared server-side OpenSSL context. */
 
     Client **clients;
     size_t client_count;
