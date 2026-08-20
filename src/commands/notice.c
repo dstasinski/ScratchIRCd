@@ -2,14 +2,9 @@
  * @file notice.c
  * @brief Implementation of the IRC NOTICE command.
  *
- * NOTICE deliberately mirrors PRIVMSG delivery restrictions without emitting
- * automatic error replies for delivery failures. This follows the IRC rule
- * that NOTICE must not trigger error-response loops between automated clients.
- *
- * Channel NOTICE obeys +T (no NOTICE), +n (no external messages), +m
- * (moderated), and +M (registered speakers only). Direct NOTICE obeys target
- * user modes +R (registered senders only) and +T (no CTCP). Delivery failures
- * are silently discarded.
+ * NOTICE mirrors PRIVMSG delivery restrictions without emitting automatic
+ * error replies for delivery failures. All client-visible source prefixes use
+ * display_host; real identity never leaks through NOTICE.
  */
 
 #include "commands.h"
@@ -29,44 +24,31 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     char *text;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (params == NULL) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+    if (params == NULL) return COMMAND_KEEP_CLIENT;
 
     target = strtok(params, " ");
     text = strtok(NULL, "");
-    if (target == NULL || text == NULL || *target == '\0') {
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (*text == ':') {
-        ++text;
-    }
+    if (target == NULL || text == NULL || *target == '\0') return COMMAND_KEEP_CLIENT;
+    if (*text == ':') ++text;
 
     (void)snprintf(message, sizeof(message),
                    ":%s!%s@%s NOTICE %s :%s\r\n",
-                   client->nick, client->user, client->host, target, text);
+                   client->nick, client->user, client->display_host, target, text);
 
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
         ChannelMember *member;
 
-        if (channel == NULL ||
-            channel_mode_has(channel->modes, CHANNEL_MODE_NO_NOTICE)) {
+        if (channel == NULL || channel_mode_has(channel->modes, CHANNEL_MODE_NO_NOTICE))
             return COMMAND_KEEP_CLIENT;
-        }
 
         member = channel_find_member(channel, client);
-        if (member == NULL &&
-            channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL)) {
+        if (member == NULL && channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL))
             return COMMAND_KEEP_CLIENT;
-        }
         if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_SPEAK) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED))
             return COMMAND_KEEP_CLIENT;
-        }
         if (channel_mode_has(channel->modes, CHANNEL_MODE_MODERATED) &&
             (member == NULL ||
              !channel_privilege_has(member->privileges,
@@ -80,17 +62,12 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         channel_broadcast(channel, client, message);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
-        if (destination == NULL) {
-            return COMMAND_KEEP_CLIENT;
-        }
+        if (destination == NULL) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED))
             return COMMAND_KEEP_CLIENT;
-        }
-        if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) &&
-            is_ctcp(text)) {
+        if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && is_ctcp(text))
             return COMMAND_KEEP_CLIENT;
-        }
         (void)send(destination->fd, message, strlen(message), MSG_NOSIGNAL);
     }
 
