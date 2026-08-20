@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.7.0
+    VERSION 0.8.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -35,9 +35,12 @@ add_executable(scratchircd
     src/commands/nick.c src/commands/notice.c src/commands/oper.c
     src/commands/operator_admin.c src/commands/pass.c src/commands/ping.c
     src/commands/privmsg.c src/commands/quit.c src/commands/rehash.c
-    src/commands/rules.c src/commands/topic.c src/commands/user.c
-    src/commands/userhost.c src/commands/userip.c src/commands/wallops.c
-    src/commands/who.c src/commands/whois.c src/commands/zline.c
+    src/commands/restart.c src/commands/rules.c src/commands/sajoin.c
+    src/commands/samode.c src/commands/sapart.c src/commands/sethost.c
+    src/commands/setident.c src/commands/setname.c src/commands/topic.c
+    src/commands/user.c src/commands/userhost.c src/commands/userip.c
+    src/commands/wallops.c src/commands/who.c src/commands/whois.c
+    src/commands/zline.c
 )
 
 target_include_directories(scratchircd PRIVATE
@@ -103,6 +106,15 @@ add_test(
             $<TARGET_FILE:scratchircd-mkpasswd>
 )
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
+
+add_test(
+    NAME operator_override_integration
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py
+            $<TARGET_FILE:scratchircd>
+            $<TARGET_FILE:scratchircd-mkpasswd>
+)
+set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
