@@ -23,7 +23,10 @@ static const CommandEntry command_table[] = {
     {"OPER", command_oper}, {"OPERADD", command_operadd}, {"OPERDEL", command_operdel},
     {"OPERLIST", command_operlist}, {"OPERSET", command_operset}, {"PART", command_part},
     {"PASS", command_pass}, {"PING", command_ping}, {"PRIVMSG", command_privmsg},
-    {"QUIT", command_quit}, {"REHASH", command_rehash}, {"RULES", command_rules},
+    {"QUIT", command_quit}, {"REHASH", command_rehash}, {"RESTART", command_restart},
+    {"RULES", command_rules}, {"SAJOIN", command_sajoin}, {"SAMODE", command_samode},
+    {"SAPART", command_sapart}, {"SETHOST", command_sethost},
+    {"SETIDENT", command_setident}, {"SETNAME", command_setname},
     {"TOPIC", command_topic}, {"USER", command_user}, {"USERHOST", command_userhost},
     {"USERIP", command_userip}, {"WALLOPS", command_wallops}, {"WHO", command_who},
     {"WHOIS", command_whois}, {"ZLINE", command_zline}
