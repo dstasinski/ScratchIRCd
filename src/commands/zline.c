@@ -1,6 +1,9 @@
 /**
  * @file zline.c
  * @brief Persistent numeric-IP ZLINE management.
+ *
+ * ZLINE matches only Client.real_ip. For future WebIRC connections that field
+ * is the authenticated end-user address, never the gateway socket address.
  */
 
 #include "ban_db.h"
@@ -22,14 +25,16 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (params == NULL) {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name, client->nick, "ZLINE");
+        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
+                     client->nick, "ZLINE");
         return COMMAND_KEEP_CLIENT;
     }
 
     mask = strtok(params, " ");
     reason = strtok(NULL, "");
     if (mask == NULL || *mask == '\0') {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name, client->nick, "ZLINE");
+        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
+                     client->nick, "ZLINE");
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -64,7 +69,7 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         Client *target = server->clients[i];
         BanRecord match;
         if (target != client && ban_db_match(&db, BAN_TYPE_ZLINE,
-                                             target->ip, NULL, &match) == 1) {
+                                             target->real_ip, NULL, &match) == 1) {
             client_sendf(target, ERR_YOUREBANNEDCREEP,
                          server->config.server_name,
                          command_reply_nick(target), server->config.admin_email);
