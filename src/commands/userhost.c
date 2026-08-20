@@ -1,6 +1,9 @@
 /**
  * @file userhost.c
  * @brief Implementation of IRC USERHOST.
+ *
+ * USERHOST is a client-visible command and therefore returns display_host,
+ * never the client's real DNS hostname or real IP address.
  */
 
 #include "commands.h"
@@ -23,7 +26,7 @@ CommandResult command_userhost(Server *server, Client *client, char *params) {
         if (target != NULL && target->registered) {
             client_sendf(client, RPL_USERHOST,
                          server->config.server_name, client->nick,
-                         target->nick, target->user, target->host);
+                         target->nick, target->user, target->display_host);
         }
     }
     return COMMAND_KEEP_CLIENT;
