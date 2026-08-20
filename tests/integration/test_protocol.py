@@ -175,6 +175,24 @@ def run_unprotected(binary, mkpasswd, tempdir):
         assert alice_modes.startswith("+")
         assert all(letter in alice_modes for letter in "oNht"), modes
 
+        # The vhost is the public identity; ordinary WHOIS must not leak real IP.
+        b.send("WHOIS alice")
+        alice_whois = b.expect(" 318 bob alice ")
+        assert any("admin.test.local" in line for line in alice_whois), alice_whois
+        assert not any(" 378 bob alice " in line for line in alice_whois), alice_whois
+
+        # IRCops can inspect a client's real identity.
+        a.send("WHOIS bob")
+        bob_whois = a.expect(" 318 alice bob ")
+        assert any(" 378 alice bob " in line and "127.0.0.1" in line
+                   for line in bob_whois), bob_whois
+
+        # Ordinary users cannot use USERIP; IRCops can.
+        b.send("USERIP alice")
+        b.expect(" 481 bob ")
+        a.send("USERIP bob")
+        a.expect(" 340 alice :bob=+bob@127.0.0.1")
+
         # Ordinary users cannot manage operator records.
         b.send("OPERADD nope pass - :can_kill")
         b.expect(" 481 bob ")
@@ -202,6 +220,7 @@ def run_unprotected(binary, mkpasswd, tempdir):
         whois = b.expect(" 318 bob charlie ")
         assert any(" 313 bob charlie :is an IRCop" in line for line in whois), whois
         assert any("staff.test.local" in line for line in whois), whois
+        assert not any(" 378 bob charlie " in line for line in whois), whois
 
         # Disable the record and verify a new connection cannot OPER.
         a.send("OPERSET helper ENABLED 0")
@@ -252,8 +271,9 @@ def run_unprotected(binary, mkpasswd, tempdir):
         got = b.expect(" 303 bob :")
         assert any("alice" in line and "bob" in line and "nobody" not in line for line in got), got
 
-        b.send("USERHOST alice"); b.expect(" 302 bob :alice=")
-        b.send("USERIP alice"); b.expect(" 340 bob :alice=")
+        b.send("USERHOST alice")
+        userhost = b.expect(" 302 bob :alice=")
+        assert any("admin.test.local" in line for line in userhost), userhost
         b.send("LUSERS"); b.expect(" 255 bob ")
         b.send("NAMES #test"); b.expect(" 353 bob = #test :")
         b.send("LIST"); b.expect(" 322 bob #test ")
