@@ -20,6 +20,15 @@ typedef struct ServerConfig {
     size_t max_clients;
     unsigned int dns_timeout_seconds;
 
+    /**
+     * Optional TLS listener. TLS is enabled only when tls_cert_file and
+     * tls_key_file are both non-empty. tls_port is independent of the normal
+     * plaintext listener so both may operate at the same time.
+     */
+    char tls_port[IRCD_PORT_TEXT_MAX + 1U];
+    char tls_cert_file[IRCD_CONFIG_PATH_MAX + 1U];
+    char tls_key_file[IRCD_CONFIG_PATH_MAX + 1U];
+
     char server_password[IRCD_SERVER_PASSWORD_MAX + 1U];
     char motd_file[IRCD_CONFIG_PATH_MAX + 1U];
     char rules_file[IRCD_CONFIG_PATH_MAX + 1U];
