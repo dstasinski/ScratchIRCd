@@ -1,10 +1,6 @@
-/**
- * @file runtime_config.c
- * @brief Strict key=value runtime configuration loading for ScratchIRCd.
- */
-
+/** @file runtime_config.c @brief Strict key=value runtime configuration loading. */
 #include "runtime_config.h"
-
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -27,7 +23,6 @@ static int copy_value(char *dest, size_t size, const char *value) {
 
 void runtime_config_defaults(ServerConfig *config) {
     if (config == NULL) return;
-
     memset(config, 0, sizeof(*config));
     (void)copy_value(config->server_name, sizeof(config->server_name), IRCD_DEFAULT_SERVER_NAME);
     (void)copy_value(config->network_name, sizeof(config->network_name), IRCD_DEFAULT_NETWORK_NAME);
@@ -43,41 +38,56 @@ void runtime_config_defaults(ServerConfig *config) {
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
 }
 
+static int add_webirc_gateway(ServerConfig *config, const char *value) {
+    char copy[IRCD_CONFIG_LINE_MAX];
+    char *ip;
+    char *password;
+    struct in_addr v4;
+    struct in6_addr v6;
+    WebIrcGatewayConfig *gateway;
+
+    if (config->webirc_gateway_count >= IRCD_MAX_WEBIRC_GATEWAYS ||
+        strlen(value) >= sizeof(copy)) return -1;
+    (void)snprintf(copy, sizeof(copy), "%s", value);
+    ip = strtok(copy, " \t");
+    password = strtok(NULL, " \t");
+    if (ip == NULL || password == NULL || strtok(NULL, " \t") != NULL) return -1;
+    if (inet_pton(AF_INET, ip, &v4) != 1 && inet_pton(AF_INET6, ip, &v6) != 1) return -1;
+    gateway = &config->webirc_gateways[config->webirc_gateway_count];
+    if (copy_value(gateway->ip, sizeof(gateway->ip), ip) != 0 ||
+        copy_value(gateway->password, sizeof(gateway->password), password) != 0) return -1;
+    ++config->webirc_gateway_count;
+    return 0;
+}
+
 static int set_option(ServerConfig *config, const char *key, const char *value) {
     char *end = NULL;
     unsigned long number;
-
-#define STRING_OPTION(name, field) \
-    if (strcmp(key, (name)) == 0) { \
-        return copy_value(config->field, sizeof(config->field), value); \
-    }
-
-    STRING_OPTION("server_name", server_name)
-    STRING_OPTION("network_name", network_name)
-    STRING_OPTION("bind_address", bind_address)
-    STRING_OPTION("port", port)
-    STRING_OPTION("tls_port", tls_port)
-    STRING_OPTION("tls_cert_file", tls_cert_file)
-    STRING_OPTION("tls_key_file", tls_key_file)
-    STRING_OPTION("server_password", server_password)
-    STRING_OPTION("motd_file", motd_file)
-    STRING_OPTION("rules_file", rules_file)
-    STRING_OPTION("admin_location1", admin_location1)
-    STRING_OPTION("admin_location2", admin_location2)
-    STRING_OPTION("admin_email", admin_email)
-    STRING_OPTION("operators_db", operators_db)
-    STRING_OPTION("bans_db", bans_db)
-    STRING_OPTION("netadmin_name", netadmin_name)
-    STRING_OPTION("netadmin_password_hash", netadmin_password_hash)
-    STRING_OPTION("netadmin_hostmask", netadmin_hostmask)
-    STRING_OPTION("netadmin_vhost", netadmin_vhost)
-
+#define STRING_OPTION(name, field) if (strcmp(key, (name)) == 0) return copy_value(config->field, sizeof(config->field), value)
+    if (strcmp(key, "webirc_gateway") == 0) return add_webirc_gateway(config, value);
+    STRING_OPTION("server_name", server_name);
+    STRING_OPTION("network_name", network_name);
+    STRING_OPTION("bind_address", bind_address);
+    STRING_OPTION("port", port);
+    STRING_OPTION("tls_port", tls_port);
+    STRING_OPTION("tls_cert_file", tls_cert_file);
+    STRING_OPTION("tls_key_file", tls_key_file);
+    STRING_OPTION("server_password", server_password);
+    STRING_OPTION("motd_file", motd_file);
+    STRING_OPTION("rules_file", rules_file);
+    STRING_OPTION("admin_location1", admin_location1);
+    STRING_OPTION("admin_location2", admin_location2);
+    STRING_OPTION("admin_email", admin_email);
+    STRING_OPTION("operators_db", operators_db);
+    STRING_OPTION("bans_db", bans_db);
+    STRING_OPTION("netadmin_name", netadmin_name);
+    STRING_OPTION("netadmin_password_hash", netadmin_password_hash);
+    STRING_OPTION("netadmin_hostmask", netadmin_hostmask);
+    STRING_OPTION("netadmin_vhost", netadmin_vhost);
 #undef STRING_OPTION
-
     errno = 0;
     number = strtoul(value, &end, 10);
     if (errno != 0 || end == value || *end != '\0') return -1;
-
     if (strcmp(key, "max_clients") == 0) {
         if (number == 0UL || number > IRCD_HARD_MAX_CLIENTS) return -1;
         config->max_clients = (size_t)number;
@@ -95,28 +105,22 @@ int runtime_config_load(ServerConfig *config, const char *path) {
     FILE *file;
     char line[IRCD_CONFIG_LINE_MAX];
     unsigned long line_number = 0UL;
-
     if (config == NULL || path == NULL) return -1;
     file = fopen(path, "r");
     if (file == NULL) return -1;
-
     while (fgets(line, sizeof(line), file) != NULL) {
-        char *text;
+        char *text = trim(line);
         char *equals;
         char *key;
         char *value;
-
         ++line_number;
-        text = trim(line);
         if (*text == '\0' || *text == '#') continue;
-
         equals = strchr(text, '=');
         if (equals == NULL) {
             fprintf(stderr, "%s:%lu: expected key=value\n", path, line_number);
             fclose(file);
             return -1;
         }
-
         *equals = '\0';
         key = trim(text);
         value = trim(equals + 1);
@@ -126,11 +130,7 @@ int runtime_config_load(ServerConfig *config, const char *path) {
             return -1;
         }
     }
-
-    if (ferror(file)) {
-        fclose(file);
-        return -1;
-    }
+    if (ferror(file)) { fclose(file); return -1; }
     fclose(file);
     (void)copy_value(config->source_path, sizeof(config->source_path), path);
     return 0;
