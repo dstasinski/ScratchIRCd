@@ -41,12 +41,8 @@ static void join_one(Server *server, Client *client, const char *name,
     }
 
     channel = hash_get(&server->channels_by_name, name);
-    if (channel == NULL) {
-        channel = server_get_or_create_channel(server, name);
-    }
-    if (channel == NULL || channel_has_client(channel, client)) {
-        return;
-    }
+    if (channel == NULL) channel = server_get_or_create_channel(server, name);
+    if (channel == NULL || channel_has_client(channel, client)) return;
 
     explicitly_invited = channel_invite_has(channel, client->id);
 
@@ -125,22 +121,17 @@ static void join_one(Server *server, Client *client, const char *name,
     }
 
     first_member = channel->member_count == 0U;
-    if (channel_add_client(channel, client) < 0) {
-        return;
-    }
+    if (channel_add_client(channel, client) < 0) return;
     channel_join_throttle_record(channel, client->id);
-    if (explicitly_invited) {
-        (void)channel_invite_consume(channel, client->id);
-    }
-    if (first_member &&
-        !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+    if (explicitly_invited) (void)channel_invite_consume(channel, client->id);
+    if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
         (void)channel_add_privileges(channel, client,
                                      CHANNEL_PRIV_OWNER |
                                      CHANNEL_PRIV_OPERATOR);
     }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
-                   client->nick, client->user, client->host, channel->name);
+                   client->nick, client->user, client->display_host, channel->name);
     channel_broadcast(channel, NULL, message);
 
     if (channel->topic[0] == '\0') {
@@ -162,9 +153,7 @@ CommandResult command_join(Server *server, Client *client, char *params) {
     char *name;
     char *key;
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "JOIN");
@@ -183,9 +172,7 @@ CommandResult command_part(Server *server, Client *client, char *params) {
     Channel *channel;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
-    if (command_require_registered(client)) {
-        return COMMAND_KEEP_CLIENT;
-    }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "PART");
@@ -194,9 +181,7 @@ CommandResult command_part(Server *server, Client *client, char *params) {
 
     name = strtok(params, " ");
     reason = strtok(NULL, "");
-    if (reason != NULL && *reason == ':') {
-        ++reason;
-    }
+    if (reason != NULL && *reason == ':') ++reason;
 
     channel = hash_get(&server->channels_by_name, name);
     if (channel == NULL) {
@@ -211,7 +196,7 @@ CommandResult command_part(Server *server, Client *client, char *params) {
     }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s PART %s :%s\r\n",
-                   client->nick, client->user, client->host, channel->name,
+                   client->nick, client->user, client->display_host, channel->name,
                    reason != NULL ? reason : IRC_DEFAULT_PART_REASON);
     channel_broadcast(channel, NULL, message);
 
