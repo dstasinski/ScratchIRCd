@@ -1,6 +1,10 @@
 /**
  * @file kline.c
  * @brief Persistent user@host KLINE management.
+ *
+ * KLINE is server-security policy. It matches the client's actual FCrDNS host
+ * and actual numeric IP, never display_host. Cloaks and vhosts therefore do
+ * not affect KLINE matching.
  */
 
 #include "ban_db.h"
@@ -14,10 +18,21 @@
 static int client_matches_kline(BanDb *db, const Client *target, BanRecord *record) {
     char host_identity[IRCD_MESSAGE_BUFFER_SIZE];
     char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+    const char *first;
 
-    (void)snprintf(host_identity, sizeof(host_identity), "%s@%s", target->user, target->host);
-    (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s", target->user, target->ip);
-    return ban_db_match(db, BAN_TYPE_KLINE, host_identity, ip_identity, record);
+    if (target->real_host[0] != '\0') {
+        (void)snprintf(host_identity, sizeof(host_identity), "%s@%s",
+                       target->user, target->real_host);
+        first = host_identity;
+    } else {
+        first = ip_identity;
+    }
+
+    (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s",
+                   target->user, target->real_ip);
+    if (target->real_host[0] == '\0') first = ip_identity;
+
+    return ban_db_match(db, BAN_TYPE_KLINE, first, ip_identity, record);
 }
 
 CommandResult command_kline(Server *server, Client *client, char *params) {
@@ -28,14 +43,16 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name, client->nick, "KLINE");
+        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
+                     client->nick, "KLINE");
         return COMMAND_KEEP_CLIENT;
     }
 
     mask = strtok(params, " ");
     reason = strtok(NULL, "");
     if (mask == NULL || *mask == '\0') {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name, client->nick, "KLINE");
+        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
+                     client->nick, "KLINE");
         return COMMAND_KEEP_CLIENT;
     }
 
