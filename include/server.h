@@ -25,6 +25,9 @@ typedef struct Server {
     HashTable clients_by_nick;
     HashTable channels_by_name;
     DnsResolver dns;
+
+    /** Set by RESTART so the event loop returns to main for reinitialization. */
+    int restart_requested;
 } Server;
 
 int server_init(Server *server, const ServerConfig *config);
