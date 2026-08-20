@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.9.0
+    VERSION 0.10.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -40,8 +40,8 @@ add_executable(scratchircd
     src/commands/samode.c src/commands/sapart.c src/commands/sethost.c
     src/commands/setident.c src/commands/setname.c src/commands/topic.c
     src/commands/user.c src/commands/userhost.c src/commands/userip.c
-    src/commands/wallops.c src/commands/who.c src/commands/whois.c
-    src/commands/zline.c
+    src/commands/wallops.c src/commands/webirc.c src/commands/who.c
+    src/commands/whois.c src/commands/zline.c
 )
 
 target_include_directories(scratchircd PRIVATE
@@ -93,40 +93,16 @@ target_compile_definitions(test_ban_db PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_ban_db PRIVATE SQLite::SQLite3)
 add_test(NAME ban_database COMMAND test_ban_db)
 
-add_test(
-    NAME protocol_integration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_protocol.py
-            $<TARGET_FILE:scratchircd>
-            $<TARGET_FILE:scratchircd-mkpasswd>
-)
+add_test(NAME protocol_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_protocol.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(protocol_integration PROPERTIES TIMEOUT 60)
-
-add_test(
-    NAME operator_actions_integration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py
-            $<TARGET_FILE:scratchircd>
-            $<TARGET_FILE:scratchircd-mkpasswd>
-)
+add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
-
-add_test(
-    NAME operator_override_integration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py
-            $<TARGET_FILE:scratchircd>
-            $<TARGET_FILE:scratchircd-mkpasswd>
-)
+add_test(NAME operator_override_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
-
-add_test(
-    NAME tls_integration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py
-            $<TARGET_FILE:scratchircd>
-)
+add_test(NAME tls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(tls_integration PROPERTIES TIMEOUT 60)
+add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_webirc.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
