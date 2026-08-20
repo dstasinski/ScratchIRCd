@@ -36,8 +36,24 @@ typedef enum ClientTlsState {
  * Complete state for one connected IRC client.
  *
  * Host identity is intentionally represented by exactly three fields:
- * real_ip, real_host, and display_host. TLS transport state is kept separate
- * and never changes those identity fields.
+ *
+ *   real_ip
+ *       The actual end-user IP address. For a direct connection this comes
+ *       from the accepted socket. For an authenticated WebIRC connection it
+ *       will be replaced with the real client address supplied by the trusted
+ *       gateway. Security policy such as ZLINE uses this field.
+ *
+ *   real_host
+ *       The FCrDNS-verified hostname resolved from real_ip. It remains empty
+ *       when no verified hostname exists. Security policy such as KLINE may
+ *       match this field as well as real_ip. It is never exposed to ordinary
+ *       clients merely because it exists.
+ *
+ *   display_host
+ *       The only hostname used in normal IRC-visible identity. Initially it is
+ *       real_ip and, after successful DNS, real_host. MODE +x will replace it
+ *       with a cloak; MODE +t replaces it with the assigned vhost. WHO, WHOIS,
+ *       channel/user message prefixes, and channel ban masks use this field.
  */
 typedef struct Client {
     uint64_t id;
@@ -48,7 +64,7 @@ typedef struct Client {
     int pass_accepted;                   /**< PASS satisfied when required. */
     ClientModeSet modes;
 
-    /** TLS transport state. ssl is NULL for plaintext clients. */
+    /** OpenSSL session/handshake state for TLS-listener clients. */
     SSL *ssl;
     ClientTlsState tls_state;
     int tls_want_write;
@@ -80,6 +96,16 @@ typedef struct Client {
 
 Client *client_create(int fd, uint64_t id, int address_family, const char *ip);
 void client_free(void *ptr);
+
+/**
+ * Send exactly length bytes through the client's active transport.
+ *
+ * Plain clients use send(2); established TLS clients use SSL_write().  This
+ * helper is the required path for preformatted wire messages such as channel
+ * broadcasts that already contain their trailing CRLF.
+ */
+int client_send_raw(Client *client, const char *data, size_t length);
+
 int client_sendf(Client *client, const char *fmt, ...);
 int client_send_line(Client *client, const char *line);
 
