@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 
 Channel *channel_create(const char *name) {
     Channel *channel;
@@ -245,6 +244,6 @@ void channel_broadcast(Channel *channel, const Client *except, const char *messa
         if (member->client == except) {
             continue;
         }
-        (void)send(member->client->fd, message, length, MSG_NOSIGNAL);
+        (void)client_send_raw(member->client, message, length);
     }
 }
