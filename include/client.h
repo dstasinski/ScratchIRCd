@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <openssl/ssl.h>
+
 #include "config.h"
 #include "modes.h"
 #include "oper.h"
@@ -24,28 +26,18 @@ typedef enum ClientDnsState {
     CLIENT_DNS_TIMEOUT
 } ClientDnsState;
 
+typedef enum ClientTlsState {
+    CLIENT_TLS_NONE = 0,
+    CLIENT_TLS_HANDSHAKE,
+    CLIENT_TLS_ESTABLISHED
+} ClientTlsState;
+
 /**
  * Complete state for one connected IRC client.
  *
  * Host identity is intentionally represented by exactly three fields:
- *
- *   real_ip
- *       The actual end-user IP address. For a direct connection this comes
- *       from the accepted socket. For an authenticated WebIRC connection it
- *       will be replaced with the real client address supplied by the trusted
- *       gateway. Security policy such as ZLINE uses this field.
- *
- *   real_host
- *       The FCrDNS-verified hostname resolved from real_ip. It remains empty
- *       when no verified hostname exists. Security policy such as KLINE may
- *       match this field as well as real_ip. It is never exposed to ordinary
- *       clients merely because it exists.
- *
- *   display_host
- *       The only hostname used in normal IRC-visible identity. Initially it is
- *       real_ip and, after successful DNS, real_host. MODE +x will replace it
- *       with a cloak; MODE +t replaces it with the assigned vhost. WHO, WHOIS,
- *       channel/user message prefixes, and channel ban masks use this field.
+ * real_ip, real_host, and display_host. TLS transport state is kept separate
+ * and never changes those identity fields.
  */
 typedef struct Client {
     uint64_t id;
@@ -55,6 +47,11 @@ typedef struct Client {
     int is_webirc;
     int pass_accepted;                   /**< PASS satisfied when required. */
     ClientModeSet modes;
+
+    /** TLS transport state. ssl is NULL for plaintext clients. */
+    SSL *ssl;
+    ClientTlsState tls_state;
+    int tls_want_write;
 
     /** Authorization granted by OPER or, later, an identified account. */
     OperPermissionSet oper_permissions;
