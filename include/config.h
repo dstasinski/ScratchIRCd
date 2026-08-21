@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.13"
+#define IRCD_VERSION "ScratchIRCd-0.14"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -39,6 +39,17 @@
 #define IRCD_DEFAULT_GEOIP_ASN_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-ASN.mmdb"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 #define IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS 5U
+
+/* NickServ account recovery and outbound-mail limits. */
+#define IRCD_EMAIL_MAX 254U
+#define IRCD_MAIL_SUBJECT_MAX 127U
+#define IRCD_MAIL_BODY_MAX 1023U
+#define IRCD_RESET_TOKEN_BYTES 16U
+#define IRCD_RESET_TOKEN_HEX_LEN (IRCD_RESET_TOKEN_BYTES * 2U)
+#define IRCD_TOKEN_HASH_HEX_LEN 64U
+#define IRCD_DEFAULT_NICKSERV_RESET_SECONDS 1800U
+#define IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS 86400U
+#define IRCD_DEFAULT_SENDMAIL_PATH ""
 
 /* DNS blacklist definitions. Kept small enough for atomic Linux pipe writes. */
 #define IRCD_MAX_DNSBLS 8U
