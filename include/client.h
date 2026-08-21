@@ -6,6 +6,7 @@
 #include <time.h>
 #include <openssl/ssl.h>
 #include "config.h"
+#include "geoip.h"
 #include "modes.h"
 #include "oper.h"
 
@@ -65,6 +66,10 @@ typedef struct Client {
     char display_host[IRC_HOST_MAX + 1U];
 
     ClientWebIrc webirc;
+
+    /** MaxMind enrichment for the finalized real_ip; never a public hostname. */
+    ClientGeoIP geoip;
+    int geoip_complete;
 
     ClientDnsState dns_state;
     time_t dns_deadline;
