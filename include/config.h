@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.12"
+#define IRCD_VERSION "ScratchIRCd-0.13"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -34,6 +34,7 @@
 #define IRCD_DEFAULT_DATA_DIR "data"
 #define IRCD_DEFAULT_OPERATORS_DB IRCD_DEFAULT_DATA_DIR "/operators.db"
 #define IRCD_DEFAULT_BANS_DB IRCD_DEFAULT_DATA_DIR "/bans.db"
+#define IRCD_DEFAULT_NICKSERV_DB IRCD_DEFAULT_DATA_DIR "/nickserv.db"
 #define IRCD_DEFAULT_GEOIP_CITY_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-City.mmdb"
 #define IRCD_DEFAULT_GEOIP_ASN_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-ASN.mmdb"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
@@ -65,7 +66,7 @@
 #define IRCD_OPER_HOSTMASK_MAX 255U
 #define IRCD_OPER_VHOST_MAX IRC_HOST_MAX
 
-/* Argon2id parameters used for OPER credentials. */
+/* Argon2id parameters used for OPER and NickServ credentials. */
 #define IRCD_ARGON2_TIME_COST 3U
 #define IRCD_ARGON2_MEMORY_COST_KIB 65536U
 #define IRCD_ARGON2_PARALLELISM 1U
