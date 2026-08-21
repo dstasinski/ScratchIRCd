@@ -16,27 +16,16 @@
 
 Channel *channel_create(const char *name) {
     Channel *channel;
-
-    if (name == NULL) {
-        return NULL;
-    }
-
+    if (name == NULL) return NULL;
     channel = calloc(1U, sizeof(*channel));
-    if (channel == NULL) {
-        return NULL;
-    }
-
+    if (channel == NULL) return NULL;
     snprintf(channel->name, sizeof(channel->name), "%s", name);
     return channel;
 }
 
 void channel_mask_clear(ChannelMaskEntry **list) {
     ChannelMaskEntry *entry;
-
-    if (list == NULL) {
-        return;
-    }
-
+    if (list == NULL) return;
     entry = *list;
     while (entry != NULL) {
         ChannelMaskEntry *next = entry->next;
@@ -49,17 +38,12 @@ void channel_mask_clear(ChannelMaskEntry **list) {
 void channel_free(void *ptr) {
     Channel *channel = ptr;
     ChannelMember *member;
-
-    if (channel == NULL) {
-        return;
-    }
-
+    if (channel == NULL) return;
     channel_mask_clear(&channel->ban_list);
     channel_mask_clear(&channel->exception_list);
     channel_mask_clear(&channel->invite_exception_list);
     channel_invite_clear(channel);
     channel_join_throttle_clear(channel);
-
     member = channel->members;
     while (member != NULL) {
         ChannelMember *next = member->next;
@@ -71,16 +55,9 @@ void channel_free(void *ptr) {
 
 ChannelMember *channel_find_member(const Channel *channel, const Client *client) {
     ChannelMember *member;
-
-    if (channel == NULL || client == NULL) {
-        return NULL;
-    }
-
-    for (member = channel->members; member != NULL; member = member->next) {
-        if (member->client == client) {
-            return member;
-        }
-    }
+    if (channel == NULL || client == NULL) return NULL;
+    for (member = channel->members; member != NULL; member = member->next)
+        if (member->client == client) return member;
     return NULL;
 }
 
@@ -91,14 +68,8 @@ int channel_has_client(const Channel *channel, const Client *client) {
 int channel_add_client(Channel *channel, Client *client) {
     ChannelMember *member;
     ClientChannelLink *client_link;
-
-    if (channel == NULL || client == NULL) {
-        return -1;
-    }
-    if (channel_find_member(channel, client) != NULL) {
-        return 0;
-    }
-
+    if (channel == NULL || client == NULL) return -1;
+    if (channel_find_member(channel, client) != NULL) return 0;
     member = calloc(1U, sizeof(*member));
     client_link = calloc(1U, sizeof(*client_link));
     if (member == NULL || client_link == NULL) {
@@ -106,12 +77,10 @@ int channel_add_client(Channel *channel, Client *client) {
         free(client_link);
         return -1;
     }
-
     member->client = client;
     member->next = channel->members;
     channel->members = member;
     ++channel->member_count;
-
     client_link->channel = channel;
     client_link->next = client->channels;
     client->channels = client_link;
@@ -122,34 +91,25 @@ int channel_add_client(Channel *channel, Client *client) {
 void channel_remove_client(Channel *channel, Client *client) {
     ChannelMember **member_link;
     ClientChannelLink **client_link;
-
-    if (channel == NULL || client == NULL) {
-        return;
-    }
-
+    if (channel == NULL || client == NULL) return;
     member_link = &channel->members;
     while (*member_link != NULL) {
         if ((*member_link)->client == client) {
             ChannelMember *dead = *member_link;
             *member_link = dead->next;
             free(dead);
-            if (channel->member_count > 0U) {
-                --channel->member_count;
-            }
+            if (channel->member_count > 0U) --channel->member_count;
             break;
         }
         member_link = &(*member_link)->next;
     }
-
     client_link = &client->channels;
     while (*client_link != NULL) {
         if ((*client_link)->channel == channel) {
             ClientChannelLink *dead = *client_link;
             *client_link = dead->next;
             free(dead);
-            if (client->channel_count > 0U) {
-                --client->channel_count;
-            }
+            if (client->channel_count > 0U) --client->channel_count;
             break;
         }
         client_link = &(*client_link)->next;
@@ -159,9 +119,7 @@ void channel_remove_client(Channel *channel, Client *client) {
 int channel_set_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
-    if (member == NULL) {
-        return -1;
-    }
+    if (member == NULL) return -1;
     member->privileges = privileges;
     return 0;
 }
@@ -169,9 +127,7 @@ int channel_set_privileges(Channel *channel, Client *client,
 int channel_add_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
-    if (member == NULL) {
-        return -1;
-    }
+    if (member == NULL) return -1;
     member->privileges |= privileges;
     return 0;
 }
@@ -179,45 +135,38 @@ int channel_add_privileges(Channel *channel, Client *client,
 int channel_remove_privileges(Channel *channel, Client *client,
                               ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
-    if (member == NULL) {
-        return -1;
-    }
+    if (member == NULL) return -1;
     member->privileges &= ~privileges;
     return 0;
 }
 
-int channel_mask_add(ChannelMaskEntry **list, const char *mask) {
+int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
+                                int protected_authorized) {
     ChannelMaskEntry *entry;
-
     if (list == NULL || mask == NULL || *mask == '\0' ||
-        strlen(mask) > IRC_CHANNEL_MASK_MAX) {
-        return -1;
-    }
-
+        strlen(mask) > IRC_CHANNEL_MASK_MAX) return -1;
     for (entry = *list; entry != NULL; entry = entry->next) {
         if (strcmp(entry->mask, mask) == 0) {
+            if (protected_authorized) entry->protected_authorized = 1;
             return 0;
         }
     }
-
     entry = calloc(1U, sizeof(*entry));
-    if (entry == NULL) {
-        return -1;
-    }
-
+    if (entry == NULL) return -1;
     snprintf(entry->mask, sizeof(entry->mask), "%s", mask);
+    entry->protected_authorized = protected_authorized ? 1 : 0;
     entry->next = *list;
     *list = entry;
     return 0;
 }
 
+int channel_mask_add(ChannelMaskEntry **list, const char *mask) {
+    return channel_mask_add_authorized(list, mask, 0);
+}
+
 int channel_mask_remove(ChannelMaskEntry **list, const char *mask) {
     ChannelMaskEntry **link;
-
-    if (list == NULL || mask == NULL) {
-        return 0;
-    }
-
+    if (list == NULL || mask == NULL) return 0;
     link = list;
     while (*link != NULL) {
         if (strcmp((*link)->mask, mask) == 0) {
@@ -234,16 +183,10 @@ int channel_mask_remove(ChannelMaskEntry **list, const char *mask) {
 void channel_broadcast(Channel *channel, const Client *except, const char *message) {
     ChannelMember *member;
     size_t length;
-
-    if (channel == NULL || message == NULL) {
-        return;
-    }
-
+    if (channel == NULL || message == NULL) return;
     length = strlen(message);
     for (member = channel->members; member != NULL; member = member->next) {
-        if (member->client == except) {
-            continue;
-        }
+        if (member->client == except) continue;
         (void)client_send_raw(member->client, message, length);
     }
 }
