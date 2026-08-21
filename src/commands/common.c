@@ -11,13 +11,13 @@
 
 #include <stdio.h>
 #include <sys/socket.h>
+#include <time.h>
 
 const char *command_reply_nick(const Client *client) {
     if (client == NULL || client->nick[0] == '\0') return "*";
     return client->nick;
 }
 
-/** Return non-zero when a persistent KLINE or ZLINE blocks registration. */
 static int registration_banned(Server *server, Client *client) {
     BanDb db = {0};
     BanRecord record;
@@ -27,16 +27,9 @@ static int registration_banned(Server *server, Client *client) {
     int matched = 0;
 
     if (ban_db_open(&db, server->config.bans_db) != 0) return 0;
-
-    /* ZLINE is always based on the actual end-user numeric IP. */
     if (ban_db_match(&db, BAN_TYPE_ZLINE, client->real_ip, NULL, &record) == 1) {
         matched = 1;
     } else {
-        /*
-         * KLINE uses the actual user@resolved-host and user@real-IP identities.
-         * display_host is deliberately excluded so cloaks/vhosts cannot evade
-         * or accidentally trigger a server-level ban.
-         */
         if (client->real_host[0] != '\0') {
             (void)snprintf(host_identity, sizeof(host_identity), "%s@%s",
                            client->user, client->real_host);
@@ -46,9 +39,7 @@ static int registration_banned(Server *server, Client *client) {
                        client->user, client->real_ip);
         if (ban_db_match(&db, BAN_TYPE_KLINE,
                          real_host_identity != NULL ? real_host_identity : ip_identity,
-                         ip_identity, &record) == 1) {
-            matched = 1;
-        }
+                         ip_identity, &record) == 1) matched = 1;
     }
 
     if (matched) {
@@ -67,18 +58,36 @@ void command_maybe_register(Server *server, Client *client) {
     if (server == NULL || client == NULL || client->registered ||
         client->nick[0] == '\0' || client->user[0] == '\0' ||
         client->dns_state == CLIENT_DNS_PENDING || client->dns_state == CLIENT_DNS_NONE ||
-        (server->config.server_password[0] != '\0' && !client->pass_accepted)) {
-        return;
-    }
+        (server->config.server_password[0] != '\0' && !client->pass_accepted)) return;
 
-    /*
-     * This is the first point at which direct/WebIRC real_ip and FCrDNS state
-     * are final. Enrich once here so all later policy sees the actual end user.
-     */
     if (!client->geoip_complete) {
         geoip_lookup(&server->geoip, client->real_ip, &client->geoip);
         client->geoip_complete = 1;
     }
+
+    /*
+     * DNSBL policy begins only after direct/WebIRC real_ip is final. Registration
+     * remains pending until the asynchronous worker returns or the deadline
+     * expires. No configured lists means the stage is immediately clear.
+     */
+    if (client->dnsbl_state == CLIENT_DNSBL_NONE) {
+        if (server->config.dnsbl_count == 0U) {
+            client->dnsbl_state = CLIENT_DNSBL_CLEAR;
+        } else if (dnsbl_resolver_submit(&server->dnsbl, client->id,
+                                          client->real_ip,
+                                          server->config.dnsbls,
+                                          server->config.dnsbl_count) == 0) {
+            client->dnsbl_state = CLIENT_DNSBL_PENDING;
+            client->dnsbl_deadline = time(NULL) +
+                                     (time_t)server->config.dnsbl_timeout_seconds;
+            return;
+        } else {
+            /* Resolver submission failure fails open but is retained as state. */
+            client->dnsbl_state = CLIENT_DNSBL_ERROR;
+        }
+    }
+    if (client->dnsbl_state == CLIENT_DNSBL_PENDING ||
+        client->dnsbl_state == CLIENT_DNSBL_LISTED) return;
 
     if (registration_banned(server, client)) return;
 
@@ -98,10 +107,8 @@ void command_maybe_register(Server *server, Client *client) {
 
 int command_require_registered(Client *client) {
     if (client != NULL && client->registered) return 0;
-    if (client != NULL) {
-        client_sendf(client, ERR_NOTREGISTERED,
-                     IRCD_DEFAULT_SERVER_NAME, command_reply_nick(client));
-    }
+    if (client != NULL) client_sendf(client, ERR_NOTREGISTERED,
+                                      IRCD_DEFAULT_SERVER_NAME, command_reply_nick(client));
     return 1;
 }
 
@@ -110,22 +117,18 @@ void command_send_names(Channel *channel, Client *client) {
     size_t used = 0U;
     ChannelMember *member;
     char marker;
-
     if (channel == NULL || client == NULL) return;
     marker = channel->name[0] == '&' ? IRC_NAMES_PRIVATE_MARKER : IRC_NAMES_PUBLIC_MARKER;
     names[0] = '\0';
     for (member = channel->members; member != NULL; member = member->next) {
         char prefix = channel_privilege_prefix(member->privileges);
         int written = prefix != '\0'
-            ? snprintf(names + used, sizeof(names) - used, "%s%c%s",
-                       used ? " " : "", prefix, member->client->nick)
-            : snprintf(names + used, sizeof(names) - used, "%s%s",
-                       used ? " " : "", member->client->nick);
+            ? snprintf(names + used, sizeof(names) - used, "%s%c%s", used ? " " : "", prefix, member->client->nick)
+            : snprintf(names + used, sizeof(names) - used, "%s%s", used ? " " : "", member->client->nick);
         if (written < 0 || (size_t)written >= sizeof(names) - used) break;
         used += (size_t)written;
     }
     client_sendf(client, RPL_NAMREPLY, IRCD_DEFAULT_SERVER_NAME, client->nick,
                  marker, channel->name, names);
-    client_sendf(client, RPL_ENDOFNAMES, IRCD_DEFAULT_SERVER_NAME,
-                 client->nick, channel->name);
+    client_sendf(client, RPL_ENDOFNAMES, IRCD_DEFAULT_SERVER_NAME, client->nick, channel->name);
 }
