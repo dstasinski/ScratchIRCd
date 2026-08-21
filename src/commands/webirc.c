@@ -99,6 +99,10 @@ CommandResult command_webirc(Server *server, Client *client, char *params) {
     (void)snprintf(client->display_host, sizeof(client->display_host), "%s", supplied_ip);
     client->modes = client_mode_add(client->modes, CLIENT_MODE_WEBIRC);
 
+    /* Any enrichment performed for the gateway identity must be discarded. */
+    memset(&client->geoip, 0, sizeof(client->geoip));
+    client->geoip_complete = 0;
+
     client->dns_state = CLIENT_DNS_PENDING;
     client->dns_deadline = time(NULL) + (time_t)server->config.dns_timeout_seconds;
     if (dns_resolver_submit(&server->dns, client->id, family, client->real_ip) != 0) {
