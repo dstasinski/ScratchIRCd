@@ -10,6 +10,7 @@
 
 #include "commands.h"
 #include "config.h"
+#include "ircv3.h"
 #include "modes.h"
 #include "nickserv.h"
 #include "numerics.h"
@@ -45,7 +46,10 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
 
     /* NickServ is virtual: it is addressable but never a real Client. */
     if (strcasecmp(target, "NickServ") == 0) {
+        int was_identified = client->account_name[0] != '\0';
         nickserv_handle_message(server, client, text);
+        if (!was_identified && client->account_name[0] != '\0')
+            ircv3_account_notify(client);
         return COMMAND_KEEP_CLIENT;
     }
 
