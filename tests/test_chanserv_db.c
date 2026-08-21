@@ -51,7 +51,7 @@ int main(void) {
 
     assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
     assert(strstr(list, "Bob:3") != NULL);
-    assert(strstr(list, "Carol:4") != NULL);
+    assert(strstr(list, "Carol:5") != NULL);
 
     assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
     assert(chanserv_db_access_get(&db, "#TEST", "BOB", &access) == 1);
