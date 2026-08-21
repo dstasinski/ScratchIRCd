@@ -19,11 +19,17 @@ USER <username> 0 * :<real name>
 
 ScratchIRCd supports IPv4 and IPv6 connections. FCrDNS, GeoIP and optional DNSBL policy are handled before registration completes without blocking the IRC event loop.
 
-## IRCv3 CAP and SASL
+## IRCv3 CAP, SASL, and history
 
-ScratchIRCd currently implements IRCv3 capability negotiation for the `sasl` capability and SASL mechanism `PLAIN`. SASL authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
+ScratchIRCd currently advertises:
 
-A typical client negotiation is:
+```text
+account-notify batch draft/chathistory sasl server-time
+```
+
+SASL mechanism `PLAIN` authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
+
+A typical SASL negotiation is:
 
 ```text
 CAP LS 302
@@ -39,11 +45,27 @@ While CAP negotiation is open, ScratchIRCd deliberately holds normal IRC registr
 
 The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This first implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
 
+For persistent channel history, negotiate:
+
+```text
+CAP REQ :batch draft/chathistory server-time
+```
+
+and, after joining a channel, request:
+
+```text
+CHATHISTORY LATEST <channel> * <limit>
+```
+
+The returned messages are enclosed in a `chathistory` batch. When `server-time` is enabled, historical records include their original UTC timestamps. ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. See `docs/IRCV3_GUIDE.md` for the detailed history scope and limitations.
+
 ## Hostname privacy
 
 Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
 
 A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces only the displayed hostname. Planned cloak mode `+x` will work the same way. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
+
+Historical channel records also store the displayed identity that was public when the message was sent; replay does not reveal `real_ip` or `real_host`.
 
 `USERIP` exists but is restricted to IRC operators.
 
@@ -164,11 +186,20 @@ Sets or clears away status. Users sending a direct PRIVMSG to an away client rec
 
 ```text
 CAP LS 302
-CAP REQ :sasl
+CAP LIST
+CAP REQ :<capability> [capability...]
 CAP END
 ```
 
-Negotiates IRCv3 capabilities before registration. ScratchIRCd currently advertises `sasl`.
+Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`, `batch`, `draft/chathistory`, `sasl`, and `server-time`. Capability removals use a leading `-` in CAP REQ.
+
+### CHATHISTORY
+
+```text
+CHATHISTORY LATEST <channel> * <limit>
+```
+
+Returns the most recent persisted PRIVMSG/NOTICE records for a channel. The client must have negotiated `batch` and `draft/chathistory` and must currently be in the requested channel. `server-time` adds original timestamps to playback.
 
 ### IDENTIFY
 
@@ -278,7 +309,7 @@ NOTICE <nickname> :<text>
 NOTICE <channel> :<text>
 ```
 
-Sends a notice. NOTICE failures are normally silent. Channel mode `+T` blocks channel notices.
+Sends a notice. NOTICE failures are normally silent. Channel mode `+T` blocks channel notices. Accepted channel NOTICEs are stored in persistent history.
 
 ### PART
 
@@ -314,7 +345,7 @@ PRIVMSG <channel> :<text>
 PRIVMSG NickServ :<service-command>
 ```
 
-Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions.
+Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history.
 
 ### QUIT
 
