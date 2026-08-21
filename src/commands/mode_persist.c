@@ -3,9 +3,11 @@
  * @brief ChanServ-aware wrapper around the existing MODE implementation.
  *
  * CMake compiles mode.c with command_mode renamed to command_mode_core. This
- * wrapper leaves the mature MODE parser untouched while adding two ChanServ
- * policies: boolean MLOCK is checked before a registered-channel MODE runs,
- * and accepted parameter/list changes are persisted afterward.
+ * wrapper leaves the mature MODE parser untouched while adding ChanServ
+ * policy and persistence around it. Boolean MLOCK is checked before a
+ * registered-channel MODE runs, accepted parameter/list changes are persisted
+ * afterward, and channel-mode queries include all parameter values in numeric
+ * 324 while still using RPL_CHANNELMODEIS from numerics.h.
  */
 
 #include "commands.h"
@@ -38,6 +40,74 @@ static ChannelModeSet boolean_bit(char letter) {
         case 'z': return CHANNEL_MODE_SECURE_ONLY;
         default: return 0U;
     }
+}
+
+static void append_param(char *buffer, size_t size, const char *param) {
+    size_t used;
+    if (buffer == NULL || size == 0U || param == NULL || *param == '\0') return;
+    used = strlen(buffer);
+    (void)snprintf(buffer + used, size - used, "%s%s",
+                   used != 0U ? " " : "", param);
+}
+
+/**
+ * Send RPL_CHANNELMODEIS with both mode letters and parameter values.
+ *
+ * numerics.h defines RPL_CHANNELMODEIS with one final string field after the
+ * channel name. The historical MODE implementation passed modes and params as
+ * separate varargs, so the params were silently ignored by printf formatting.
+ * Build the complete final field here so numeric 324 remains sourced from
+ * numerics.h and reports +k/+l/+j/+L/+B values correctly.
+ */
+static void send_channel_modes(Server *server, Client *client, Channel *channel) {
+    static const char booleans[] = "AciKMmnOprRSstTVz";
+    char modes[128] = "+";
+    char params[IRCD_MESSAGE_BUFFER_SIZE] = "";
+    char combined[IRCD_MESSAGE_BUFFER_SIZE];
+    char number[64];
+    size_t used = 1U;
+    size_t i;
+
+    for (i = 0U; booleans[i] != '\0' && used + 1U < sizeof(modes); ++i) {
+        ChannelModeSet bit = boolean_bit(booleans[i]);
+        if (booleans[i] == 'r') bit = CHANNEL_MODE_REGISTERED;
+        if (bit != 0U && channel_mode_has(channel->modes, bit))
+            modes[used++] = booleans[i];
+    }
+    if (channel->key[0] != '\0' && used + 1U < sizeof(modes)) {
+        modes[used++] = 'k';
+        append_param(params, sizeof(params), channel->key);
+    }
+    if (channel->user_limit != 0U && used + 1U < sizeof(modes)) {
+        modes[used++] = 'l';
+        (void)snprintf(number, sizeof(number), "%zu", channel->user_limit);
+        append_param(params, sizeof(params), number);
+    }
+    if (channel->join_throttle_count != 0U && used + 1U < sizeof(modes)) {
+        modes[used++] = 'j';
+        (void)snprintf(number, sizeof(number), "%u:%u",
+                       channel->join_throttle_count,
+                       channel->join_throttle_seconds);
+        append_param(params, sizeof(params), number);
+    }
+    if (channel->limit_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
+        modes[used++] = 'L';
+        append_param(params, sizeof(params), channel->limit_redirect);
+    }
+    if (channel->ban_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
+        modes[used++] = 'B';
+        append_param(params, sizeof(params), channel->ban_redirect);
+    }
+    modes[used] = '\0';
+
+    if (params[0] != '\0')
+        (void)snprintf(combined, sizeof(combined), "%s %s", modes, params);
+    else
+        (void)snprintf(combined, sizeof(combined), "%s", modes);
+
+    client_sendf(client, RPL_CHANNELMODEIS,
+                 server->config.server_name, client->nick,
+                 channel->name, combined);
 }
 
 static int check_mlock(Server *server, Client *client, Channel *channel,
@@ -77,6 +147,18 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
     if (target != NULL && strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         (void)snprintf(channel_name, sizeof(channel_name), "%s", target);
         channel = hash_get(&server->channels_by_name, channel_name);
+
+        /*
+         * Intercept a plain MODE #channel query so numeric 324 includes its
+         * parameter values. Registration and channel existence checks remain
+         * equivalent to the core command path.
+         */
+        if (mode_string == NULL && channel != NULL) {
+            if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+            send_channel_modes(server, client, channel);
+            return COMMAND_KEEP_CLIENT;
+        }
+
         if (!check_mlock(server, client, channel, mode_string))
             return COMMAND_KEEP_CLIENT;
     }
