@@ -23,10 +23,7 @@ static int read_full(int fd, void *buffer, size_t length) {
     while (length > 0U) {
         ssize_t n = read(fd, cursor, length);
         if (n == 0) return 0;
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
+        if (n < 0) { if (errno == EINTR) continue; return -1; }
         cursor += (size_t)n;
         length -= (size_t)n;
     }
@@ -37,10 +34,7 @@ static int write_full(int fd, const void *buffer, size_t length) {
     const unsigned char *cursor = buffer;
     while (length > 0U) {
         ssize_t n = write(fd, cursor, length);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
+        if (n < 0) { if (errno == EINTR) continue; return -1; }
         cursor += (size_t)n;
         length -= (size_t)n;
     }
@@ -83,16 +77,12 @@ static int query_zone(const char *reverse, const char *zone) {
     char query[IRCD_DNSBL_ZONE_MAX + IRC_IP_MAX * 4U + 80U];
     int rc;
 
-    if (snprintf(query, sizeof(query), "%s.%s", reverse, zone) >= (int)sizeof(query))
-        return 0;
+    if (snprintf(query, sizeof(query), "%s.%s", reverse, zone) >= (int)sizeof(query)) return 0;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     rc = getaddrinfo(query, NULL, &hints, &answers);
-    if (rc == 0) {
-        freeaddrinfo(answers);
-        return 1;
-    }
+    if (rc == 0) { freeaddrinfo(answers); return 1; }
     return 0;
 }
 
@@ -103,7 +93,6 @@ static void resolve_request(const DnsblRequest *request, DnsblResult *result) {
     result->client_id = request->client_id;
     result->completed = 1;
     if (reverse_ip(request->ip, reversed, sizeof(reversed)) != 0) return;
-
     for (i = 0U; i < request->zone_count; ++i) {
         if (query_zone(reversed, request->zones[i].zone)) {
             result->listed = 1;
@@ -120,6 +109,7 @@ static void *resolver_main(void *arg) {
     while (read_full(resolver->request_read_fd, &request, sizeof(request)) == 1) {
         DnsblResult result;
         resolve_request(&request, &result);
+        /* Dropping a congested result is safe: the client deadline fails open. */
         (void)write_full(resolver->result_write_fd, &result, sizeof(result));
     }
     return NULL;
@@ -136,7 +126,8 @@ int dnsbl_resolver_init(DnsblResolver *resolver) {
     resolver->request_read_fd = requests[0]; resolver->request_write_fd = requests[1];
     resolver->result_read_fd = results[0]; resolver->result_write_fd = results[1];
     if (set_nonblocking(resolver->request_write_fd) != 0 ||
-        set_nonblocking(resolver->result_read_fd) != 0) goto fail;
+        set_nonblocking(resolver->result_read_fd) != 0 ||
+        set_nonblocking(resolver->result_write_fd) != 0) goto fail;
     if (pthread_create(&resolver->thread, NULL, resolver_main, resolver) != 0) goto fail;
     resolver->running = 1;
     return 0;
@@ -164,8 +155,7 @@ int dnsbl_resolver_submit(DnsblResolver *resolver, uint64_t client_id,
                           size_t zone_count) {
     DnsblRequest request;
     ssize_t n;
-    if (resolver == NULL || !resolver->running || ip == NULL ||
-        zone_count > IRCD_MAX_DNSBLS) return -1;
+    if (resolver == NULL || !resolver->running || ip == NULL || zone_count > IRCD_MAX_DNSBLS) return -1;
     memset(&request, 0, sizeof(request));
     request.client_id = client_id;
     request.zone_count = zone_count;
