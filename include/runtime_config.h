@@ -43,6 +43,7 @@ typedef struct ServerConfig {
 
     char operators_db[IRCD_CONFIG_PATH_MAX + 1U];
     char bans_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char nickserv_db[IRCD_CONFIG_PATH_MAX + 1U];
 
     char netadmin_name[IRCD_OPER_NAME_MAX + 1U];
     char netadmin_password_hash[IRCD_OPER_HASH_MAX + 1U];
