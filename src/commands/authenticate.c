@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "memoserv.h"
 #include "nickserv.h"
 #include "numerics.h"
 
@@ -99,6 +100,7 @@ CommandResult command_authenticate(Server *server, Client *client, char *params)
         return COMMAND_KEEP_CLIENT;
     }
 
+    memoserv_notify_unread(server, client);
     client->sasl_state = CLIENT_SASL_COMPLETE;
     client_sendf(client, RPL_LOGGEDIN, server->config.server_name,
                  command_reply_nick(client),
