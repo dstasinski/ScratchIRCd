@@ -8,22 +8,22 @@ typedef struct CommandEntry { const char *name; CommandHandler handler; } Comman
 
 static const CommandEntry command_table[] = {
     {"ADMIN", command_admin}, {"AUTHENTICATE", command_authenticate}, {"AWAY", command_away},
-    {"CAP", command_cap}, {"IDENTIFY", command_identify}, {"INVITE", command_invite},
-    {"ISON", command_ison}, {"JOIN", command_join}, {"KICK", command_kick},
-    {"KILL", command_kill}, {"KLINE", command_kline}, {"LIST", command_list},
-    {"LUSERS", command_lusers}, {"MODE", command_mode}, {"MOTD", command_motd},
-    {"NAMES", command_names}, {"NICK", command_nick}, {"NICKSERV", command_nickserv},
-    {"NOTICE", command_notice}, {"NSDROP", command_nsdrop}, {"NSINFO", command_nsinfo},
-    {"NSSET", command_nsset}, {"OPER", command_oper}, {"OPERADD", command_operadd},
-    {"OPERDEL", command_operdel}, {"OPERLIST", command_operlist}, {"OPERSET", command_operset},
-    {"PART", command_part}, {"PASS", command_pass}, {"PING", command_ping},
-    {"PRIVMSG", command_privmsg}, {"QUIT", command_quit}, {"REHASH", command_rehash},
-    {"RESTART", command_restart}, {"RULES", command_rules}, {"SAJOIN", command_sajoin},
-    {"SAMODE", command_samode}, {"SAPART", command_sapart}, {"SETHOST", command_sethost},
-    {"SETIDENT", command_setident}, {"SETNAME", command_setname}, {"TOPIC", command_topic},
-    {"USER", command_user}, {"USERHOST", command_userhost}, {"USERIP", command_userip},
-    {"WALLOPS", command_wallops}, {"WEBIRC", command_webirc}, {"WHO", command_who},
-    {"WHOIS", command_whois}, {"ZLINE", command_zline}
+    {"CAP", command_cap}, {"CHATHISTORY", command_chathistory}, {"IDENTIFY", command_identify},
+    {"INVITE", command_invite}, {"ISON", command_ison}, {"JOIN", command_join},
+    {"KICK", command_kick}, {"KILL", command_kill}, {"KLINE", command_kline},
+    {"LIST", command_list}, {"LUSERS", command_lusers}, {"MODE", command_mode},
+    {"MOTD", command_motd}, {"NAMES", command_names}, {"NICK", command_nick},
+    {"NICKSERV", command_nickserv}, {"NOTICE", command_notice}, {"NSDROP", command_nsdrop},
+    {"NSINFO", command_nsinfo}, {"NSSET", command_nsset}, {"OPER", command_oper},
+    {"OPERADD", command_operadd}, {"OPERDEL", command_operdel}, {"OPERLIST", command_operlist},
+    {"OPERSET", command_operset}, {"PART", command_part}, {"PASS", command_pass},
+    {"PING", command_ping}, {"PRIVMSG", command_privmsg}, {"QUIT", command_quit},
+    {"REHASH", command_rehash}, {"RESTART", command_restart}, {"RULES", command_rules},
+    {"SAJOIN", command_sajoin}, {"SAMODE", command_samode}, {"SAPART", command_sapart},
+    {"SETHOST", command_sethost}, {"SETIDENT", command_setident}, {"SETNAME", command_setname},
+    {"TOPIC", command_topic}, {"USER", command_user}, {"USERHOST", command_userhost},
+    {"USERIP", command_userip}, {"WALLOPS", command_wallops}, {"WEBIRC", command_webirc},
+    {"WHO", command_who}, {"WHOIS", command_whois}, {"ZLINE", command_zline}
 };
 
 CommandResult command_dispatch(Server *server, Client *client,
