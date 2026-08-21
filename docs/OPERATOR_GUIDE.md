@@ -20,18 +20,27 @@ IRC operators may inspect real identity through operator WHOIS numeric 378 and U
 
 NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY stores an account name on the Client and sets service-controlled user mode `+r`.
 
-Operators may use the same account commands as ordinary users:
+Operators have the same personal account-management commands as ordinary users:
 
 ```text
+NICKSERV REGISTER <password>
+NICKSERV IDENTIFY [account] <password>
+NICKSERV RECOVER <nick>
+NICKSERV RECOVER <nick> KILL
+NICKSERV GHOST <nick>
+NICKSERV SET PASSWORD <new-password>
+NICKSERV SET EMAIL <address>
+NICKSERV VERIFY <token>
+NICKSERV RESET <account>
+NICKSERV RESET <account> <token> <new-password>
+NICKSERV HELP
 IDENTIFY <password>
 IDENTIFY <account> <password>
-PRIVMSG NickServ :REGISTER <password>
-PRIVMSG NickServ :IDENTIFY [account] <password>
-PRIVMSG NickServ :SET PASSWORD <new-password>
-PRIVMSG NickServ :HELP
 ```
 
-A NickServ vhost is applied only to `display_host` and sets `+t`; it never changes `real_ip` or `real_host`. User mode `+r` cannot be manufactured with MODE or SAMODE.
+`RECOVER` and `GHOST` authorize against the authenticated NickServ account, not IRC-operator privileges. Default RECOVER renames the occupying session; `RECOVER ... KILL` and `GHOST` disconnect it. These actions therefore do not require `can_kill`.
+
+A NickServ vhost is applied only to `display_host` and sets `+t`; it never changes `real_ip` or `real_host`. User mode `+r` cannot be manufactured with MODE or SAMODE. See `docs/NICKSERV_GUIDE.md` for full service behavior and email-reset details.
 
 ## Operator authentication
 
@@ -87,7 +96,7 @@ Configured DNS blacklists automatically create exact-IP ZLINE records in `data/b
 ZLINE -203.0.113.42
 ```
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, and database paths. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, and NickServ mail settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
@@ -123,6 +132,7 @@ MODE
 MOTD
 NAMES
 NICK
+NICKSERV
 NOTICE
 OPER
 PART
