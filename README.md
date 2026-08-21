@@ -4,11 +4,11 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 
 ## Current foundation
 
-The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
 
 ## TLS
 
-ScratchIRCd can expose plaintext and TLS listeners simultaneously. TLS uses OpenSSL and is enabled only when both certificate and private-key paths are configured:
+ScratchIRCd can expose plaintext and TLS listeners simultaneously:
 
 ```text
 port = 6667
@@ -17,73 +17,83 @@ tls_cert_file = /path/to/fullchain.pem
 tls_key_file = /path/to/privkey.pem
 ```
 
-TLS handshakes are advanced non-blockingly by the event loop. A client receives user mode `+z` only after a successful TLS handshake. Channel mode `+z` therefore accepts only genuinely encrypted clients. TLS configuration/listener changes require RESTART rather than REHASH.
+TLS handshakes are non-blocking. User mode `+z` is granted only after a successful OpenSSL handshake, and channel mode `+z` therefore accepts only genuinely encrypted clients.
 
 ## WebIRC
 
-Trusted WebIRC gateways are configured by numeric peer IP and password. Repeat the option for multiple gateways:
+Trusted WebIRC gateways are configured by numeric peer IP and password:
 
 ```text
 webirc_gateway = 127.0.0.1 gateway-secret
 webirc_gateway = 2001:db8::10 another-secret
 ```
 
-A gateway sends the standard pre-registration command:
+A gateway sends:
 
 ```text
 WEBIRC <password> <gateway-name> <supplied-hostname> <client-ip>
 ```
 
-The gateway's TCP peer IP must match a configured numeric gateway address and the password must match. Gateway DNS names are never trusted for authorization. The supplied hostname is retained only as WebIRC audit metadata; ScratchIRCd performs its own asynchronous FCrDNS against the supplied client IP. Successful WEBIRC sets user mode `+V`.
-
-Gateway audit metadata is deliberately separate from the normal Client identity fields. DNSBL, GeoIP, KLINE, ZLINE, operator WHOIS and USERIP will therefore operate on the actual WebIRC end-user identity, not the gateway.
+Successful WEBIRC sets `+V`, stores gateway audit information separately, replaces `real_ip` with the end-user address, and restarts asynchronous FCrDNS for that end-user address. Gateway-supplied hostnames are audit metadata only.
 
 ## Client identity model
 
-Every IRC client has exactly three address/host identity fields:
+Every IRC client has exactly three normal address/host identity fields:
 
-- `real_ip` — the actual end-user numeric IP address.
-- `real_host` — the FCrDNS-verified hostname for `real_ip`, or empty when no verified hostname exists.
-- `display_host` — the only host exposed through ordinary IRC protocol output.
+- `real_ip` — actual end-user numeric IP.
+- `real_host` — FCrDNS-verified hostname for `real_ip`, when available.
+- `display_host` — the only hostname exposed through normal IRC protocol output.
 
-For direct connections, `real_ip` is initialized from the accepted socket. For authenticated WebIRC connections, `real_ip` is replaced with the actual end-user address supplied by the trusted gateway and DNS is restarted against that address.
+Channel bans and normal WHO/WHOIS/user prefixes use `display_host`. KLINE/ZLINE and operator security inspection use the real fields. Vhosts (`+t`) and future cloaking (`+x`) change only `display_host`.
 
-`display_host` initially falls back to `real_ip` and becomes `real_host` after successful FCrDNS. A vhost (`+t`) changes only `display_host`. The planned cloak mode (`+x`) will likewise change only `display_host`. WHO, ordinary WHOIS, USERHOST, channel/user message prefixes, JOIN/PART/QUIT, and channel ban masks use only `display_host`.
+## GeoIP / ASN enrichment
 
-Server security uses the real fields: ZLINE uses `real_ip`; KLINE checks both `user@real_host` when available and `user@real_ip`. An IRC operator can inspect real identity through operator WHOIS output and USERIP. Ordinary clients cannot use USERIP and never receive real IP/hostname data through WHO/WHOIS.
+ScratchIRCd uses libmaxminddb directly with downloaded MaxMind databases:
 
-## Runtime databases
+```text
+geoip_city_db = data/GeoLite2-City.mmdb
+geoip_asn_db = data/GeoLite2-ASN.mmdb
+```
 
-All ScratchIRCd SQLite databases live under `data/`. Current databases are:
+The files are optional; a missing database does not prevent startup. Lookups occur once, immediately before registration after direct/WebIRC identity and FCrDNS are finalized, so the lookup always uses the actual end-user `real_ip`.
+
+Each `Client` contains a nested `ClientGeoIP geoip` record with:
+
+```text
+status
+ip
+network
+source
+continent_code
+country_code
+country_name
+region_code
+region_name
+city
+asn
+organization
+```
+
+`network` is the actual matched CIDR network from libmaxminddb. `source` records whether City, ASN, or both databases supplied data. MMDB strings are copied into Client storage; no Client field points into the memory-mapped database. GeoIP database path changes require RESTART.
+
+## Runtime data
+
+All ScratchIRCd runtime databases and downloaded MaxMind files live under `data/`:
 
 ```text
 data/operators.db
 data/bans.db
+data/GeoLite2-City.mmdb
+data/GeoLite2-ASN.mmdb
 ```
 
 Future NickServ, ChanServ, MemoServ, and IRCv3 history databases will use the same directory.
 
-Only the bootstrap network administrator is configured in `ircd.conf`. Ordinary IRC operators live in `data/operators.db`, and persistent KLINE/ZLINE records live in `data/bans.db`.
-
-## Network administrator and operators
-
-Generate the bootstrap Argon2id password hash with:
-
-```sh
-./build/scratchircd-mkpasswd 'your password'
-```
-
-The network administrator manages ordinary operators with `OPERADD`, `OPERDEL`, `OPERSET`, and `OPERLIST`. Operator authority is stored in a separate permission bitset and is never inferred merely from user mode `+o`.
-
-Permission-controlled commands include KILL, KLINE, ZLINE, WALLOPS, REHASH, RESTART, SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME. SETHOST changes only `display_host`; real security identity remains untouched.
-
 ## Documentation
 
-User-facing command documentation is maintained separately by role:
-
-- `docs/CLIENT_GUIDE.md` — ordinary client commands, user modes, and channel modes.
-- `docs/OPERATOR_GUIDE.md` — ordinary IRC operator authentication, permissions, real-identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, persistent bans, override commands, TLS, WebIRC, and network-administrator commands.
+- `docs/CLIENT_GUIDE.md` — ordinary client commands and modes.
+- `docs/OPERATOR_GUIDE.md` — IRC operator authentication, permissions, identity access, and commands.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, bans, TLS, WebIRC, GeoIP, and configuration.
 
 ## Currently implemented commands
 
@@ -94,7 +104,7 @@ User-facing command documentation is maintained separately by role:
 On Debian/Ubuntu systems:
 
 ```sh
-sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev libssl-dev openssl
+sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev libssl-dev openssl libmaxminddb-dev
 ```
 
 ## Building and testing
@@ -105,18 +115,14 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus socket-level integration tests for core protocol behavior, operator actions, server-authority overrides/restart, TLS, and WebIRC.
+CTest includes unit tests for client identity, GeoIP fallback state, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus socket-level integration tests for protocol behavior, operator actions/overrides, TLS, and WebIRC.
 
-## Planned connection policy: DNSBL and GeoIP
+## Next connection policy: DNSBL
 
-WebIRC now establishes the final end-user `real_ip` before registration. DNSBL and GeoIP can therefore be attached to the finalized real identity without evaluating a WebIRC gateway address.
-
-Configured DNSBL zones will be queried asynchronously. A configured positive match can automatically create a persistent ZLINE in `data/bans.db` and reject the connection.
-
-GeoIP will use libmaxminddb directly with downloaded `data/GeoLite2-City.mmdb` and `data/GeoLite2-ASN.mmdb` files. A dedicated nested Client GeoIP record is planned with the fields `status`, `ip`, `network`, `source`, `continent_code`, `country_code`, `country_name`, `region_code`, `region_name`, `city`, `asn`, and `organization`.
+With WebIRC and GeoIP now attached to finalized `real_ip`, configured DNSBL zones can be added to the same pre-registration policy stage. DNSBL queries will be asynchronous and configured positive matches can automatically create persistent ZLINE records in `data/bans.db` and reject the connection.
 
 ## Planned architecture
 
-The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN enrichment and policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
+The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN-based policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
 
 Services will be addressable virtual identities but will never join channels or appear in ordinary client lists. Persistent channels will be restored from ChanServ state rather than requiring a service client in the channel.
