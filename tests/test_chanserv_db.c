@@ -43,12 +43,21 @@ int main(void) {
     assert(chanserv_db_access_get(&db, "#test", "bob", &access) == 1);
     assert(strcmp(access.account, "Bob") == 0);
     assert(access.level == CHANSERV_ACCESS_OP);
+
+    assert(chanserv_db_access_set(&db, "#TEST", "Carol",
+                                  CHANSERV_ACCESS_PROTECTED) == 0);
+    assert(chanserv_db_access_get(&db, "#test", "carol", &access) == 1);
+    assert(access.level == CHANSERV_ACCESS_PROTECTED);
+
+    assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
+    assert(strstr(list, "Bob:3") != NULL);
+    assert(strstr(list, "Carol:4") != NULL);
+
     assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
     assert(chanserv_db_access_get(&db, "#TEST", "BOB", &access) == 1);
     assert(access.level == CHANSERV_ACCESS_VOICE);
-    assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
-    assert(strstr(list, "Bob:1") != NULL);
     assert(chanserv_db_access_delete(&db, "#test", "bob") == 0);
+    assert(chanserv_db_access_delete(&db, "#test", "carol") == 0);
     assert(chanserv_db_access_get(&db, "#test", "Bob", &access) == 0);
 
     assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == 0);
