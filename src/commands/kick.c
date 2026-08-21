@@ -2,9 +2,12 @@
  * @file kick.c
  * @brief Implementation of the IRC KICK command.
  *
- * KICK uses the shared channel privilege rank. Protected (+a) members cannot
- * be kicked by ordinary operators/halfops; only another protected member or
- * an owner may kick them. Owners remain above protected members.
+ * KICK uses the shared channel privilege rank rather than hard-coded prefix
+ * checks. Halfops may kick lower-ranked members, operators may kick halfops or
+ * lower, protected members may kick protected members or lower, and owners may
+ * kick protected members or lower. Owners remain protected from ordinary KICK.
+ * Future service/oper override commands (such as SAPART) deliberately bypass
+ * this normal channel hierarchy.
  */
 
 #include "commands.h"
@@ -82,7 +85,14 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     }
 
     target_rank = channel_privilege_rank(target_member->privileges);
-    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED)) {
+
+    /*
+     * +a is deliberately special: another +a member may kick a +a target,
+     * despite equal rank. Owners may also kick protected members. Operators
+     * and halfops may not. Owner targets continue to use the normal hierarchy.
+     */
+    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED) &&
+        !channel_privilege_has(target_member->privileges, CHANNEL_PRIV_OWNER)) {
         if (!channel_privilege_has(actor_member->privileges,
                                    CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER)) {
             client_sendf(client, ERR_ATTACKDENY,
@@ -91,15 +101,6 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         }
     } else if (target_rank >= actor_rank) {
-        client_sendf(client, ERR_ATTACKDENY,
-                     server->config.server_name, client->nick,
-                     channel->name, target->nick);
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    /* Protected members may remove another protected member, but never owner. */
-    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_OWNER) &&
-        !channel_privilege_has(actor_member->privileges, CHANNEL_PRIV_OWNER)) {
         client_sendf(client, ERR_ATTACKDENY,
                      server->config.server_name, client->nick,
                      channel->name, target->nick);
