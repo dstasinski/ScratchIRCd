@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.11"
+#define IRCD_VERSION "ScratchIRCd-0.12"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -37,6 +37,12 @@
 #define IRCD_DEFAULT_GEOIP_CITY_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-City.mmdb"
 #define IRCD_DEFAULT_GEOIP_ASN_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-ASN.mmdb"
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
+#define IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS 5U
+
+/* DNS blacklist definitions. */
+#define IRCD_MAX_DNSBLS 16U
+#define IRCD_DNSBL_NAME_MAX 63U
+#define IRCD_DNSBL_ZONE_MAX 255U
 
 /* GeoIP fields retained on Client.geoip. */
 #define IRCD_GEOIP_STATUS_MAX 31U
