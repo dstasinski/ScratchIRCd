@@ -33,7 +33,7 @@ CommandResult command_authenticate(Server *server, Client *client, char *params)
         return COMMAND_KEEP_CLIENT;
     params[strcspn(params, " ")] = '\0';
 
-    if (!client->cap_sasl_enabled) {
+    if ((client->capabilities & CLIENT_CAP_SASL) == 0U) {
         sasl_fail(server, client);
         return COMMAND_KEEP_CLIENT;
     }
