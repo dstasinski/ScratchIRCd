@@ -7,7 +7,6 @@
 
 #include <errno.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -24,6 +23,20 @@ static int write_full(int fd, const void *buffer, size_t length) {
         length -= (size_t)n;
     }
     return 0;
+}
+
+/**
+ * A detached child inherits every listener/client/resolver descriptor owned by
+ * the IRC process. Close all non-standard descriptors before starting mail
+ * delivery so the helper cannot keep IRC sockets alive across shutdown or
+ * RESTART. The helper creates its own sendmail stdin pipe afterwards.
+ */
+static void close_inherited_descriptors(void) {
+    long maximum = sysconf(_SC_OPEN_MAX);
+    int fd;
+
+    if (maximum < 0L || maximum > 65536L) maximum = 65536L;
+    for (fd = 3; fd < (int)maximum; ++fd) close(fd);
 }
 
 static void deliver_one(const char *sendmail_path, const MailRequest *request) {
@@ -78,6 +91,7 @@ int mail_send_async(const char *sendmail_path, const MailRequest *request) {
         pid_t worker = fork();
         if (worker < 0) _exit(1);
         if (worker > 0) _exit(0);
+        close_inherited_descriptors();
         deliver_one(sendmail_path, request);
         _exit(0);
     }
