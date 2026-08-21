@@ -3,15 +3,13 @@
 
 /**
  * @file mail.h
- * @brief Asynchronous outbound mail queue used by NickServ recovery.
+ * @brief Detached outbound mail delivery used by NickServ recovery.
  *
- * ScratchIRCd never invokes a shell for mail delivery. A dedicated worker
- * thread executes the configured sendmail-compatible binary directly with
- * `-t -i` and feeds one fully formed RFC 5322-style message over stdin.
- * This keeps potentially slow local-MTA delivery out of the IRC event loop.
+ * Delivery uses a configured sendmail-compatible binary without invoking a
+ * shell. A double-fork helper keeps potentially slow MTA work out of the IRC
+ * event loop and avoids leaving zombie children behind.
  */
 
-#include <pthread.h>
 #include "config.h"
 
 typedef struct MailRequest {
@@ -21,16 +19,6 @@ typedef struct MailRequest {
     char body[IRCD_MAIL_BODY_MAX + 1U];
 } MailRequest;
 
-typedef struct MailSender {
-    pthread_t thread;
-    int request_read_fd;
-    int request_write_fd;
-    int running;
-    char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
-} MailSender;
-
-int mail_sender_init(MailSender *sender, const char *sendmail_path);
-void mail_sender_destroy(MailSender *sender);
-int mail_sender_submit(MailSender *sender, const MailRequest *request);
+int mail_send_async(const char *sendmail_path, const MailRequest *request);
 
 #endif /* IRCD_MAIL_H */
