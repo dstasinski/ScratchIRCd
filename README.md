@@ -4,7 +4,7 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 
 ## Current foundation
 
-The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account persistence, and a virtual NickServ service.
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account persistence, and a virtual NickServ service with nickname and email-based account recovery.
 
 ## TLS
 
@@ -56,9 +56,9 @@ dnsbl = Spamhaus zen.spamhaus.org
 dnsbl = DroneBL dnsbl.dronebl.org
 ```
 
-ScratchIRCd supports up to eight configured lists. DNSBL queries run on a dedicated worker thread and never block the IRC event loop. The lookup begins only after the final direct/WebIRC `real_ip` has been established. IPv4 addresses use the conventional reversed-octet form; IPv6 addresses use reversed nibbles.
+ScratchIRCd supports up to eight configured lists. DNSBL queries run on a dedicated worker thread and never block the IRC event loop. The lookup begins only after the final direct/WebIRC `real_ip` has been established.
 
-Registration waits for the asynchronous DNSBL result or its timeout. A positive result immediately creates an exact-IP persistent ZLINE in `data/bans.db` and rejects the connection. Resolver/submission failure or timeout fails open. DNSBL-created ZLINEs are normal ZLINE records and may be removed with `ZLINE -<ip>` by an authorized operator.
+A positive result immediately creates an exact-IP persistent ZLINE in `data/bans.db` and rejects the connection. Resolver/submission failure or timeout fails open. DNSBL-created ZLINEs are normal ZLINE records and may be removed with `ZLINE -<ip>` by an authorized operator.
 
 ## GeoIP / ASN enrichment
 
@@ -71,26 +71,9 @@ geoip_asn_db = data/GeoLite2-ASN.mmdb
 
 The files are optional; a missing database does not prevent startup. Lookups occur once, immediately before registration after direct/WebIRC identity and FCrDNS are finalized, so the lookup always uses the actual end-user `real_ip`.
 
-Each `Client` contains a nested `ClientGeoIP geoip` record with:
+Each `Client` contains a nested `ClientGeoIP geoip` record with `status`, `ip`, `network`, `source`, continent/country/region/city fields, `asn`, and `organization`.
 
-```text
-status
-ip
-network
-source
-continent_code
-country_code
-country_name
-region_code
-region_name
-city
-asn
-organization
-```
-
-`network` is the actual matched CIDR network from libmaxminddb. `source` records whether City, ASN, or both databases supplied data. MMDB strings are copied into Client storage; no Client field points into the memory-mapped database. GeoIP database path changes require RESTART.
-
-## NickServ accounts
+## NickServ accounts and recovery
 
 Registered nicknames/accounts are stored in:
 
@@ -98,24 +81,42 @@ Registered nicknames/accounts are stored in:
 nickserv_db = data/nickserv.db
 ```
 
-NickServ is a virtual service identity, not a `Client`. It never joins channels and is never inserted into NAMES, WHO, ISON, LUSERS, or ordinary client hashes. `NickServ`, `ChanServ`, and `MemoServ` are reserved nicknames so users cannot impersonate services.
+NickServ is a virtual service identity, not a `Client`. It never joins channels and is never inserted into NAMES, WHO, ISON, LUSERS, or ordinary client hashes. `NickServ`, `ChanServ`, and `MemoServ` are reserved nicknames.
 
-A user registers the current nickname with:
-
-```text
-PRIVMSG NickServ :REGISTER <password>
-```
-
-and identifies with either:
+ScratchIRCd accepts both `PRIVMSG NickServ :...` and a direct `NICKSERV ...` command. Implemented NickServ subcommands include:
 
 ```text
-PRIVMSG NickServ :IDENTIFY [nick] <password>
-IDENTIFY [nick] <password>
+REGISTER <password>
+IDENTIFY [account] <password>
+RECOVER <nick>
+RECOVER <nick> KILL
+GHOST <nick>
+SET PASSWORD <new-password>
+SET EMAIL <address>
+VERIFY <token>
+RESET <account>
+RESET <account> <token> <new-password>
+HELP
 ```
 
-Successful account authentication stores the account name separately from the current nickname and grants user mode `+r`. Existing `+R` and `+M` channel/user policy therefore uses actual account authentication rather than a self-settable marker. NickServ passwords are stored only as Argon2id hashes.
+Default `RECOVER` safely renames a nickname squatter to a generated `Guest<connection-id>` nickname. `RECOVER ... KILL` disconnects the occupying session, and `GHOST` is a KILL alias. All three authorize against the authenticated NickServ account rather than IRC-operator permissions.
 
-A NickServ account may contain an optional vhost. On successful IDENTIFY that vhost replaces only `display_host` and grants `+t`; `real_ip` and `real_host` remain untouched. Network administrators manage account vhosts, enabled state, password resets and deletion with `NSINFO`, `NSSET`, and `NSDROP`.
+Successful account authentication stores the account name separately from the current nickname and grants user mode `+r`. NickServ passwords are stored only as Argon2id hashes. A NickServ vhost replaces only `display_host` and grants `+t`; `real_ip` and `real_host` remain untouched.
+
+### Email verification and password reset
+
+Email recovery is optional. Configure a local sendmail-compatible MTA:
+
+```text
+sendmail_path = /usr/sbin/sendmail
+mail_from = services@example.net
+nickserv_reset_seconds = 1800
+nickserv_verify_seconds = 86400
+```
+
+`SET EMAIL` sends a verification token. The address cannot be used for password recovery until `VERIFY` succeeds. Verification and reset tokens are random and only their SHA-256 hashes are stored in SQLite. Password-reset requests deliberately return the same generic response whether or not an account exists, reducing account/email enumeration. Reset tokens are time-limited and single-use.
+
+ScratchIRCd invokes the configured sendmail-compatible binary directly rather than through a shell, and delivery is detached from the IRC event loop. Email delivery is disabled when either `sendmail_path` or `mail_from` is empty.
 
 ## Runtime data
 
@@ -133,15 +134,14 @@ Future ChanServ, MemoServ, and IRCv3 history databases will use the same directo
 
 ## Documentation
 
-- `docs/CLIENT_GUIDE.md` — ordinary client commands, NickServ use, and modes.
+- `docs/CLIENT_GUIDE.md` — ordinary client commands and modes.
+- `docs/NICKSERV_GUIDE.md` — complete NickServ registration, recovery and email-reset guide.
 - `docs/OPERATOR_GUIDE.md` — IRC operator authentication, permissions, identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, NickServ account management, bans, TLS, WebIRC, GeoIP, DNSBL, and configuration.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator/NickServ management, bans, TLS, WebIRC, GeoIP, DNSBL, and configuration.
 
 ## Currently implemented commands
 
-`ADMIN`, `AWAY`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WEBIRC` (authorized gateways), `WHO`, `WHOIS`, and `ZLINE`.
-
-NickServ virtual-service commands currently implemented through `PRIVMSG NickServ` are `REGISTER`, `IDENTIFY`, `SET PASSWORD`, and `HELP`.
+`ADMIN`, `AWAY`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NICKSERV`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WEBIRC` (authorized gateways), `WHO`, `WHOIS`, and `ZLINE`.
 
 ## Dependencies
 
@@ -151,6 +151,8 @@ On Debian/Ubuntu systems:
 sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev libssl-dev openssl libmaxminddb-dev
 ```
 
+Email recovery does not add a compile-time dependency. A real deployment that enables it needs a configured sendmail-compatible local MTA or wrapper.
+
 ## Building and testing
 
 ```sh
@@ -159,7 +161,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, GeoIP fallback state, DNSBL worker behavior, runtime configuration, modes, channel policy, visibility, operator permissions, operator database CRUD, persistent bans, and NickServ database CRUD, plus socket-level integration tests for core protocol behavior, operator actions/overrides, TLS, WebIRC, and NickServ account behavior.
+CTest includes unit tests for client identity, GeoIP, DNSBL, runtime configuration, modes, channel policy, visibility, operator permissions/databases, persistent bans, and NickServ persistence. Socket-level integration tests cover core protocol behavior, operator actions/overrides, TLS, WebIRC, NickServ nickname recovery, and deterministic email verification/password reset using a temporary fake sendmail program.
 
 ## Planned architecture
 
