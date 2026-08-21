@@ -131,11 +131,11 @@ static void join_one(Server *server, Client *client, const char *name,
                                      CHANNEL_PRIV_OWNER |
                                      CHANNEL_PRIV_OPERATOR);
     }
-    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
-        chanserv_client_is_founder(server, client, channel->name)) {
-        (void)channel_add_privileges(channel, client,
-                                     CHANNEL_PRIV_OWNER |
-                                     CHANNEL_PRIV_OPERATOR);
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+        ChannelPrivilegeSet service_privileges =
+            chanserv_client_privileges(server, client, channel->name);
+        if (service_privileges != 0U)
+            (void)channel_add_privileges(channel, client, service_privileges);
     }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
