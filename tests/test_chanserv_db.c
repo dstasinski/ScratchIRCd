@@ -40,6 +40,13 @@ int main(void) {
 
     assert(chanserv_db_delete(&db, "#test") == 0);
     assert(chanserv_db_get(&db, "#test", &record) == 0);
+
+    /* SQLite persistence must use the same RFC1459 casemapping as hashes. */
+    assert(chanserv_db_create(&db, "#[Fold]", "Alice", "RFC1459") == 0);
+    assert(chanserv_db_get(&db, "#{fOLD}", &record) == 1);
+    assert(strcmp(record.name, "#[Fold]") == 0);
+    assert(chanserv_db_delete(&db, "#{fold}") == 0);
+
     chanserv_db_close(&db);
     unlink(path);
     puts("chanserv db tests passed");
