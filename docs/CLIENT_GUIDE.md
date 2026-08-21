@@ -17,17 +17,60 @@ NICK <nickname>
 USER <username> 0 * :<real name>
 ```
 
-ScratchIRCd supports IPv4 and IPv6 connections. DNS lookup is asynchronous and does not block other clients. Persistent KLINE/ZLINE policy is checked before registration completes.
+ScratchIRCd supports IPv4 and IPv6 connections. FCrDNS, GeoIP and optional DNSBL policy are handled before registration completes without blocking the IRC event loop.
 
 ## Hostname privacy
 
-Ordinary IRC clients see only another user's **displayed hostname**. This is the hostname used by WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks.
+Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
 
-A user's actual IP address and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces the displayed hostname without changing the real identity. Planned cloak mode `+x` will similarly replace only the displayed hostname.
-
-Because channel bans are normal channel-visible policy, `+b`, `+e`, and `+I` masks match the displayed `nick!user@host` identity, not hidden real IP/DNS data.
+A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces only the displayed hostname. Planned cloak mode `+x` will work the same way. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
 
 `USERIP` exists but is restricted to IRC operators.
+
+## NickServ accounts
+
+NickServ is a virtual service. It can receive messages, but it is not a normal connected client, never joins channels, and does not appear in NAMES, WHO, ISON, or LUSERS. The names `NickServ`, `ChanServ`, and `MemoServ` are reserved so users cannot impersonate services.
+
+Register your current nickname:
+
+```text
+PRIVMSG NickServ :REGISTER <password>
+```
+
+Identify to the account matching your current nickname:
+
+```text
+IDENTIFY <password>
+```
+
+or:
+
+```text
+PRIVMSG NickServ :IDENTIFY <password>
+```
+
+Identify to a different registered account name while keeping your current IRC nickname:
+
+```text
+IDENTIFY <nick> <password>
+PRIVMSG NickServ :IDENTIFY <nick> <password>
+```
+
+Successful identification sets user mode `+r` and stores the authenticated account separately from the current IRC nickname. An account with a configured vhost also changes only the displayed hostname and sets `+t`.
+
+Change the password of the account to which you are currently identified:
+
+```text
+PRIVMSG NickServ :SET PASSWORD <new-password>
+```
+
+Show the currently implemented service help:
+
+```text
+PRIVMSG NickServ :HELP
+```
+
+NickServ passwords are stored only as Argon2id hashes. Account switching within one connection is currently intentionally disallowed; reconnect to identify to a different account.
 
 ## Currently implemented client commands
 
@@ -48,6 +91,15 @@ AWAY
 
 Sets or clears away status. Users sending a direct PRIVMSG to an away client receive the away message.
 
+### IDENTIFY
+
+```text
+IDENTIFY <password>
+IDENTIFY <nick> <password>
+```
+
+Authenticates to a NickServ account and sets service-controlled user mode `+r`. A configured NickServ vhost is applied to the displayed hostname.
+
 ### INVITE
 
 ```text
@@ -62,7 +114,7 @@ Invites a user to a channel. Channel mode `+V` disables invitations. Explicit in
 ISON <nick1> <nick2> ...
 ```
 
-Returns the requested nicknames that are currently online.
+Returns requested nicknames that are currently online. Virtual services are intentionally not ordinary online-client entries.
 
 ### JOIN
 
@@ -71,7 +123,7 @@ JOIN <channel>
 JOIN <channel> <key>
 ```
 
-Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces applicable keys, limits, bans/exceptions, invite restrictions, throttling, redirects, registration/oper/admin requirements, and TLS-only restrictions.
+Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions.
 
 ### KICK
 
@@ -79,7 +131,7 @@ Joins a channel. Channel names may begin with `#` or `&`. `&` channels are priva
 KICK <channel> <nickname> :<reason>
 ```
 
-Removes a member when the requester has sufficient channel privilege. Channel privilege hierarchy is owner (`+q`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member.
+Removes a member when the requester has sufficient channel privilege. Privilege hierarchy is owner (`+q`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member.
 
 ### LIST
 
@@ -106,7 +158,7 @@ MODE <channel>
 MODE <channel> <modes> [parameters...]
 ```
 
-Queries or changes user/channel modes subject to authority rules.
+Queries or changes user/channel modes subject to authority rules. Security/service-derived modes such as `+r`, `+o`, `+N`, `+t`, `+V`, and `+z` cannot be self-granted.
 
 ### MOTD
 
@@ -122,7 +174,7 @@ Displays the server message of the day.
 NAMES <channel>
 ```
 
-Displays visible members of a channel. Membership prefixes include `~` owner, `@` operator, `%` halfop, and `+` voice.
+Displays visible channel members. Membership prefixes include `~` owner, `@` operator, `%` halfop, and `+` voice.
 
 ### NICK
 
@@ -130,7 +182,7 @@ Displays visible members of a channel. Membership prefixes include `~` owner, `@
 NICK <new-nickname>
 ```
 
-Sets or changes your nickname.
+Sets or changes your nickname. Internal service names are reserved.
 
 ### NOTICE
 
@@ -156,7 +208,7 @@ Leaves a channel.
 PASS <server-password>
 ```
 
-Supplies an optional server connection password. When configured, successful PASS is required before registration completes.
+Supplies an optional server connection password before registration.
 
 ### PING / PONG
 
@@ -172,9 +224,10 @@ Connection keepalive commands.
 ```text
 PRIVMSG <nickname> :<text>
 PRIVMSG <channel> :<text>
+PRIVMSG NickServ :<service-command>
 ```
 
-Sends a private or channel message. Delivery observes user/channel modes such as moderated channels and registered-user restrictions.
+Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions.
 
 ### QUIT
 
@@ -224,15 +277,15 @@ Displays visible matching users while respecting invisibility and channel visibi
 WHOIS <nickname>
 ```
 
-Displays public information about a user, including the displayed hostname, visible channel membership, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
+Displays public information about a user, including displayed hostname, visible channel membership, registered state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
 
 ## User modes
 
 ScratchIRCd defines these client modes:
 
 - `B` — bot marker.
-- `d` — suppress ordinary channel PRIVMSGs except configured command-prefix traffic; behavior still planned.
-- `g` — globops/locops capability; behavior still planned.
+- `d` — suppress ordinary channel PRIVMSGs except configured command-prefix traffic; full behavior still planned.
+- `g` — globops/locops capability; full behavior still planned.
 - `H` — hide IRCop status; IRCop-only behavior still planned.
 - `h` — HelpOp.
 - `I` — hide operator idle time from regular users.
@@ -240,27 +293,23 @@ ScratchIRCd defines these client modes:
 - `N` — network administrator.
 - `o` — IRC operator.
 - `p` — hide channel membership from WHOIS.
-- `R` — accept PRIVMSG/NOTICE only from registered (`+r`) users.
-- `r` — registered nickname marker; service-controlled behavior is planned.
+- `R` — accept PRIVMSG/NOTICE only from authenticated (`+r`) users.
+- `r` — authenticated to a registered NickServ account; service-controlled and implemented.
 - `S` — services daemon protection marker.
-- `s` — server notices; behavior still planned.
+- `s` — server notices; full behavior still planned.
 - `T` — reject CTCPs.
-- `t` — using a vhost; changes only the displayed hostname.
-- `V` — WebIRC client marker.
-- `W` — WHOIS notification for IRCops; behavior still planned.
+- `t` — using a vhost; changes only displayed hostname.
+- `V` — authenticated WebIRC client marker.
+- `W` — WHOIS notification for IRCops; full behavior still planned.
 - `w` — receive WALLOPS messages.
-- `x` — use a cloaked displayed hostname; cloak generation is still planned.
+- `x` — use a cloaked displayed hostname; cloak generation still planned.
 - `z` — secure/TLS client marker.
-
-Security/service-derived modes cannot simply be self-granted.
 
 ## Channel modes
 
-ScratchIRCd defines the following channel modes. Some already have enforcement while some supporting behavior remains under development:
-
 - `A` — network administrators only.
 - `B <channel>` — redirect banned clients.
-- `b <mask>` — ban the displayed `nick!user@host` identity.
+- `b <mask>` — ban displayed `nick!user@host` identity.
 - `c` — no ANSI color; full filtering behavior planned.
 - `e <mask>` — channel-ban exception against displayed identity.
 - `h <nick>` — halfop.
@@ -271,15 +320,15 @@ ScratchIRCd defines the following channel modes. Some already have enforcement w
 - `k <key>` — channel key.
 - `l <count>` — member limit.
 - `L <channel>` — redirect when `+l` is full.
-- `M` — registered nickname required to speak.
+- `M` — authenticated NickServ account (`+r`) required to speak.
 - `m` — moderated; voice/halfop/op/owner may speak.
 - `n` — no outside channel messages.
 - `O` — IRC operators only.
 - `o <nick>` — channel operator.
 - `p` — private channel.
 - `q <nick>` — channel owner.
-- `r` — registered channel marker; services-controlled.
-- `R` — registered nickname required to join.
+- `r` — registered channel marker; ChanServ-controlled behavior is planned.
+- `R` — authenticated NickServ account (`+r`) required to join.
 - `S` — strip incoming colors; filtering behavior planned.
 - `s` — secret channel.
 - `t` — halfop or higher required to set topic.
@@ -290,13 +339,12 @@ ScratchIRCd defines the following channel modes. Some already have enforcement w
 
 ## Planned client commands
 
-The project specification also calls for these general client commands, which are not implemented yet:
+The remaining general client commands from the project specification not yet implemented include:
 
 ```text
-IDENTIFY [nick] <password>
 SILENCE
 WATCH [+|-]<nick> ...
 WHOWAS
 ```
 
-Service commands for NickServ, ChanServ, and MemoServ will be documented here or in dedicated service guides as those SQLite-backed services are implemented.
+ChanServ and MemoServ commands will be added here as those virtual SQLite-backed services are implemented.
