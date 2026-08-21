@@ -5,6 +5,7 @@
 
 #include "commands.h"
 #include "ban_db.h"
+#include "chanserv_db.h"
 #include "config.h"
 #include "geoip.h"
 #include "numerics.h"
@@ -56,6 +57,8 @@ static int registration_banned(Server *server, Client *client) {
 
 void command_maybe_register(Server *server, Client *client) {
     char isupport[IRCD_MESSAGE_BUFFER_SIZE];
+    char pchannels[IRCD_MESSAGE_BUFFER_SIZE / 2U];
+    ChanServDb csdb = {0};
 
     if (server == NULL || client == NULL || client->registered ||
         client->nick[0] == '\0' || client->user[0] == '\0' ||
@@ -99,8 +102,13 @@ void command_maybe_register(Server *server, Client *client) {
                  server->config.server_name, IRCD_VERSION,
                  IRCD_SUPPORTED_USER_MODES, IRCD_SUPPORTED_CHANNEL_MODES);
 
-    (void)snprintf(isupport, sizeof(isupport), "%s CHATHISTORY=%zu",
-                   IRCD_ISUPPORT_BASE, server->config.history_limit);
+    pchannels[0] = '\0';
+    if (chanserv_db_open(&csdb, server->config.chanserv_db) == 0) {
+        (void)chanserv_db_list_enabled(&csdb, pchannels, sizeof(pchannels));
+        chanserv_db_close(&csdb);
+    }
+    (void)snprintf(isupport, sizeof(isupport), "%s CHATHISTORY=%zu PCHANNELS=%s",
+                   IRCD_ISUPPORT_BASE, server->config.history_limit, pchannels);
     client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick,
                  isupport);
 }
