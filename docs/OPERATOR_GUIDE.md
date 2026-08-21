@@ -10,11 +10,27 @@ ScratchIRCd keeps three host/address values for each client:
 - `real_host` — FCrDNS-verified hostname for the actual IP, when available.
 - `display_host` — the public hostname shown to ordinary IRC users.
 
-WHO, ordinary WHOIS, USERHOST, channel traffic, and channel bans use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
+WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
 
 For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
 
-IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP.
+IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP. Persistent chat history never exposes the real IP or real DNS hostname.
+
+## IRCv3 history
+
+Operators may use the same IRCv3 channel-history interface as ordinary clients. Negotiate:
+
+```text
+CAP REQ :batch draft/chathistory server-time
+```
+
+then, while a member of the target channel:
+
+```text
+CHATHISTORY LATEST <channel> * <limit>
+```
+
+History is stored in `data/history.db` by default. Operator status does not bypass the current membership requirement for CHATHISTORY; SAJOIN may be used separately when the operator has `can_override` and needs server-authority channel entry.
 
 ## NickServ account state and SASL
 
@@ -108,7 +124,7 @@ Configured DNS blacklists automatically create exact-IP ZLINE records in `data/b
 ZLINE -203.0.113.42
 ```
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, and NickServ mail settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, NickServ mail settings, and history settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
@@ -133,6 +149,7 @@ ADMIN
 AUTHENTICATE
 AWAY
 CAP
+CHATHISTORY
 IDENTIFY
 INVITE
 ISON
