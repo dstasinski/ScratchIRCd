@@ -47,6 +47,11 @@ typedef enum ClientSaslState {
     CLIENT_SASL_FAILED
 } ClientSaslState;
 
+/** IRCv3 capabilities currently supported by the daemon. */
+typedef uint64_t ClientCapabilitySet;
+#define CLIENT_CAP_SASL           (UINT64_C(1) << 0)
+#define CLIENT_CAP_ACCOUNT_NOTIFY (UINT64_C(1) << 1)
+
 /** Gateway/audit metadata kept separate from the three client identity fields. */
 typedef struct ClientWebIrc {
     int active;
@@ -79,9 +84,9 @@ typedef struct Client {
     /** Authenticated NickServ account name. Empty means not identified. */
     char account_name[IRC_NICK_MAX + 1U];
 
-    /** IRCv3 capability/SASL negotiation state used before registration. */
+    /** IRCv3 CAP negotiation and enabled-capability state. */
     int cap_negotiating;
-    int cap_sasl_enabled;
+    ClientCapabilitySet capabilities;
     ClientSaslState sasl_state;
 
     /* The only three normal client host/address identity fields. */
