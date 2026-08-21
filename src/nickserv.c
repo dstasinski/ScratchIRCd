@@ -3,8 +3,8 @@
  * @brief Virtual NickServ implementation.
  *
  * NickServ is not a Client: it is never inserted into client hashes, channel
- * membership, NAMES, WHO, LIST or LUSERS. PRIVMSG targeting "NickServ" is
- * intercepted and handled here.
+ * membership, NAMES, WHO, LIST, ISON or LUSERS. PRIVMSG targeting "NickServ"
+ * is intercepted and handled here.
  */
 
 #include "nickserv.h"
@@ -17,6 +17,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/random.h>
+#include <sys/types.h>
 
 static void nickserv_notice(Server *server, Client *client, const char *text) {
     client_sendf(client, ":NickServ!service@%s NOTICE %s :%s",
@@ -42,6 +43,7 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
                                  encoded, encoded_size) == ARGON2_OK ? 0 : -1;
 }
 
+/** Apply authenticated account state without changing real_ip/real_host. */
 static void apply_account(Client *client, const NickServAccount *account) {
     (void)snprintf(client->account_name, sizeof(client->account_name), "%s", account->name);
     client->modes = client_mode_add(client->modes, CLIENT_MODE_REGISTERED);
@@ -61,6 +63,14 @@ int nickserv_identify(Server *server, Client *client,
 
     if (server == NULL || client == NULL || account_name == NULL || password == NULL ||
         *account_name == '\0' || *password == '\0') return 0;
+
+    /*
+     * Until an explicit LOGOUT operation exists, do not permit account
+     * switching in-place. This keeps +r and any account vhost provenance
+     * unambiguous for the lifetime of the connection.
+     */
+    if (client->account_name[0] != '\0' &&
+        strcasecmp(client->account_name, account_name) != 0) return 0;
 
     if (nickserv_db_open(&db, server->config.nickserv_db) != 0) return 0;
     found = nickserv_db_get(&db, account_name, &account);
