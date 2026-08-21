@@ -138,8 +138,9 @@ def main():
 
             observer = IRCClient(port)
             register(observer, "Observer")
-            observer.send("MODE Observer")
-            # PCHANNELS is sent at registration; use a fresh connection below to inspect it.
+            isupport = observer.expect(" 005 Observer ")
+            isupport_line = next(line for line in isupport if " 005 Observer " in line)
+            assert "PCHANNELS=#persist" in isupport_line, isupport
 
             traveler = IRCClient(port)
             register(traveler, "Traveler")
@@ -161,9 +162,9 @@ def main():
             fresh = IRCClient(port)
             try:
                 register(fresh, "Fresh")
-                # After DROP, PCHANNELS must no longer contain #persist.
-                # Registration lines were consumed by register(), so ask it to reconnect is unnecessary;
-                # DB behavior is already exercised by the mode/drop assertions above.
+                isupport = fresh.expect(" 005 Fresh ")
+                isupport_line = next(line for line in isupport if " 005 Fresh " in line)
+                assert "PCHANNELS=" in isupport_line and "#persist" not in isupport_line, isupport
             finally:
                 fresh.close()
         finally:
