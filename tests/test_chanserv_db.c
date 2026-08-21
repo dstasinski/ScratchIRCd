@@ -1,4 +1,5 @@
 #include "chanserv_db.h"
+#include "modes.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,7 @@ int main(void) {
     int fd = mkstemp(path);
     ChanServDb db = {0};
     ChanServChannel record;
+    ChanServAccess access;
     char list[256];
 
     assert(fd >= 0);
@@ -23,6 +25,31 @@ int main(void) {
     assert(strcmp(record.founder, "Alice") == 0);
     assert(strcmp(record.description, "Example channel") == 0);
     assert(record.enabled == 1);
+    assert(record.mode_lock == 0U);
+    assert(record.topic[0] == '\0');
+
+    assert(chanserv_db_set_mode_lock(&db, "#test",
+           CHANNEL_MODE_NO_EXTERNAL | CHANNEL_MODE_TOPIC_LOCK) == 0);
+    assert(chanserv_db_set_topic(&db, "#test", "Persistent topic",
+                                  "Alice!alice@example", 12345) == 0);
+    assert(chanserv_db_get(&db, "#TEST", &record) == 1);
+    assert((record.mode_lock & CHANNEL_MODE_NO_EXTERNAL) != 0U);
+    assert((record.mode_lock & CHANNEL_MODE_TOPIC_LOCK) != 0U);
+    assert(strcmp(record.topic, "Persistent topic") == 0);
+    assert(strcmp(record.topic_setter, "Alice!alice@example") == 0);
+    assert(record.topic_time == 12345);
+
+    assert(chanserv_db_access_set(&db, "#TEST", "Bob", CHANSERV_ACCESS_OP) == 0);
+    assert(chanserv_db_access_get(&db, "#test", "bob", &access) == 1);
+    assert(strcmp(access.account, "Bob") == 0);
+    assert(access.level == CHANSERV_ACCESS_OP);
+    assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
+    assert(chanserv_db_access_get(&db, "#TEST", "BOB", &access) == 1);
+    assert(access.level == CHANSERV_ACCESS_VOICE);
+    assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
+    assert(strstr(list, "Bob:1") != NULL);
+    assert(chanserv_db_access_delete(&db, "#test", "bob") == 0);
+    assert(chanserv_db_access_get(&db, "#test", "Bob", &access) == 0);
 
     assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == 0);
     assert(strstr(list, "#Test") != NULL);
