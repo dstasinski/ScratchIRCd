@@ -6,10 +6,12 @@
  * Direct delivery enforces recipient +R/+T and returns RPL_AWAY when the
  * destination has an active AWAY message. All client-visible source prefixes
  * use display_host. NickServ is a virtual target handled without a Client.
+ * Accepted channel messages are persisted to the SQLite history database.
  */
 
 #include "commands.h"
 #include "config.h"
+#include "history_db.h"
 #include "ircv3.h"
 #include "modes.h"
 #include "nickserv.h"
@@ -18,6 +20,35 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
+
+static void store_channel_history(Server *server, Client *client,
+                                  const char *target, const char *command,
+                                  const char *text) {
+    HistoryDb db = {0};
+    HistoryRecord record;
+    struct timespec now;
+
+    if (server == NULL || client == NULL || target == NULL || text == NULL) return;
+    memset(&record, 0, sizeof(record));
+    (void)snprintf(record.target, sizeof(record.target), "%s", target);
+    (void)snprintf(record.command, sizeof(record.command), "%s", command);
+    (void)snprintf(record.nick, sizeof(record.nick), "%s", client->nick);
+    (void)snprintf(record.user, sizeof(record.user), "%s", client->user);
+    (void)snprintf(record.host, sizeof(record.host), "%s", client->display_host);
+    (void)snprintf(record.account, sizeof(record.account), "%s", client->account_name);
+    (void)snprintf(record.text, sizeof(record.text), "%s", text);
+    if (clock_gettime(CLOCK_REALTIME, &now) == 0)
+        record.created_at_ms = (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+    else
+        record.created_at_ms = (int64_t)time(NULL) * 1000;
+
+    /* History failure must not interfere with delivery of a valid live message. */
+    if (history_db_open(&db, server->config.history_db) == 0) {
+        (void)history_db_add(&db, &record);
+        history_db_close(&db);
+    }
+}
 
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
     char *target;
@@ -84,6 +115,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                          client->nick, channel->name, "moderated channel (+m)");
             return COMMAND_KEEP_CLIENT;
         }
+        store_channel_history(server, client, channel->name, "PRIVMSG", text);
         channel_broadcast(channel, client, message);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
