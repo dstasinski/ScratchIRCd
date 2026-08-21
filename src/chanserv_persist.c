@@ -14,6 +14,33 @@
 #include <stdio.h>
 #include <string.h>
 
+static unsigned char irc_fold(unsigned char ch) {
+    if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
+    switch (ch) {
+        case '{': return '[';
+        case '}': return ']';
+        case '|': return '\\';
+        case '~': return '^';
+        default: return ch;
+    }
+}
+
+static int irc_collation(void *context, int left_len, const void *left_data,
+                         int right_len, const void *right_data) {
+    const unsigned char *left = left_data;
+    const unsigned char *right = right_data;
+    int length = left_len < right_len ? left_len : right_len;
+    int i;
+    (void)context;
+    for (i = 0; i < length; ++i) {
+        unsigned char a = irc_fold(left[i]);
+        unsigned char b = irc_fold(right[i]);
+        if (a < b) return -1;
+        if (a > b) return 1;
+    }
+    return left_len < right_len ? -1 : left_len > right_len ? 1 : 0;
+}
+
 static int exec_sql(sqlite3 *db, const char *sql) {
     char *error = NULL;
     int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
@@ -33,6 +60,11 @@ static int open_db(sqlite3 **out, const char *path) {
         if (db != NULL) sqlite3_close(db);
         return -1;
     }
+    if (sqlite3_create_collation(db, "IRCNOCASE", SQLITE_UTF8, NULL,
+                                 irc_collation) != SQLITE_OK) {
+        sqlite3_close(db);
+        return -1;
+    }
     sqlite3_busy_timeout(db, 2000);
     if (exec_sql(db, "PRAGMA foreign_keys=ON;") != 0) {
         sqlite3_close(db);
@@ -45,7 +77,7 @@ static int open_db(sqlite3 **out, const char *path) {
 int chanserv_persist_init(const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS channel_runtime ("
-        "channel TEXT PRIMARY KEY,"
+        "channel TEXT COLLATE IRCNOCASE PRIMARY KEY,"
         "channel_key TEXT NOT NULL DEFAULT '',"
         "user_limit INTEGER NOT NULL DEFAULT 0,"
         "join_count INTEGER NOT NULL DEFAULT 0,"
@@ -55,7 +87,7 @@ int chanserv_persist_init(const char *path) {
         "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
         ");"
         "CREATE TABLE IF NOT EXISTS channel_masks ("
-        "channel TEXT NOT NULL,"
+        "channel TEXT COLLATE IRCNOCASE NOT NULL,"
         "type TEXT NOT NULL CHECK(type IN ('b','e','I')) ,"
         "mask TEXT NOT NULL,"
         "protected_authorized INTEGER NOT NULL DEFAULT 0,"
