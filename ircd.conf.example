@@ -55,6 +55,7 @@ admin_email =
 operators_db = data/operators.db
 bans_db = data/bans.db
 nickserv_db = data/nickserv.db
+chanserv_db = data/chanserv.db
 history_db = data/history.db
 
 # Maximum number of records one CHATHISTORY request may return. The compiled
@@ -73,7 +74,8 @@ nickserv_verify_seconds = 86400
 # Ordinary IRC operators are NOT configured in this file. They are managed by
 # the network administrator through OPERADD / OPERDEL / OPERSET / OPERLIST.
 # Registered nicknames/accounts are managed by the virtual NickServ service and
-# stored in nickserv_db.
+# stored in nickserv_db. Registered channels are managed by the virtual
+# ChanServ service and stored in chanserv_db.
 
 # Bootstrap network administrator only.
 # Generate netadmin_password_hash with:
