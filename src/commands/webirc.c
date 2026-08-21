@@ -91,7 +91,7 @@ CommandResult command_webirc(Server *server, Client *client, char *params) {
                    "%s", supplied_host);
     client->webirc.active = 1;
 
-    /* Invalidate any in-flight DNS answer for the physical gateway. */
+    /* Invalidate any in-flight DNS/DNSBL answer for the physical gateway. */
     client->id = ++server->next_client_id;
     client->address_family = family;
     (void)snprintf(client->real_ip, sizeof(client->real_ip), "%s", supplied_ip);
@@ -99,15 +99,15 @@ CommandResult command_webirc(Server *server, Client *client, char *params) {
     (void)snprintf(client->display_host, sizeof(client->display_host), "%s", supplied_ip);
     client->modes = client_mode_add(client->modes, CLIENT_MODE_WEBIRC);
 
-    /* Any enrichment performed for the gateway identity must be discarded. */
     memset(&client->geoip, 0, sizeof(client->geoip));
     client->geoip_complete = 0;
+    client->dnsbl_state = CLIENT_DNSBL_NONE;
+    client->dnsbl_deadline = 0;
 
     client->dns_state = CLIENT_DNS_PENDING;
     client->dns_deadline = time(NULL) + (time_t)server->config.dns_timeout_seconds;
-    if (dns_resolver_submit(&server->dns, client->id, family, client->real_ip) != 0) {
+    if (dns_resolver_submit(&server->dns, client->id, family, client->real_ip) != 0)
         client->dns_state = CLIENT_DNS_FAILED;
-    }
 
     return COMMAND_KEEP_CLIENT;
 }
