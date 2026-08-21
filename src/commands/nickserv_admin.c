@@ -6,6 +6,7 @@
  *   NSINFO <account>
  *   NSSET <account> PASSWORD <new-password>
  *   NSSET <account> VHOST <vhost|->
+ *   NSSET <account> EMAIL <address|->
  *   NSSET <account> ENABLED <0|1>
  *   NSDROP <account>
  */
@@ -59,6 +60,18 @@ static int valid_vhost(const char *vhost) {
     return strpbrk(vhost, " \t\r\n") == NULL;
 }
 
+static int valid_email(const char *email) {
+    const char *at;
+    const char *dot;
+    if (email == NULL || strlen(email) > IRCD_EMAIL_MAX || strpbrk(email, " \t\r\n") != NULL)
+        return 0;
+    if (*email == '\0') return 1;
+    at = strchr(email, '@');
+    if (at == NULL || at == email || strchr(at + 1, '@') != NULL || at[1] == '\0') return 0;
+    dot = strrchr(at + 1, '.');
+    return dot != NULL && dot != at + 1 && dot[1] != '\0';
+}
+
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     NickServDb db = {0};
     NickServAccount account;
@@ -83,9 +96,11 @@ CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     nickserv_db_close(&db);
 
     (void)snprintf(line, sizeof(line),
-                   "NICKSERV %s enabled=%d vhost=%s created=%lld updated=%lld",
+                   "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%lld updated=%lld",
                    account.name, account.enabled,
                    account.vhost[0] != '\0' ? account.vhost : "-",
+                   account.email[0] != '\0' ? account.email : "-",
+                   account.email_verified,
                    account.created_at, account.updated_at);
     notice(server, client, line);
     return COMMAND_KEEP_CLIENT;
@@ -126,6 +141,10 @@ CommandResult command_nsset(Server *server, Client *client, char *params) {
     } else if (strcasecmp(field, "VHOST") == 0) {
         const char *vhost = strcmp(value, "-") == 0 ? "" : value;
         if (valid_vhost(vhost)) rc = nickserv_db_set_vhost(&db, name, vhost);
+    } else if (strcasecmp(field, "EMAIL") == 0) {
+        const char *email = strcmp(value, "-") == 0 ? "" : value;
+        if (valid_email(email))
+            rc = nickserv_db_admin_set_email(&db, name, email, email[0] != '\0');
     } else if (strcasecmp(field, "ENABLED") == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
             rc = nickserv_db_set_enabled(&db, name, value[0] == '1');
