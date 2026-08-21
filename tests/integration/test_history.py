@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end persistent SQLite CHATHISTORY playback coverage."""
+"""End-to-end persistent SQLite CHATHISTORY and server-time coverage."""
 import os, socket, subprocess, sys, tempfile, time
 
 class IRCClient:
@@ -70,7 +70,7 @@ def main():
         assert os.path.exists(history), "history database was not created"
 
         proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-        reader=None
+        reader=None; live=None
         try:
             wait_listen(port,proc)
             reader=IRCClient(port)
@@ -81,6 +81,8 @@ def main():
             reader.expect(" CAP * ACK :batch draft/chathistory server-time")
             reader.send("NICK Reader"); reader.send("USER reader 0 * :Reader")
             reader.send("CAP END"); reader.expect(" 001 Reader ")
+            isupport=reader.expect("CHATHISTORY=20")
+            assert any("MSGREFTYPES=timestamp" in x for x in isupport),isupport
             reader.send("JOIN #history"); reader.expect(" JOIN #history")
             reader.send("CHATHISTORY LATEST #history * 10")
             lines=reader.expect(" BATCH -")
@@ -89,7 +91,16 @@ def main():
             assert "time=" in history_lines[0] and " PRIVMSG #history :persisted one" in history_lines[0],lines
             assert "time=" in history_lines[1] and " NOTICE #history :persisted two" in history_lines[1],lines
             assert any(" BATCH +" in x and " chathistory #history" in x for x in lines),lines
+
+            # server-time also applies to live message delivery, not only replay.
+            live=IRCClient(port); register(live,"Bob")
+            live.send("JOIN #history"); live.expect(" JOIN #history")
+            reader.expect(" JOIN #history")
+            live.send("PRIVMSG #history :live timed")
+            delivered=reader.expect(" PRIVMSG #history :live timed")
+            assert any(x.startswith("@time=") for x in delivered if " PRIVMSG #history :live timed" in x),delivered
         finally:
+            if live:live.close()
             if reader:reader.close()
             stop(proc)
 
