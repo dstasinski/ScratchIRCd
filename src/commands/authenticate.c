@@ -12,7 +12,6 @@
 #include "numerics.h"
 
 #include <openssl/evp.h>
-#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
@@ -63,7 +62,9 @@ CommandResult command_authenticate(Server *server, Client *client, char *params)
 
     payload_len = strlen(params);
     if (payload_len == 0U || payload_len > 400U || (payload_len % 4U) != 0U) {
-        sasl_fail(server, client);
+        client_sendf(client, ERR_SASLTOOLONG, server->config.server_name,
+                     command_reply_nick(client));
+        client->sasl_state = CLIENT_SASL_FAILED;
         return COMMAND_KEEP_CLIENT;
     }
     decoded_len = EVP_DecodeBlock(decoded, (const unsigned char *)params, (int)payload_len);
@@ -103,7 +104,7 @@ CommandResult command_authenticate(Server *server, Client *client, char *params)
                  command_reply_nick(client),
                  client->nick[0] != '\0' ? client->nick : "*",
                  client->user[0] != '\0' ? client->user : "*",
-                 client->display_host, client->account_name);
+                 client->display_host, client->account_name, client->account_name);
     client_sendf(client, RPL_SASLSUCCESS, server->config.server_name,
                  command_reply_nick(client));
     return COMMAND_KEEP_CLIENT;
