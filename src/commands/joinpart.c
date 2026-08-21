@@ -25,6 +25,7 @@ static int valid_channel_name(const char *name) {
 static void join_one(Server *server, Client *client, const char *name,
                      const char *key, unsigned int redirect_depth) {
     Channel *channel;
+    ChannelPrivilegeSet service_privileges;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
     int first_member;
     int explicitly_invited;
@@ -45,6 +46,7 @@ static void join_one(Server *server, Client *client, const char *name,
     if (channel == NULL) channel = server_get_or_create_channel(server, name);
     if (channel == NULL || channel_has_client(channel, client)) return;
     chanserv_restore_channel(server, channel);
+    service_privileges = chanserv_client_privileges(server, client, channel->name);
 
     explicitly_invited = channel_invite_has(channel, client->id);
 
@@ -54,7 +56,9 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-    if (channel_client_is_banned(channel, client)) {
+    if (channel_client_is_banned(channel, client) &&
+        !channel_privilege_has(service_privileges,
+                               CHANNEL_PRIV_OWNER | CHANNEL_PRIV_PROTECTED)) {
         if (channel->ban_redirect[0] != '\0' &&
             redirect_depth < IRC_JOIN_REDIRECT_MAX &&
             valid_channel_name(channel->ban_redirect)) {
@@ -131,11 +135,9 @@ static void join_one(Server *server, Client *client, const char *name,
                                      CHANNEL_PRIV_OWNER |
                                      CHANNEL_PRIV_OPERATOR);
     }
-    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
-        ChannelPrivilegeSet service_privileges =
-            chanserv_client_privileges(server, client, channel->name);
-        if (service_privileges != 0U)
-            (void)channel_add_privileges(channel, client, service_privileges);
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
+        service_privileges != 0U) {
+        (void)channel_add_privileges(channel, client, service_privileges);
     }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
