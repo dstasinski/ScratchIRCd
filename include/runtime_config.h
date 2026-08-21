@@ -42,6 +42,8 @@ typedef struct ServerConfig {
     char operators_db[IRCD_CONFIG_PATH_MAX + 1U];
     char bans_db[IRCD_CONFIG_PATH_MAX + 1U];
     char nickserv_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char history_db[IRCD_CONFIG_PATH_MAX + 1U];
+    size_t history_limit;
 
     /** Optional sendmail-compatible MTA used for NickServ verification/reset. */
     char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
