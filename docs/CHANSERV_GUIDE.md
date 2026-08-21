@@ -11,7 +11,7 @@ CHANSERV REGISTER #channel :optional description
 PRIVMSG ChanServ :REGISTER #channel :optional description
 ```
 
-A successful registration records the authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`.
+A successful registration records the authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`. The channel's current parameter modes and `+b/+e/+I` lists are also captured as the initial persistent runtime state.
 
 ## Channel information
 
@@ -38,11 +38,11 @@ CHANSERV ACCESS #channel LIST
 
 Access is bound to the authenticated account, not the current nickname. On JOIN, the corresponding privileges are restored automatically:
 
-- `OWNER` -> channel owner/operator (`+q/+o`, `~` prefix)
-- `PROTECTED` -> protected/operator (`+a/+o`, `&` prefix)
-- `OP` -> channel operator (`+o`, `@` prefix)
-- `HALFOP` -> halfop (`+h`, `%` prefix)
-- `VOICE` -> voice (`+v`, `+` prefix)
+- `OWNER` -> channel owner/operator (`+q/+o`, `~` prefix), authority level 5
+- `PROTECTED` -> protected/operator (`+a/+o`, `&` prefix), authority level 4
+- `OP` -> channel operator (`+o`, `@` prefix), authority level 3
+- `HALFOP` -> halfop (`+h`, `%` prefix), authority level 2
+- `VOICE` -> voice (`+v`, `+` prefix), authority level 1
 
 The founder is implicitly an owner and is not stored as a separate access-list entry.
 
@@ -52,17 +52,51 @@ Channel membership mode `+a` marks a member as PROTECTED. Its authority is below
 
 Ordinary OP/HALFOP users cannot set a channel ban that currently matches a protected member. Ban entries remember whether they were set with PROTECTED/OWNER authority. When a ChanServ PROTECTED or OWNER account reconnects, ordinary bans are ignored for that protected account, while a matching ban deliberately set by PROTECTED/OWNER authority is still enforced. This prevents an OP from bypassing protection by pre-setting a ban before the protected account rejoins.
 
-## Persistent boolean modes
+## Persistent boolean modes and active MLOCK
 
-The founder can store a channel mode lock:
+The founder stores the channel's boolean mode policy with:
 
 ```text
 CHANSERV SET #channel MLOCK +nt
 ```
 
-The current 0.19 mode lock supports boolean channel modes only: `A c i K M m n O p R S s t T V z`. Service-controlled `+r` is always restored separately and cannot be placed in the lock. Membership privilege `+a` is account/access state rather than part of MLOCK. Parameter modes and lists such as `+k`, `+l`, `+j`, `+L`, `+B`, `+b`, `+e`, and `+I` are not persisted yet.
+0.20 supports these boolean MLOCK modes:
 
-The stored mode-lock state is reapplied when a persistent channel is recreated/restored. Updating MLOCK also refreshes the current live registered channel.
+```text
+A c i K M m n O p R S s t T V z
+```
+
+Service-controlled `+r` is restored separately and cannot be placed in MLOCK. Membership privileges such as `+q`, `+a`, `+o`, `+h`, and `+v` are account/member state rather than MLOCK state.
+
+MLOCK is now actively enforced. For an enabled registered channel, ordinary MODE and SAMODE requests that would make a boolean mode disagree with the stored MLOCK are rejected with numeric 974. To change the persistent boolean policy, update the MLOCK through ChanServ instead of temporarily changing the live channel.
+
+For example, with `MLOCK +nt`, `MODE #channel -n` and `MODE #channel +m` are rejected, while the stored `+n/+t` state is reapplied when the channel is recreated.
+
+## Persistent parameter modes
+
+The following ordinary channel MODE state is automatically persisted for registered channels:
+
+```text
++k <key>
++l <limit>
++j <joins:seconds>
++L <channel>
++B <channel>
+```
+
+Removing any of these modes persists the removal as well. Founders do not need a separate ChanServ command for these settings: an accepted ordinary MODE change updates the live channel and the persistent SQLite snapshot together.
+
+## Persistent ban, exception, and invite-exception lists
+
+Registered channels also persist:
+
+```text
++b <mask>
++e <mask>
++I <mask>
+```
+
+Accepted additions and removals are written to `chanserv.db`. The protected-ban authorization flag is stored with `+b` entries, so the PROTECTED/OWNER reconnect semantics survive a daemon restart rather than being lost with the in-memory channel.
 
 ## Persistent topic
 
@@ -83,11 +117,13 @@ CHANSERV DROP #channel
 PRIVMSG ChanServ :DROP #channel
 ```
 
-The live channel loses service-controlled `+r`. Its persistent access entries are deleted automatically with the registration. The live channel may continue to exist normally while clients remain in it.
+The live channel loses service-controlled `+r`. Persistent access rows and companion runtime/list rows are tied to the registration with SQLite foreign keys and are removed when the registration is deleted. The live channel may continue to exist normally while clients remain in it.
 
 ## Persistence and founder privileges
 
-Channel registrations, access lists, mode-lock state, and persistent topic data survive daemon restart in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores `+r`, the boolean mode lock, topic state, and authenticated-account privileges.
+Channel registrations, access lists, MLOCK state, topic data, parameter modes, and `+b/+e/+I` lists survive daemon restart in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores the complete persistent policy before normal JOIN restrictions are evaluated.
+
+This means a stored key or ban is effective on the first JOIN after restart, rather than being applied only after someone has already entered the channel.
 
 ## ISUPPORT PCHANNELS
 
@@ -111,8 +147,8 @@ CSSET #channel ENABLED <0|1>
 CSDROP #channel
 ```
 
-`CSSET ... FOUNDER` requires an existing enabled NickServ account. Network administrators can also join/operate normally and use the founder-facing service commands when authenticated as the founder account. Direct administrator controls for individual access-list and mode-lock rows can be expanded later if needed.
+`CSSET ... FOUNDER` requires an existing enabled NickServ account. Network administrators can also join/operate normally and use the founder-facing service commands when authenticated as the founder account.
 
-## Current 0.19 scope
+## Current 0.20 scope
 
-0.19 persists registration metadata, founder identity, account access roles including PROTECTED, boolean mode-lock state, and topic state. Parameter modes, persistent ban/exception/invex lists, keys, join throttles, limits/redirects, and automatic persistence of arbitrary live MODE/TOPIC changes remain future work.
+0.20 persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK state, topic state, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
