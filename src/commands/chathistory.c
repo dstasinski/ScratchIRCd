@@ -4,8 +4,8 @@
  *
  * This initial implementation deliberately supports only channel LATEST
  * requests. The requester must currently be a member of the target channel.
- * Playback uses the standardized chathistory batch type and, when server-time
- * is negotiated, emits each record with its original UTC timestamp.
+ * `draft/chathistory` is required; `batch` and `server-time` enhance playback
+ * when negotiated but are not independently required.
  */
 
 #include "commands.h"
@@ -46,11 +46,11 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
     HistoryRecord *records = NULL;
     size_t count = 0U;
     size_t i;
+    int use_batch;
     char batch_id[IRCD_HISTORY_BATCH_ID_MAX + 1U];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
-    if ((client->capabilities & CLIENT_CAP_CHATHISTORY) == 0U ||
-        (client->capabilities & CLIENT_CAP_BATCH) == 0U) {
+    if ((client->capabilities & CLIENT_CAP_CHATHISTORY) == 0U) {
         client_sendf(client, ERR_UNKNOWNCOMMAND, server->config.server_name,
                      client->nick, "CHATHISTORY");
         return COMMAND_KEEP_CLIENT;
@@ -92,7 +92,7 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
 
     records = calloc(limit, sizeof(*records));
     if (records == NULL || history_db_open(&db, server->config.history_db) != 0 ||
-        history_db_latest(&db, target, limit, records, limit, &count) != 0) {
+        history_db_latest(&db, channel->name, limit, records, limit, &count) != 0) {
         history_db_close(&db);
         free(records);
         client_sendf(client, ERR_FILEERROR, server->config.server_name,
@@ -101,28 +101,44 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
     }
     history_db_close(&db);
 
-    (void)snprintf(batch_id, sizeof(batch_id), "h%llu%ld",
-                   (unsigned long long)client->id, (long)time(NULL));
-    client_sendf(client, ":%s BATCH +%s chathistory %s",
-                 server->config.server_name, batch_id, target);
+    use_batch = (client->capabilities & CLIENT_CAP_BATCH) != 0U;
+    if (use_batch) {
+        (void)snprintf(batch_id, sizeof(batch_id), "h%llu%ld",
+                       (unsigned long long)client->id, (long)time(NULL));
+        client_sendf(client, ":%s BATCH +%s chathistory %s",
+                     server->config.server_name, batch_id, channel->name);
+    }
+
     for (i = 0U; i < count; ++i) {
         char timestamp[40];
         HistoryRecord *record = &records[i];
+        int use_time = (client->capabilities & CLIENT_CAP_SERVER_TIME) != 0U;
         format_timestamp(record->created_at_ms, timestamp, sizeof(timestamp));
-        if ((client->capabilities & CLIENT_CAP_SERVER_TIME) != 0U) {
+
+        if (use_batch && use_time) {
             client_sendf(client,
                          "@batch=%s;time=%s :%s!%s@%s %s %s :%s",
                          batch_id, timestamp, record->nick, record->user,
-                         record->host, record->command, record->target,
-                         record->text);
-        } else {
+                         record->host, record->command, record->target, record->text);
+        } else if (use_batch) {
             client_sendf(client,
                          "@batch=%s :%s!%s@%s %s %s :%s",
                          batch_id, record->nick, record->user, record->host,
                          record->command, record->target, record->text);
+        } else if (use_time) {
+            client_sendf(client,
+                         "@time=%s :%s!%s@%s %s %s :%s",
+                         timestamp, record->nick, record->user, record->host,
+                         record->command, record->target, record->text);
+        } else {
+            client_sendf(client, ":%s!%s@%s %s %s :%s",
+                         record->nick, record->user, record->host,
+                         record->command, record->target, record->text);
         }
     }
-    client_sendf(client, ":%s BATCH -%s", server->config.server_name, batch_id);
+
+    if (use_batch)
+        client_sendf(client, ":%s BATCH -%s", server->config.server_name, batch_id);
     free(records);
     return COMMAND_KEEP_CLIENT;
 }
