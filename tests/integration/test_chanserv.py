@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end ChanServ registration and restart-persistence coverage."""
+"""End-to-end ChanServ registration, access, and settings persistence coverage."""
 
 import os
 import socket
@@ -105,26 +105,41 @@ def main():
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
         alice = None
+        bob = None
         try:
             wait_listen(port, proc)
             alice = IRCClient(port)
             register(alice, "Alice")
             alice.send("NICKSERV REGISTER chanpass")
             alice.expect("Nickname registered and identified.")
+
+            bob = IRCClient(port)
+            register(bob, "Bob")
+            bob.send("NICKSERV REGISTER bobpass")
+            bob.expect("Nickname registered and identified.")
+
             alice.send("JOIN #persist")
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistent test channel")
             alice.expect("Channel registered successfully.")
+            alice.send("CHANSERV ACCESS #persist ADD Bob OP")
+            alice.expect("Access set: Bob OP")
+            alice.send("CHANSERV ACCESS #persist LIST")
+            alice.expect("Bob:3")
+            alice.send("CHANSERV SET #persist MLOCK +nt")
+            alice.expect("Persistent mode lock updated.")
+            alice.send("CHANSERV SET #persist TOPIC :Persistent ChanServ topic")
+            alice.expect("Persistent topic updated.")
             alice.send("MODE #persist")
             modes = alice.expect(" 324 Alice #persist ")
-            assert any("+" in line and "r" in line for line in modes if " 324 Alice #persist " in line), modes
-            alice.send("CHANSERV INFO #persist")
-            alice.expect("founder=Alice")
+            assert any("r" in line and "n" in line and "t" in line
+                       for line in modes if " 324 Alice #persist " in line), modes
             alice.send("QUIT :restart test")
             alice.close(); alice = None
+            bob.close(); bob = None
         finally:
-            if alice is not None:
-                alice.close()
+            if alice is not None: alice.close()
+            if bob is not None: bob.close()
             stop(proc)
 
         assert os.path.exists(chanserv_db), "chanserv database was not created"
@@ -132,6 +147,7 @@ def main():
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
         traveler = None
+        bob = None
         observer = None
         try:
             wait_listen(port, proc)
@@ -149,9 +165,22 @@ def main():
             traveler.send("JOIN #persist")
             join_lines = traveler.expect(" 366 Traveler #persist ")
             assert any("~Traveler" in line for line in join_lines if " 353 Traveler " in line), join_lines
+            assert any("Persistent ChanServ topic" in line for line in join_lines if " 332 Traveler " in line), join_lines
             traveler.send("MODE #persist")
             modes = traveler.expect(" 324 Traveler #persist ")
-            assert any("r" in line for line in modes if " 324 Traveler #persist " in line), modes
+            mode_line = next(line for line in modes if " 324 Traveler #persist " in line)
+            assert all(letter in mode_line for letter in ("r", "n", "t")), modes
+
+            bob = IRCClient(port)
+            register(bob, "Helper")
+            bob.send("IDENTIFY Bob bobpass")
+            bob.expect("Password accepted - you are now identified.")
+            bob.send("JOIN #persist")
+            bob_lines = bob.expect(" 366 Helper #persist ")
+            assert any("@Helper" in line for line in bob_lines if " 353 Helper " in line), bob_lines
+
+            traveler.send("CHANSERV ACCESS #persist DEL Bob")
+            traveler.expect("Access entry removed.")
             traveler.send("CHANSERV DROP #persist")
             traveler.expect("Channel registration dropped.")
             traveler.send("MODE #persist")
@@ -169,6 +198,7 @@ def main():
                 fresh.close()
         finally:
             if traveler is not None: traveler.close()
+            if bob is not None: bob.close()
             if observer is not None: observer.close()
             stop(proc)
 
