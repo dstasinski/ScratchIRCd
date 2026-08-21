@@ -9,7 +9,7 @@
 #include <string.h>
 #include <strings.h>
 
-#define CAP_ADVERTISED "account-notify sasl"
+#define CAP_ADVERTISED "account-notify batch draft/chathistory sasl server-time"
 
 typedef struct CapabilityDefinition {
     const char *name;
@@ -18,7 +18,10 @@ typedef struct CapabilityDefinition {
 
 static const CapabilityDefinition capabilities[] = {
     {"account-notify", CLIENT_CAP_ACCOUNT_NOTIFY},
-    {"sasl", CLIENT_CAP_SASL}
+    {"batch", CLIENT_CAP_BATCH},
+    {"draft/chathistory", CLIENT_CAP_CHATHISTORY},
+    {"sasl", CLIENT_CAP_SASL},
+    {"server-time", CLIENT_CAP_SERVER_TIME}
 };
 
 static void send_cap(Server *server, Client *client,
