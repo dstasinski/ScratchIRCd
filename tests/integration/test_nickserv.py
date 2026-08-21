@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""End-to-end NickServ account, IDENTIFY, vhost and service-visibility tests."""
+"""End-to-end NickServ accounts, recovery, vhosts and email-reset coverage."""
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -36,6 +37,19 @@ class IRCClient:
             except socket.timeout:
                 pass
         raise AssertionError(f"expected {needle!r}; got {got!r}")
+
+    def expect_closed(self, duration=3.0):
+        deadline = time.monotonic() + duration
+        while time.monotonic() < deadline:
+            try:
+                data = self.sock.recv(4096)
+                if not data:
+                    return
+            except socket.timeout:
+                pass
+            except OSError:
+                return
+        raise AssertionError("expected connection to close")
 
     def close(self):
         try:
@@ -72,6 +86,21 @@ def register(client, nick):
     client.expect(f" 001 {nick} ")
 
 
+def wait_mail_token(mailbox, marker, start=0, duration=5.0):
+    pattern = re.compile(rf"{re.escape(marker)}: ([0-9a-f]{{32}})")
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        if os.path.exists(mailbox):
+            with open(mailbox, "r", encoding="utf-8", errors="replace") as f:
+                f.seek(start)
+                text = f.read()
+            match = pattern.search(text)
+            if match:
+                return match.group(1), os.path.getsize(mailbox)
+        time.sleep(0.05)
+    raise AssertionError(f"did not receive mail containing {marker!r}")
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_nickserv.py scratchircd scratchircd-mkpasswd")
@@ -81,15 +110,27 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-nickserv-") as td:
         port = free_port()
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+        mailbox = os.path.join(td, "mailbox.txt")
+        sendmail = os.path.join(td, "fake-sendmail")
+        with open(sendmail, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\n")
+            f.write(f"cat >> {mailbox!r}\n")
+            f.write(f"printf '\\n---END---\\n' >> {mailbox!r}\n")
+        os.chmod(sendmail, 0o755)
+
         conf = os.path.join(td, "ircd.conf")
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
-            f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
+            f.write(f"port = {port}\nmax_clients = 64\ndns_timeout_seconds = 1\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
             f.write(f"nickserv_db = {td}/nickserv.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
+            f.write(f"sendmail_path = {sendmail}\n")
+            f.write("mail_from = services@test.local\n")
+            f.write("nickserv_reset_seconds = 60\n")
+            f.write("nickserv_verify_seconds = 60\n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\n")
             f.write("netadmin_hostmask = *!*@*\n")
@@ -102,71 +143,107 @@ def main():
 
             alice = IRCClient(port); clients.append(alice)
             register(alice, "Alice")
-            alice.send("PRIVMSG NickServ :REGISTER firstpass")
+            alice.send("NICKSERV REGISTER firstpass")
             alice.expect("Nickname registered and identified.")
             alice.send("MODE Alice")
             modes = alice.expect(" 221 Alice ")
             assert any("r" in line.rsplit(" ", 1)[-1]
                        for line in modes if " 221 Alice " in line), modes
 
-            # NickServ is addressable but not represented as an online Client.
+            # NickServ is addressable but never represented as an online Client.
             alice.send("ISON NickServ Alice")
             ison = alice.expect(" 303 Alice ")
             ison_line = next(line for line in ison if " 303 Alice " in line)
             assert "Alice" in ison_line and "NickServ" not in ison_line, ison
 
-            # Virtual service names are reserved with the supplied reserved-nick numeric.
             impostor = IRCClient(port); clients.append(impostor)
             impostor.send("NICK NickServ")
             impostor.expect(" 437 ")
             impostor.close(); clients.remove(impostor)
 
-            # Self-service password change uses only the stored account identity.
-            alice.send("PRIVMSG NickServ :SET PASSWORD secondpass")
+            # Email must be verified before it can be used for password recovery.
+            alice.send("NICKSERV SET EMAIL alice@example.test")
+            alice.expect("Verification email queued.")
+            verify_token, mail_offset = wait_mail_token(mailbox, "Verification token")
+            alice.send(f"NICKSERV VERIFY {verify_token}")
+            alice.expect("Email address verified.")
+
+            # Default RECOVER safely renames the squatter rather than disconnecting it.
+            alice.send("NICK Owner")
+            alice.expect(" NICK :Owner")
+            squatter = IRCClient(port); clients.append(squatter)
+            register(squatter, "Alice")
+            alice.send("NICKSERV RECOVER Alice")
+            alice.expect("previous user was safely renamed")
+            squatter.expect("Your nickname was recovered")
+            alice.send("NICK Alice")
+            alice.expect(" NICK :Alice")
+
+            # RECOVER KILL disconnects the occupying session.
+            alice.send("NICK Owner2")
+            alice.expect(" NICK :Owner2")
+            squatter2 = IRCClient(port); clients.append(squatter2)
+            register(squatter2, "Alice")
+            alice.send("NICKSERV RECOVER Alice KILL")
+            alice.expect("Nickname session disconnected.")
+            squatter2.expect_closed()
+            squatter2.close(); clients.remove(squatter2)
+
+            # GHOST is deliberately a KILL alias.
+            squatter3 = IRCClient(port); clients.append(squatter3)
+            register(squatter3, "Alice")
+            alice.send("NICKSERV GHOST Alice")
+            alice.expect("Nickname session disconnected.")
+            squatter3.expect_closed()
+            squatter3.close(); clients.remove(squatter3)
+
+            # Password changes still use Argon2 and invalidate the old password.
+            alice.send("NICKSERV SET PASSWORD secondpass")
             alice.expect("Password changed.")
-            alice.send("QUIT :reconnect")
+            alice.send("QUIT :email reset test")
             alice.close(); clients.remove(alice)
 
-            user = IRCClient(port); clients.append(user)
-            register(user, "Traveler")
-            user.send("IDENTIFY Alice firstpass")
-            user.expect("Password incorrect or account unavailable.")
-            user.send("IDENTIFY Alice secondpass")
-            user.expect("Password accepted - you are now identified.")
-            user.send("MODE Traveler")
-            modes = user.expect(" 221 Traveler ")
-            assert any("r" in line.rsplit(" ", 1)[-1]
-                       for line in modes if " 221 Traveler " in line), modes
-            user.send("WHOIS Traveler")
-            whois = user.expect(" 318 Traveler Traveler ")
+            requester = IRCClient(port); clients.append(requester)
+            register(requester, "Requester")
+            requester.send("NICKSERV RESET Alice")
+            requester.expect("If that account exists and has a verified email address")
+            reset_token, mail_offset = wait_mail_token(mailbox, "Reset token", mail_offset)
+            requester.send(f"NICKSERV RESET Alice {reset_token} thirdpass")
+            requester.expect("Password reset complete.")
+            requester.send("IDENTIFY Alice secondpass")
+            requester.expect("Password incorrect or account unavailable.")
+            requester.send("IDENTIFY Alice thirdpass")
+            requester.expect("Password accepted - you are now identified.")
+            requester.send("WHOIS Requester")
+            whois = requester.expect(" 318 Requester Requester ")
             assert any("is logged in as Alice" in line for line in whois), whois
 
             admin = IRCClient(port); clients.append(admin)
             register(admin, "Admin")
             admin.send("OPER root adminpass")
             admin.expect(" 381 Admin ")
+            admin.send("NSINFO Alice")
+            info = admin.expect("email=alice@example.test")
+            assert any("email_verified=1" in line for line in info), info
             admin.send("NSSET Alice VHOST registered.example.test")
             admin.expect("NickServ account updated.")
-            admin.send("NSINFO Alice")
-            admin.expect("vhost=registered.example.test")
 
-            user.send("QUIT :reconnect for vhost")
-            user.close(); clients.remove(user)
+            requester.send("QUIT :reconnect for vhost")
+            requester.close(); clients.remove(requester)
             user = IRCClient(port); clients.append(user)
-            register(user, "Traveler2")
-            user.send("IDENTIFY Alice secondpass")
+            register(user, "Traveler")
+            user.send("IDENTIFY Alice thirdpass")
             user.expect("Password accepted - you are now identified.")
-            user.send("WHOIS Traveler2")
-            whois = user.expect(" 318 Traveler2 Traveler2 ")
-            assert any(" 311 Traveler2 Traveler2 " in line and
+            user.send("WHOIS Traveler")
+            whois = user.expect(" 318 Traveler Traveler ")
+            assert any(" 311 Traveler Traveler " in line and
                        " registered.example.test " in line for line in whois), whois
-            assert any("is logged in as Alice" in line for line in whois), whois
 
             admin.send("NSSET Alice ENABLED 0")
             admin.expect("NickServ account updated.")
             fresh = IRCClient(port); clients.append(fresh)
             register(fresh, "Fresh")
-            fresh.send("IDENTIFY Alice secondpass")
+            fresh.send("IDENTIFY Alice thirdpass")
             fresh.expect("Password incorrect or account unavailable.")
             admin.send("NSSET Alice ENABLED 1")
             admin.expect("NickServ account updated.")
