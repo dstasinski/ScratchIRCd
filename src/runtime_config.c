@@ -34,6 +34,7 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->operators_db, sizeof(config->operators_db), IRCD_DEFAULT_OPERATORS_DB);
     (void)copy_value(config->bans_db, sizeof(config->bans_db), IRCD_DEFAULT_BANS_DB);
     (void)copy_value(config->nickserv_db, sizeof(config->nickserv_db), IRCD_DEFAULT_NICKSERV_DB);
+    (void)copy_value(config->chanserv_db, sizeof(config->chanserv_db), IRCD_DEFAULT_CHANSERV_DB);
     (void)copy_value(config->history_db, sizeof(config->history_db), IRCD_DEFAULT_HISTORY_DB);
     (void)copy_value(config->geoip_city_db, sizeof(config->geoip_city_db), IRCD_DEFAULT_GEOIP_CITY_DB);
     (void)copy_value(config->geoip_asn_db, sizeof(config->geoip_asn_db), IRCD_DEFAULT_GEOIP_ASN_DB);
@@ -96,7 +97,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("server_password", server_password); STRING_OPTION("motd_file", motd_file); STRING_OPTION("rules_file", rules_file);
     STRING_OPTION("admin_location1", admin_location1); STRING_OPTION("admin_location2", admin_location2); STRING_OPTION("admin_email", admin_email);
     STRING_OPTION("operators_db", operators_db); STRING_OPTION("bans_db", bans_db); STRING_OPTION("nickserv_db", nickserv_db);
-    STRING_OPTION("history_db", history_db);
+    STRING_OPTION("chanserv_db", chanserv_db); STRING_OPTION("history_db", history_db);
     STRING_OPTION("sendmail_path", sendmail_path); STRING_OPTION("mail_from", mail_from);
     STRING_OPTION("netadmin_name", netadmin_name); STRING_OPTION("netadmin_password_hash", netadmin_password_hash);
     STRING_OPTION("netadmin_hostmask", netadmin_hostmask); STRING_OPTION("netadmin_vhost", netadmin_vhost);
