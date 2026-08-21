@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,17 @@ def stop(proc):
             proc.wait(timeout=3.0)
 
 
+def mask_rows(path):
+    con = sqlite3.connect(path)
+    try:
+        return con.execute(
+            "SELECT type,mask,protected_authorized FROM channel_masks "
+            "WHERE channel=? ORDER BY type,mask", ("#persist",)
+        ).fetchall()
+    finally:
+        con.close()
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv_persistence.py scratchircd")
@@ -90,6 +102,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-cspersist-") as td:
         port = free_port()
         conf = os.path.join(td, "ircd.conf")
+        chanserv_db = os.path.join(td, "chanserv.db")
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
@@ -97,7 +110,7 @@ def main():
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
             f.write(f"nickserv_db = {td}/nickserv.db\n")
-            f.write(f"chanserv_db = {td}/chanserv.db\n")
+            f.write(f"chanserv_db = {chanserv_db}\n")
             f.write(f"history_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
 
@@ -132,6 +145,16 @@ def main():
             alice.expect(" MODE #persist +e Friend!*@*")
             alice.send("MODE #persist +I Invite!*@*")
             alice.expect(" MODE #persist +I Invite!*@*")
+
+            # Diagnose the live MODE layer before persistence/restart. If this
+            # fails, +I was never added to Channel.invite_exception_list.
+            alice.send("MODE #persist I")
+            alice.expect(" Invite!*@* ")
+
+            # Diagnose the persistence boundary before shutdown. Type 3 is
+            # CHANSERV_MASK_INVEX; the exact row must already be in SQLite.
+            rows = mask_rows(chanserv_db)
+            assert (3, "Invite!*@*", 0) in rows, f"missing invex DB row; rows={rows!r}"
         finally:
             if alice is not None:
                 alice.close()
