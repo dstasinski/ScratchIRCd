@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "ircv3.h"
 #include "nickserv.h"
 #include "numerics.h"
 
@@ -18,6 +19,7 @@ CommandResult command_identify(Server *server, Client *client, char *params) {
     char *second;
     const char *account;
     const char *password;
+    int was_identified;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
@@ -43,7 +45,9 @@ CommandResult command_identify(Server *server, Client *client, char *params) {
         password = second;
     }
 
+    was_identified = client->account_name[0] != '\0';
     if (nickserv_identify(server, client, account, password)) {
+        if (!was_identified) ircv3_account_notify(client);
         client_sendf(client, ":NickServ!service@%s NOTICE %s :Password accepted - you are now identified.",
                      server->config.server_name, client->nick);
     } else {
