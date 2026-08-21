@@ -67,7 +67,8 @@ static void deliver_one(const char *sendmail_path, const MailRequest *request) {
 
 int mail_send_async(const char *sendmail_path, const MailRequest *request) {
     pid_t intermediate;
-    int status;
+    pid_t waited;
+    int status = 0;
 
     if (sendmail_path == NULL || *sendmail_path == '\0' || request == NULL) return -1;
 
@@ -82,7 +83,8 @@ int mail_send_async(const char *sendmail_path, const MailRequest *request) {
     }
 
     do {
-        if (waitpid(intermediate, &status, 0) >= 0) break;
-    } while (errno == EINTR);
+        waited = waitpid(intermediate, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited != intermediate) return -1;
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
 }
