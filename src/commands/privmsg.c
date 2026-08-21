@@ -53,7 +53,6 @@ static void store_channel_history(Server *server, Client *client,
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
     char *target;
     char *text;
-    char message[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
@@ -84,9 +83,6 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    (void)snprintf(message, sizeof(message), ":%s!%s@%s PRIVMSG %s :%s\r\n",
-                   client->nick, client->user, client->display_host, target, text);
-
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
         ChannelMember *member;
@@ -116,7 +112,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         }
         store_channel_history(server, client, channel->name, "PRIVMSG", text);
-        channel_broadcast(channel, client, message);
+        ircv3_broadcast_message(channel, client, client, "PRIVMSG", channel->name, text);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) {
@@ -135,7 +131,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                          client->nick, destination->nick);
             return COMMAND_KEEP_CLIENT;
         }
-        (void)client_send_raw(destination, message, strlen(message));
+        ircv3_send_message(destination, client, "PRIVMSG", destination->nick, text);
         if (destination->away[0] != '\0') {
             client_sendf(client, RPL_AWAY, server->config.server_name,
                          client->nick, destination->nick, destination->away);
