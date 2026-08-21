@@ -1,10 +1,15 @@
 #ifndef IRCD_CONFIG_H
 #define IRCD_CONFIG_H
 
-/* Compile-time limits and safe defaults for ScratchIRCd. */
+/*
+ * config.h
+ *
+ * Compile-time limits and safe defaults for ScratchIRCd.
+ */
+
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.18"
+#define IRCD_VERSION "ScratchIRCd-0.17"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -30,7 +35,6 @@
 #define IRCD_DEFAULT_OPERATORS_DB IRCD_DEFAULT_DATA_DIR "/operators.db"
 #define IRCD_DEFAULT_BANS_DB IRCD_DEFAULT_DATA_DIR "/bans.db"
 #define IRCD_DEFAULT_NICKSERV_DB IRCD_DEFAULT_DATA_DIR "/nickserv.db"
-#define IRCD_DEFAULT_CHANSERV_DB IRCD_DEFAULT_DATA_DIR "/chanserv.db"
 #define IRCD_DEFAULT_HISTORY_DB IRCD_DEFAULT_DATA_DIR "/history.db"
 #define IRCD_DEFAULT_GEOIP_CITY_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-City.mmdb"
 #define IRCD_DEFAULT_GEOIP_ASN_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-ASN.mmdb"
@@ -41,9 +45,6 @@
 #define IRCD_HISTORY_TEXT_MAX 510U
 #define IRCD_HISTORY_COMMAND_MAX 15U
 #define IRCD_HISTORY_BATCH_ID_MAX 31U
-
-/* ChanServ registered-channel metadata. */
-#define IRCD_CHANSERV_DESCRIPTION_MAX 255U
 
 /* NickServ account recovery and outbound-mail limits. */
 #define IRCD_EMAIL_MAX 254U
@@ -56,9 +57,12 @@
 #define IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS 86400U
 #define IRCD_DEFAULT_SENDMAIL_PATH ""
 
+/* DNS blacklist definitions. Kept small enough for atomic Linux pipe writes. */
 #define IRCD_MAX_DNSBLS 8U
 #define IRCD_DNSBL_NAME_MAX 63U
 #define IRCD_DNSBL_ZONE_MAX 255U
+
+/* GeoIP fields retained on Client.geoip. */
 #define IRCD_GEOIP_STATUS_MAX 31U
 #define IRCD_GEOIP_NETWORK_MAX 63U
 #define IRCD_GEOIP_SOURCE_MAX 63U
@@ -66,25 +70,35 @@
 #define IRCD_GEOIP_REGION_CODE_MAX 7U
 #define IRCD_GEOIP_NAME_MAX 127U
 #define IRCD_GEOIP_ORG_MAX 255U
+
+/* Authorized WebIRC gateways. */
 #define IRCD_MAX_WEBIRC_GATEWAYS 16U
 #define IRCD_WEBIRC_PASSWORD_MAX 127U
 #define IRCD_WEBIRC_GATEWAY_NAME_MAX 127U
+
+/* Operator/network-administrator storage limits. */
 #define IRCD_OPER_NAME_MAX 63U
 #define IRCD_OPER_HASH_MAX 255U
 #define IRCD_OPER_FLAGS_MAX 255U
 #define IRCD_OPER_HOSTMASK_MAX 255U
 #define IRCD_OPER_VHOST_MAX IRC_HOST_MAX
+
+/* Argon2id parameters used for OPER and NickServ credentials. */
 #define IRCD_ARGON2_TIME_COST 3U
 #define IRCD_ARGON2_MEMORY_COST_KIB 65536U
 #define IRCD_ARGON2_PARALLELISM 1U
 #define IRCD_ARGON2_SALT_BYTES 16U
 #define IRCD_ARGON2_HASH_BYTES 32U
+
 #define IRCD_SUPPORTED_USER_MODES ""
 #define IRCD_SUPPORTED_CHANNEL_MODES ""
-#define IRCD_ISUPPORT_BASE "CASEMAPPING=rfc1459 CHANTYPES=#& NICKLEN=31 CHANNELLEN=63 MSGREFTYPES=timestamp"
+#define IRCD_ISUPPORT_BASE \
+    "CASEMAPPING=rfc1459 CHANTYPES=#& NICKLEN=31 CHANNELLEN=63 MSGREFTYPES=timestamp"
+
 #define IRCD_SERVER_NAME IRCD_DEFAULT_SERVER_NAME
 #define IRCD_NETWORK_NAME IRCD_DEFAULT_NETWORK_NAME
 #define IRCD_ISUPPORT IRCD_ISUPPORT_BASE
+
 #define IRC_NICK_MAX 31U
 #define IRC_USER_MAX 31U
 #define IRC_REALNAME_MAX 127U
@@ -100,6 +114,7 @@
 #define IRC_CANNOT_SEND_NOT_MEMBER_TEXT "not on channel"
 #define IRC_DEFAULT_PART_REASON "Leaving"
 #define IRC_MODE_MAX_PARAMS 32U
+
 #define IRC_CHANNEL_NAME_MAX 63U
 #define IRC_CHANNEL_KEY_MAX 63U
 #define IRC_CHANNEL_MASK_MAX 255U
