@@ -48,8 +48,9 @@ static int reverse_ip(const char *ip, char *buffer, size_t size) {
 
     if (inet_pton(AF_INET, ip, &v4) == 1) {
         const unsigned char *b = (const unsigned char *)&v4.s_addr;
-        return snprintf(buffer, size, "%u.%u.%u.%u",
-                        b[3], b[2], b[1], b[0]) < (int)size ? 0 : -1;
+        int written = snprintf(buffer, size, "%u.%u.%u.%u",
+                               b[3], b[2], b[1], b[0]);
+        return written >= 0 && (size_t)written < size ? 0 : -1;
     }
 
     if (inet_pton(AF_INET6, ip, &v6) == 1) {
@@ -71,19 +72,46 @@ static int reverse_ip(const char *ip, char *buffer, size_t size) {
     return -1;
 }
 
+/**
+ * Return non-zero only for a conventional DNSBL positive A response.
+ *
+ * DNSBLs normally return an address in 127/8 for listed clients. The
+ * 127.255.255/24 range is commonly used for query/rate-limit errors and must
+ * never cause an automatic ZLINE. Non-loopback answers are also ignored so a
+ * broken/wildcard resolver cannot turn arbitrary DNS answers into bans.
+ */
+static int positive_answer(const struct addrinfo *answers) {
+    const struct addrinfo *candidate;
+    for (candidate = answers; candidate != NULL; candidate = candidate->ai_next) {
+        if (candidate->ai_family == AF_INET && candidate->ai_addr != NULL) {
+            const struct sockaddr_in *address = (const struct sockaddr_in *)candidate->ai_addr;
+            uint32_t host = ntohl(address->sin_addr.s_addr);
+            unsigned int first = (host >> 24U) & 0xffU;
+            unsigned int second = (host >> 16U) & 0xffU;
+            unsigned int third = (host >> 8U) & 0xffU;
+            if (first == 127U && !(second == 255U && third == 255U)) return 1;
+        }
+    }
+    return 0;
+}
+
 static int query_zone(const char *reverse, const char *zone) {
     struct addrinfo hints;
     struct addrinfo *answers = NULL;
     char query[IRCD_DNSBL_ZONE_MAX + IRC_IP_MAX * 4U + 80U];
     int rc;
+    int listed = 0;
 
     if (snprintf(query, sizeof(query), "%s.%s", reverse, zone) >= (int)sizeof(query)) return 0;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     rc = getaddrinfo(query, NULL, &hints, &answers);
-    if (rc == 0) { freeaddrinfo(answers); return 1; }
-    return 0;
+    if (rc == 0) {
+        listed = positive_answer(answers);
+        freeaddrinfo(answers);
+    }
+    return listed;
 }
 
 static void resolve_request(const DnsblRequest *request, DnsblResult *result) {
