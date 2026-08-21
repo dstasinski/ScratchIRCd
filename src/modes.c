@@ -38,6 +38,9 @@ char channel_privilege_prefix(ChannelPrivilegeSet privileges) {
     if ((privileges & CHANNEL_PRIV_OWNER) != 0U) {
         return '~';
     }
+    if ((privileges & CHANNEL_PRIV_PROTECTED) != 0U) {
+        return '&';
+    }
     if ((privileges & CHANNEL_PRIV_OPERATOR) != 0U) {
         return '@';
     }
@@ -66,6 +69,7 @@ size_t channel_privilege_format(ChannelPrivilegeSet privileges,
     } while (0)
 
     APPEND_PRIV(CHANNEL_PRIV_OWNER, 'q');
+    APPEND_PRIV(CHANNEL_PRIV_PROTECTED, 'a');
     APPEND_PRIV(CHANNEL_PRIV_OPERATOR, 'o');
     APPEND_PRIV(CHANNEL_PRIV_HALFOP, 'h');
     APPEND_PRIV(CHANNEL_PRIV_VOICE, 'v');
@@ -78,6 +82,9 @@ size_t channel_privilege_format(ChannelPrivilegeSet privileges,
 
 unsigned int channel_privilege_rank(ChannelPrivilegeSet privileges) {
     if ((privileges & CHANNEL_PRIV_OWNER) != 0U) {
+        return 5U;
+    }
+    if ((privileges & CHANNEL_PRIV_PROTECTED) != 0U) {
         return 4U;
     }
     if ((privileges & CHANNEL_PRIV_OPERATOR) != 0U) {
