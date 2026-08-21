@@ -1,5 +1,6 @@
 #include "ban_db.h"
 #include "config.h"
+#include "geoip.h"
 #include "operator_db.h"
 #include "runtime_config.h"
 #include "server.h"
@@ -51,11 +52,19 @@ int main(int argc, char **argv) {
             return 1;
         }
 
+        /* GeoLite2 files are optional. Missing files leave Client.geoip unavailable. */
+        if (geoip_init(&server.geoip, config.geoip_city_db, config.geoip_asn_db) != 0) {
+            server_destroy(&server);
+            fprintf(stderr, "Failed to initialize GeoIP subsystem\n");
+            return 1;
+        }
+
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
         server_run(&server);
         restart = server.restart_requested;
+        geoip_destroy(&server.geoip);
         server_destroy(&server);
 
         if (!restart) break;
