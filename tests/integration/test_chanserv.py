@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end ChanServ registration, access, and settings persistence coverage."""
+"""End-to-end ChanServ registration, access, protected-role, and persistence coverage."""
 
 import os
 import socket
@@ -104,8 +104,7 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        alice = None
-        bob = None
+        alice = bob = carol = None
         try:
             wait_listen(port, proc)
             alice = IRCClient(port)
@@ -118,14 +117,22 @@ def main():
             bob.send("NICKSERV REGISTER bobpass")
             bob.expect("Nickname registered and identified.")
 
+            carol = IRCClient(port)
+            register(carol, "Carol")
+            carol.send("NICKSERV REGISTER carolpass")
+            carol.expect("Nickname registered and identified.")
+
             alice.send("JOIN #persist")
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistent test channel")
             alice.expect("Channel registered successfully.")
             alice.send("CHANSERV ACCESS #persist ADD Bob OP")
             alice.expect("Access set: Bob OP")
+            alice.send("CHANSERV ACCESS #persist ADD Carol PROTECTED")
+            alice.expect("Access set: Carol PROTECTED")
             alice.send("CHANSERV ACCESS #persist LIST")
-            alice.expect("Bob:3")
+            access = alice.expect("Carol:4")
+            assert any("Bob:3" in line for line in access), access
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
             alice.send("CHANSERV SET #persist TOPIC :Persistent ChanServ topic")
@@ -137,18 +144,18 @@ def main():
             alice.send("QUIT :restart test")
             alice.close(); alice = None
             bob.close(); bob = None
+            carol.close(); carol = None
         finally:
             if alice is not None: alice.close()
             if bob is not None: bob.close()
+            if carol is not None: carol.close()
             stop(proc)
 
         assert os.path.exists(chanserv_db), "chanserv database was not created"
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        traveler = None
-        bob = None
-        observer = None
+        traveler = bob = guardian = observer = None
         try:
             wait_listen(port, proc)
 
@@ -179,7 +186,44 @@ def main():
             bob_lines = bob.expect(" 366 Helper #persist ")
             assert any("@Helper" in line for line in bob_lines if " 353 Helper " in line), bob_lines
 
+            guardian = IRCClient(port)
+            register(guardian, "Guardian")
+            guardian.send("IDENTIFY Carol carolpass")
+            guardian.expect("Password accepted - you are now identified.")
+            guardian.send("JOIN #persist")
+            guardian_lines = guardian.expect(" 366 Guardian #persist ")
+            assert any("&Guardian" in line for line in guardian_lines if " 353 Guardian " in line), guardian_lines
+
+            # An ordinary OP cannot strip +a, ban, or kick a protected member.
+            bob.send("MODE #persist -a Guardian")
+            bob.expect(" 482 Helper #persist ")
+            bob.send("MODE #persist +b Guardian!*@*")
+            bob.expect(" 482 Helper #persist ")
+            bob.send("KICK #persist Guardian :not allowed")
+            bob.expect(" 484 Helper #persist ")
+
+            # OWNER may ban a protected member; the authorization survives reconnect.
+            traveler.send("MODE #persist +b Guardian!*@*")
+            traveler.expect(" MODE #persist +b Guardian!*@*")
+            guardian.send("PART #persist :testing protected ban")
+            guardian.expect(" PART #persist ")
+            guardian.send("JOIN #persist")
+            guardian.expect(" 474 Guardian #persist ")
+            traveler.send("MODE #persist -b Guardian!*@*")
+            traveler.expect(" MODE #persist -b Guardian!*@*")
+            guardian.send("JOIN #persist")
+            guardian_lines = guardian.expect(" 366 Guardian #persist ")
+            assert any("&Guardian" in line for line in guardian_lines if " 353 Guardian " in line), guardian_lines
+
+            # OWNER may grant +a manually; a PROTECTED member may kick another +a.
+            traveler.send("MODE #persist +a Helper")
+            traveler.expect(" MODE #persist +a Helper")
+            guardian.send("KICK #persist Helper :protected hierarchy")
+            guardian.expect(" KICK #persist Helper :protected hierarchy")
+
             traveler.send("CHANSERV ACCESS #persist DEL Bob")
+            traveler.expect("Access entry removed.")
+            traveler.send("CHANSERV ACCESS #persist DEL Carol")
             traveler.expect("Access entry removed.")
             traveler.send("CHANSERV DROP #persist")
             traveler.expect("Channel registration dropped.")
@@ -199,6 +243,7 @@ def main():
         finally:
             if traveler is not None: traveler.close()
             if bob is not None: bob.close()
+            if guardian is not None: guardian.close()
             if observer is not None: observer.close()
             stop(proc)
 
