@@ -55,6 +55,8 @@ static int registration_banned(Server *server, Client *client) {
 }
 
 void command_maybe_register(Server *server, Client *client) {
+    char isupport[IRCD_MESSAGE_BUFFER_SIZE];
+
     if (server == NULL || client == NULL || client->registered ||
         client->nick[0] == '\0' || client->user[0] == '\0' ||
         client->cap_negotiating ||
@@ -96,8 +98,11 @@ void command_maybe_register(Server *server, Client *client) {
     client_sendf(client, RPL_AVAILABLE, server->config.server_name, client->nick,
                  server->config.server_name, IRCD_VERSION,
                  IRCD_SUPPORTED_USER_MODES, IRCD_SUPPORTED_CHANNEL_MODES);
+
+    (void)snprintf(isupport, sizeof(isupport), "%s CHATHISTORY=%zu",
+                   IRCD_ISUPPORT_BASE, server->config.history_limit);
     client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick,
-                 IRCD_ISUPPORT_BASE);
+                 isupport);
 }
 
 int command_require_registered(Client *client) {
