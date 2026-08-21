@@ -486,8 +486,12 @@ static CommandResult mode_channel(Server *server, Client *client,
             list = letter == 'b' ? &channel->ban_list
                  : letter == 'e' ? &channel->exception_list
                                  : &channel->invite_exception_list;
-            if (sign == '+') (void)channel_mask_add(list, param);
-            else (void)channel_mask_remove(list, param);
+            if (sign == '+')
+                (void)channel_mask_add_authorized(
+                    list, param,
+                    letter == 'b' && may_manage_protected(channel, client));
+            else
+                (void)channel_mask_remove(list, param);
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), param);
             continue;
