@@ -25,12 +25,10 @@ typedef struct ServerConfig {
     WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
     size_t webirc_gateway_count;
 
-    /** Configured DNS blacklists. Every positive hit automatically ZLINEs. */
     DnsblZone dnsbls[IRCD_MAX_DNSBLS];
     size_t dnsbl_count;
     unsigned int dnsbl_timeout_seconds;
 
-    /** Optional MaxMind GeoLite2 databases. Missing files are non-fatal. */
     char geoip_city_db[IRCD_CONFIG_PATH_MAX + 1U];
     char geoip_asn_db[IRCD_CONFIG_PATH_MAX + 1U];
 
@@ -44,6 +42,12 @@ typedef struct ServerConfig {
     char operators_db[IRCD_CONFIG_PATH_MAX + 1U];
     char bans_db[IRCD_CONFIG_PATH_MAX + 1U];
     char nickserv_db[IRCD_CONFIG_PATH_MAX + 1U];
+
+    /** Optional sendmail-compatible MTA used for NickServ verification/reset. */
+    char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
+    char mail_from[IRCD_EMAIL_MAX + 1U];
+    unsigned int nickserv_reset_seconds;
+    unsigned int nickserv_verify_seconds;
 
     char netadmin_name[IRCD_OPER_NAME_MAX + 1U];
     char netadmin_password_hash[IRCD_OPER_HASH_MAX + 1U];
