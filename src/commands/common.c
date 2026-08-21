@@ -6,6 +6,7 @@
 #include "commands.h"
 #include "ban_db.h"
 #include "config.h"
+#include "geoip.h"
 #include "numerics.h"
 
 #include <stdio.h>
@@ -68,6 +69,15 @@ void command_maybe_register(Server *server, Client *client) {
         client->dns_state == CLIENT_DNS_PENDING || client->dns_state == CLIENT_DNS_NONE ||
         (server->config.server_password[0] != '\0' && !client->pass_accepted)) {
         return;
+    }
+
+    /*
+     * This is the first point at which direct/WebIRC real_ip and FCrDNS state
+     * are final. Enrich once here so all later policy sees the actual end user.
+     */
+    if (!client->geoip_complete) {
+        geoip_lookup(&server->geoip, client->real_ip, &client->geoip);
+        client->geoip_complete = 1;
     }
 
     if (registration_banned(server, client)) return;
