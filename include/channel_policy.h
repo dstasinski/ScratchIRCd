@@ -14,6 +14,9 @@ int irc_mask_match(const char *pattern, const char *text);
 int channel_mask_matches_client(const ChannelMaskEntry *list,
                                 const Client *client);
 int channel_client_is_banned(const Channel *channel, const Client *client);
+/** Evaluate only bans authorized by a PROTECTED or OWNER setter. */
+int channel_client_is_banned_protected(const Channel *channel,
+                                       const Client *client);
 int channel_client_is_invex(const Channel *channel, const Client *client);
 
 int channel_invite_add(Channel *channel, uint64_t client_id);
