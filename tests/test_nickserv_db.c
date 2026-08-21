@@ -27,6 +27,30 @@ int main(void) {
     assert(nickserv_db_get(&db, "daniel", &loaded) == 1);
     assert(strcmp(loaded.name, "Daniel") == 0);
     assert(loaded.enabled == 1);
+    assert(loaded.email[0] == '\0');
+
+    assert(nickserv_db_set_email_challenge(&db, "Daniel", "daniel@example.test",
+                                           "verifyhash", 2000) == 0);
+    assert(nickserv_db_verify_email(&db, "daniel", "wrong", 1000) == 0);
+    assert(nickserv_db_verify_email(&db, "daniel", "verifyhash", 1000) == 1);
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+    assert(strcmp(loaded.email, "daniel@example.test") == 0);
+    assert(loaded.email_verified == 1);
+    assert(loaded.pending_email[0] == '\0');
+
+    assert(nickserv_db_set_reset_token(&db, "Daniel", "resethash", 3000) == 0);
+    assert(nickserv_db_consume_reset_token(&db, "Daniel", "bad", 2000,
+                                           "$argon2id$new") == 0);
+    assert(nickserv_db_consume_reset_token(&db, "Daniel", "resethash", 2000,
+                                           "$argon2id$new") == 1);
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+    assert(strcmp(loaded.password_hash, "$argon2id$new") == 0);
+    assert(loaded.reset_token_hash[0] == '\0');
+
+    assert(nickserv_db_admin_set_email(&db, "Daniel", "admin@example.test", 1) == 0);
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+    assert(strcmp(loaded.email, "admin@example.test") == 0);
+    assert(loaded.email_verified == 1);
 
     assert(nickserv_db_set_vhost(&db, "DANIEL", "user.example.test") == 0);
     assert(nickserv_db_set_enabled(&db, "daniel", 0) == 0);
