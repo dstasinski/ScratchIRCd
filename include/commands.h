@@ -30,6 +30,7 @@ CommandResult command_kill(Server *, Client *, char *);
 CommandResult command_kline(Server *, Client *, char *);
 CommandResult command_list(Server *, Client *, char *);
 CommandResult command_lusers(Server *, Client *, char *);
+CommandResult command_memoserv(Server *, Client *, char *);
 CommandResult command_mode(Server *, Client *, char *);
 CommandResult command_motd(Server *, Client *, char *);
 CommandResult command_names(Server *, Client *, char *);
