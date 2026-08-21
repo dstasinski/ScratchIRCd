@@ -153,6 +153,32 @@ Reset tokens expire and can be used only once. The resulting password is stored 
 
 See `docs/NICKSERV_GUIDE.md` for the complete NickServ guide.
 
+## ChanServ persistent channels
+
+ChanServ is also virtual: it has server authority but is not a connected client and never joins channels. Registered-channel state is stored in `data/chanserv.db`.
+
+Both forms are accepted:
+
+```text
+CHANSERV <command> [parameters]
+PRIVMSG ChanServ :<command> [parameters]
+```
+
+Implemented ChanServ commands are:
+
+```text
+CHANSERV REGISTER <#channel> [:description]
+CHANSERV INFO <#channel>
+CHANSERV DROP <#channel>
+CHANSERV HELP
+```
+
+REGISTER requires an authenticated NickServ account and owner/operator privilege in the live channel. The authenticated account becomes founder and the channel receives service-controlled mode `+r`.
+
+The registration survives the channel becoming empty and survives daemon restarts. When the registered channel is recreated, `+r` is restored. When its authenticated founder joins, that client automatically receives channel owner/operator privilege (`+q/+o`) even if using a different current nickname.
+
+Numeric 005 includes `PCHANNELS=` listing enabled ChanServ registrations. See `docs/CHANSERV_GUIDE.md` for details.
+
 ## Currently implemented client commands
 
 ### ADMIN
@@ -192,6 +218,17 @@ CAP END
 ```
 
 Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`, `batch`, `draft/chathistory`, `sasl`, and `server-time`. Capability removals use a leading `-` in CAP REQ. Capability names are case-sensitive.
+
+### CHANSERV
+
+```text
+CHANSERV REGISTER <#channel> [:description]
+CHANSERV INFO <#channel>
+CHANSERV DROP <#channel>
+CHANSERV HELP
+```
+
+Direct alias for the virtual ChanServ service. ChanServ persists registered-channel ownership in SQLite and never joins the channel itself.
 
 ### CHATHISTORY
 
@@ -233,7 +270,7 @@ JOIN <channel>
 JOIN <channel> <key>
 ```
 
-Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions.
+Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions. Registered ChanServ state and founder privilege are restored when applicable.
 
 ### KICK
 
@@ -343,9 +380,10 @@ Connection keepalive commands.
 PRIVMSG <nickname> :<text>
 PRIVMSG <channel> :<text>
 PRIVMSG NickServ :<service-command>
+PRIVMSG ChanServ :<service-command>
 ```
 
-Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live PRIVMSG delivery.
+Sends private/channel messages or addresses a virtual service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live PRIVMSG delivery.
 
 ### QUIT
 
@@ -445,7 +483,7 @@ ScratchIRCd defines these client modes:
 - `o <nick>` — channel operator.
 - `p` — private channel.
 - `q <nick>` — channel owner.
-- `r` — registered channel marker; ChanServ-controlled behavior is planned.
+- `r` — registered-channel marker controlled by ChanServ. It is restored from `data/chanserv.db` and cannot be set by ordinary MODE.
 - `R` — authenticated NickServ account (`+r`) required to join.
 - `S` — strip incoming colors; filtering behavior planned.
 - `s` — secret channel.
@@ -465,4 +503,4 @@ WATCH [+|-]<nick> ...
 WHOWAS
 ```
 
-ChanServ and MemoServ commands will be added here as those virtual SQLite-backed services are implemented.
+MemoServ commands will be added here when that virtual SQLite-backed service is implemented.
