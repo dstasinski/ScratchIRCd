@@ -57,6 +57,7 @@ static int registration_banned(Server *server, Client *client) {
 void command_maybe_register(Server *server, Client *client) {
     if (server == NULL || client == NULL || client->registered ||
         client->nick[0] == '\0' || client->user[0] == '\0' ||
+        client->cap_negotiating ||
         client->dns_state == CLIENT_DNS_PENDING || client->dns_state == CLIENT_DNS_NONE ||
         (server->config.server_password[0] != '\0' && !client->pass_accepted)) return;
 
@@ -65,11 +66,6 @@ void command_maybe_register(Server *server, Client *client) {
         client->geoip_complete = 1;
     }
 
-    /*
-     * DNSBL policy begins only after direct/WebIRC real_ip is final. Registration
-     * remains pending until the asynchronous worker returns or the deadline
-     * expires. No configured lists means the stage is immediately clear.
-     */
     if (client->dnsbl_state == CLIENT_DNSBL_NONE) {
         if (server->config.dnsbl_count == 0U) {
             client->dnsbl_state = CLIENT_DNSBL_CLEAR;
@@ -82,7 +78,6 @@ void command_maybe_register(Server *server, Client *client) {
                                      (time_t)server->config.dnsbl_timeout_seconds;
             return;
         } else {
-            /* Resolver submission failure fails open but is retained as state. */
             client->dnsbl_state = CLIENT_DNSBL_ERROR;
         }
     }
