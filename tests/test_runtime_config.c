@@ -18,6 +18,8 @@ int main(void) {
     assert(fputs("dnsbl_timeout_seconds = 9\n", file) >= 0);
     assert(fputs("dnsbl = Primary dnsbl.example.test\n", file) >= 0);
     assert(fputs("dnsbl = Secondary dnsbl2.example.test\n", file) >= 0);
+    assert(fputs("history_db = data/test-history.db\n", file) >= 0);
+    assert(fputs("history_limit = 42\n", file) >= 0);
     assert(fputs("sendmail_path = /usr/sbin/sendmail\n", file) >= 0);
     assert(fputs("mail_from = services@example.test\n", file) >= 0);
     assert(fputs("nickserv_reset_seconds = 1200\n", file) >= 0);
@@ -32,6 +34,8 @@ int main(void) {
     assert(strcmp(config.dnsbls[0].zone, "dnsbl.example.test") == 0);
     assert(strcmp(config.dnsbls[1].name, "Secondary") == 0);
     assert(strcmp(config.dnsbls[1].zone, "dnsbl2.example.test") == 0);
+    assert(strcmp(config.history_db, "data/test-history.db") == 0);
+    assert(config.history_limit == 42U);
     assert(strcmp(config.sendmail_path, "/usr/sbin/sendmail") == 0);
     assert(strcmp(config.mail_from, "services@example.test") == 0);
     assert(config.nickserv_reset_seconds == 1200U);
