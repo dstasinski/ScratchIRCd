@@ -10,9 +10,9 @@ Every connected client has exactly three host/address identity fields:
 - `real_host` — FCrDNS-verified hostname for that actual IP, when available.
 - `display_host` — the only hostname disclosed through normal IRC client-visible protocol output.
 
-WHO, ordinary WHOIS, USERHOST, channel/user prefixes, and channel ban masks use `display_host`. Vhosts (`+t`) replace only `display_host`; planned cloaking (`+x`) will do the same.
+WHO, ordinary WHOIS, USERHOST, channel/user prefixes, channel ban masks, and replayable channel history use `display_host`. Vhosts (`+t`) replace only `display_host`; planned cloaking (`+x`) will do the same.
 
-KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP.
+KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP. Persistent chat history never stores a replayable real IP or real DNS hostname.
 
 ## TLS configuration
 
@@ -25,23 +25,39 @@ tls_key_file = /etc/letsencrypt/live/irc.example.net/privkey.pem
 
 TLS is enabled only when both certificate and private-key paths are configured. TLS 1.2 is the minimum accepted protocol version. Successful TLS clients receive `+z`. TLS listener/certificate changes require RESTART.
 
-## IRCv3 CAP and SASL
+## IRCv3 capabilities, SASL, and history
 
-ScratchIRCd currently advertises IRCv3 capability `sasl` and supports mechanism `PLAIN`. SASL authenticates against the same NickServ account records in `data/nickserv.db` and therefore shares Argon2id password validation, account state, `+r`, and NickServ vhost behavior.
-
-Typical negotiation is:
+ScratchIRCd currently advertises:
 
 ```text
-CAP LS 302
-CAP REQ :sasl
-NICK <nickname>
-USER <username> 0 * :<real name>
-AUTHENTICATE PLAIN
-AUTHENTICATE <base64 PLAIN payload>
-CAP END
+account-notify batch draft/chathistory sasl server-time
 ```
 
-Registration is intentionally held while CAP negotiation is open and resumes on `CAP END`. Successful SASL uses numeric `903`; failure uses `904`; abort uses `906`. SASL does not grant IRC operator authority. `OPER` remains separate.
+SASL mechanism `PLAIN` authenticates against the same NickServ account records in `data/nickserv.db` and therefore shares Argon2id password validation, account state, `+r`, and NickServ vhost behavior. Registration is held while CAP negotiation is open and resumes on `CAP END`. SASL does not grant IRC operator authority; `OPER` remains separate.
+
+### Persistent history configuration
+
+Accepted channel PRIVMSG/NOTICE history is stored in SQLite:
+
+```text
+history_db = data/history.db
+history_limit = 100
+```
+
+`history_limit` is the maximum number of rows one CHATHISTORY request may return. It may not exceed the compiled `IRCD_HISTORY_HARD_LIMIT`, currently 500. Changing `history_db` or `history_limit` is safe through REHASH because the history database is opened on demand.
+
+Clients request history with:
+
+```text
+CAP REQ :batch draft/chathistory server-time
+CHATHISTORY LATEST <channel> * <limit>
+```
+
+The requester must currently be a channel member. The database persists across daemon restarts. Playback uses the public `nick!user@display_host` identity captured at send time; real IP/DNS identity is not written into replayable history records.
+
+ScratchIRCd advertises `MSGREFTYPES=timestamp` through numeric 005. The current implementation covers `LATEST` channel history only. Additional CHATHISTORY reference modes, private-message history, message IDs, automatic JOIN replay, and retention/expiry policy remain future work.
+
+See `docs/IRCV3_GUIDE.md` for client-facing protocol details.
 
 ## WebIRC gateways
 
@@ -97,6 +113,7 @@ Only the bootstrap network administrator is stored in `ircd.conf`. Ordinary IRC 
 operators_db = data/operators.db
 bans_db = data/bans.db
 nickserv_db = data/nickserv.db
+history_db = data/history.db
 netadmin_name = root
 netadmin_password_hash = $argon2id$...
 netadmin_hostmask = *!*@*
@@ -225,7 +242,7 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC, DNSBL, database paths, and NickServ mail settings. Listener/TLS and GeoIP database-path changes require RESTART.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC, DNSBL, database paths, NickServ mail settings, and history settings. Listener/TLS and GeoIP database-path changes require RESTART.
 
 ## Operator permissions
 
@@ -249,6 +266,7 @@ ADMIN
 AUTHENTICATE
 AWAY
 CAP
+CHATHISTORY
 IDENTIFY
 INVITE
 ISON
@@ -308,6 +326,7 @@ Runtime data belongs under `data/`:
 data/operators.db
 data/bans.db
 data/nickserv.db
+data/history.db
 data/GeoLite2-City.mmdb
 data/GeoLite2-ASN.mmdb
 ```
