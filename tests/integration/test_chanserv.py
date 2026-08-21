@@ -131,7 +131,7 @@ def main():
             alice.send("CHANSERV ACCESS #persist ADD Carol PROTECTED")
             alice.expect("Access set: Carol PROTECTED")
             alice.send("CHANSERV ACCESS #persist LIST")
-            access = alice.expect("Carol:5")
+            access = alice.expect("Carol:4")
             assert any("Bob:3" in line for line in access), access
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
