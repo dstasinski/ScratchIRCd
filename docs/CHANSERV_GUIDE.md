@@ -20,7 +20,51 @@ CHANSERV INFO #channel
 PRIVMSG ChanServ :INFO #channel
 ```
 
-INFO reports the registered channel name, founder account, description, and registration time.
+INFO reports the registered channel name, founder account, description, stored mode-lock value, and registration time.
+
+## Account access lists
+
+The founder can grant persistent channel privileges to other enabled NickServ accounts:
+
+```text
+CHANSERV ACCESS #channel ADD <account> OWNER
+CHANSERV ACCESS #channel ADD <account> OP
+CHANSERV ACCESS #channel ADD <account> HALFOP
+CHANSERV ACCESS #channel ADD <account> VOICE
+CHANSERV ACCESS #channel DEL <account>
+CHANSERV ACCESS #channel LIST
+```
+
+Access is bound to the authenticated account, not the current nickname. On JOIN, the corresponding privileges are restored automatically:
+
+- `OWNER` -> channel owner/operator (`+q/+o`, `~` prefix)
+- `OP` -> channel operator (`+o`, `@` prefix)
+- `HALFOP` -> halfop (`+h`, `%` prefix)
+- `VOICE` -> voice (`+v`, `+` prefix)
+
+The founder is implicitly an owner and is not stored as a separate access-list entry.
+
+## Persistent boolean modes
+
+The founder can store a channel mode lock:
+
+```text
+CHANSERV SET #channel MLOCK +nt
+```
+
+The current 0.19 mode lock supports boolean channel modes only: `A c i K M m n O p R S s t T V z`. Service-controlled `+r` is always restored separately and cannot be placed in the lock. Parameter modes and lists such as `+k`, `+l`, `+j`, `+L`, `+B`, `+b`, `+e`, and `+I` are not persisted yet.
+
+The stored mode-lock state is reapplied when a persistent channel is recreated/restored. Updating MLOCK also refreshes the current live registered channel.
+
+## Persistent topic
+
+The founder can store a persistent topic:
+
+```text
+CHANSERV SET #channel TOPIC :Persistent channel topic
+```
+
+ChanServ stores the topic text, setter identity, and timestamp in SQLite. When the channel is recreated after becoming empty or after a daemon restart, the topic is restored before JOIN completes so normal topic numerics show the saved value.
 
 ## Dropping a registration
 
@@ -31,13 +75,11 @@ CHANSERV DROP #channel
 PRIVMSG ChanServ :DROP #channel
 ```
 
-The live channel loses service-controlled `+r`. The channel may continue to exist normally while clients remain in it.
+The live channel loses service-controlled `+r`. Its persistent access entries are deleted automatically with the registration. The live channel may continue to exist normally while clients remain in it.
 
 ## Persistence and founder privileges
 
-Channel registrations persist in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores registered mode `+r` from `chanserv.db`.
-
-When the authenticated founder joins a registered channel, ChanServ authority automatically grants channel owner and operator privileges (`+q` and `+o`). The founder account may therefore use a different current nickname and still receive founder authority.
+Channel registrations, access lists, mode-lock state, and persistent topic data survive daemon restart in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores `+r`, the boolean mode lock, topic state, and authenticated-account privileges.
 
 ## ISUPPORT PCHANNELS
 
@@ -61,8 +103,8 @@ CSSET #channel ENABLED <0|1>
 CSDROP #channel
 ```
 
-`CSSET ... FOUNDER` requires an existing enabled NickServ account. Disabling a channel removes the live service-controlled `+r` state; re-enabling it restores `+r` when the channel is next restored or referenced through ChanServ management.
+`CSSET ... FOUNDER` requires an existing enabled NickServ account. Network administrators can also join/operate normally and use the founder-facing service commands when authenticated as the founder account. Direct administrator controls for individual access-list and mode-lock rows can be expanded later if needed.
 
-## Current 0.18 scope
+## Current 0.19 scope
 
-This foundation persists channel registration, founder account, description, enabled state, and timestamps. It does not yet persist arbitrary modes, topics, masks, access lists, or per-account automatic `+o/+h/+v` entries. Those features are intended to build on this schema in later milestones.
+0.19 persists registration metadata, founder identity, account access roles, boolean mode-lock state, and topic state. Parameter modes, ban/exception/invex lists, keys, join throttles, limits/redirects, and automatic persistence of arbitrary live MODE/TOPIC changes remain future work.
