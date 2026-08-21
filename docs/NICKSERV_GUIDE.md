@@ -16,6 +16,22 @@ PRIVMSG NickServ :<command> [parameters]
 
 IRC clients that implement `/NICKSERV` locally may translate it into the second form. ScratchIRCd accepts both.
 
+## SASL authentication
+
+IRCv3 clients may authenticate to the same NickServ account database before normal registration completes. ScratchIRCd currently advertises capability `sasl` and supports SASL mechanism `PLAIN`:
+
+```text
+CAP LS 302
+CAP REQ :sasl
+NICK <nickname>
+USER <username> 0 * :<real name>
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64 PLAIN payload>
+CAP END
+```
+
+Successful SASL returns numeric `903` and applies exactly the same account state as IDENTIFY: `account_name`, service-controlled `+r`, and any account vhost/`+t`. The password is checked against the existing Argon2id hash in `data/nickserv.db`; SASL does not maintain a second credential store.
+
 ## REGISTER
 
 ```text
