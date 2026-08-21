@@ -25,6 +25,14 @@ dns_timeout_seconds = 5
 # webirc_gateway = 127.0.0.1 change-me
 # webirc_gateway = 2001:db8::10 another-secret
 
+# DNS blacklists. Repeat for multiple lists. Each positive result automatically
+# creates an exact-IP persistent ZLINE in data/bans.db and rejects the client.
+# Lookups run asynchronously against finalized real_ip values. Timeout/failure
+# fails open so a resolver outage does not indefinitely block registration.
+dnsbl_timeout_seconds = 5
+# dnsbl = Spamhaus zen.spamhaus.org
+# dnsbl = DroneBL dnsbl.dronebl.org
+
 # Optional MaxMind GeoLite2 enrichment databases. ScratchIRCd continues to run
 # if either file is missing. Both lookups use the finalized real client IP,
 # including the end-user IP supplied by an authenticated WebIRC gateway.
