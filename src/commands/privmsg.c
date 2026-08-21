@@ -5,17 +5,18 @@
  * PRIVMSG supports one target. Channel delivery enforces +n, +m and +M.
  * Direct delivery enforces recipient +R/+T and returns RPL_AWAY when the
  * destination has an active AWAY message. All client-visible source prefixes
- * use display_host.
+ * use display_host. NickServ is a virtual target handled without a Client.
  */
 
 #include "commands.h"
 #include "config.h"
 #include "modes.h"
+#include "nickserv.h"
 #include "numerics.h"
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <strings.h>
 
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
     char *target;
@@ -41,6 +42,12 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (*text == ':') ++text;
+
+    /* NickServ is virtual: it is addressable but never a real Client. */
+    if (strcasecmp(target, "NickServ") == 0) {
+        nickserv_handle_message(server, client, text);
+        return COMMAND_KEEP_CLIENT;
+    }
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s PRIVMSG %s :%s\r\n",
                    client->nick, client->user, client->display_host, target, text);
@@ -92,7 +99,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                          client->nick, destination->nick);
             return COMMAND_KEEP_CLIENT;
         }
-        (void)send(destination->fd, message, strlen(message), MSG_NOSIGNAL);
+        (void)client_send_raw(destination, message, strlen(message));
         if (destination->away[0] != '\0') {
             client_sendf(client, RPL_AWAY, server->config.server_name,
                          client->nick, destination->nick, destination->away);
