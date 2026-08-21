@@ -27,7 +27,7 @@ TLS is enabled only when both certificate and private-key paths are configured. 
 
 ## WebIRC gateways
 
-Authorized gateways are configured in `ircd.conf` by **numeric TCP peer IP** and password. Repeat the setting to authorize multiple gateways:
+Authorized gateways are configured in `ircd.conf` by numeric TCP peer IP and password. Repeat the setting to authorize multiple gateways:
 
 ```text
 webirc_gateway = 127.0.0.1 gateway-secret
@@ -42,16 +42,45 @@ WEBIRC <password> <gateway-name> <supplied-hostname> <client-ip>
 
 Authorization requires both the configured numeric gateway IP and matching password. Gateway DNS names are not used for authorization.
 
-After successful WEBIRC:
+After successful WEBIRC, gateway information is saved only in `Client.webirc` audit metadata, `real_ip` becomes the supplied end-user IP, asynchronous FCrDNS restarts for that address, `display_host` follows the actual client identity, and user mode `+V` is set.
 
-- the physical gateway IP is saved only in `Client.webirc.gateway_ip` audit metadata;
-- the supplied gateway name and hostname are retained only as WebIRC audit metadata;
-- `real_ip` becomes the supplied end-user IP;
-- ScratchIRCd performs fresh asynchronous FCrDNS on that `real_ip` to establish `real_host`;
-- `display_host` follows the actual client identity, not the gateway;
-- user mode `+V` is set.
+A failed/unauthorized WEBIRC attempt disconnects before registration. Protect `ircd.conf` with suitable filesystem permissions and prefer TLS between remote gateways and ScratchIRCd.
 
-A failed/unauthorized WEBIRC attempt disconnects the connection before registration. The plaintext WEBIRC password is necessarily available to the gateway and server configuration; protect `ircd.conf` with appropriate filesystem permissions and prefer TLS between remote gateways and ScratchIRCd.
+## MaxMind GeoIP / ASN
+
+ScratchIRCd uses libmaxminddb directly. Download the databases from MaxMind and place them under `data/`, or configure alternate paths:
+
+```text
+geoip_city_db = data/GeoLite2-City.mmdb
+geoip_asn_db = data/GeoLite2-ASN.mmdb
+```
+
+The files are optional. If one or both are absent, ScratchIRCd continues to start and `Client.geoip.status` reflects that data is unavailable or not found.
+
+GeoIP lookup occurs immediately before registration, after the final direct/WebIRC `real_ip` and FCrDNS state are established. WebIRC gateways are therefore never accidentally geolocated as the end user.
+
+Each Client contains the nested fields:
+
+```text
+geoip.status
+geoip.ip
+geoip.network
+geoip.source
+geoip.continent_code
+geoip.country_code
+geoip.country_name
+geoip.region_code
+geoip.region_name
+geoip.city
+geoip.asn
+geoip.organization
+```
+
+`status` is currently `ok`, `not_found`, `unavailable`, or `error`. `ip` is the finalized `real_ip`. `network` is the actual matched CIDR network reported by libmaxminddb. `source` identifies `GeoLite2-City`, `GeoLite2-ASN`, or both. Geographic names use the English (`en`) entry when present. `asn` is numeric and `organization` comes from the ASN database.
+
+All strings are copied into the Client record. No Client field holds a pointer into the memory-mapped MMDB files. Changing either GeoIP database path requires RESTART rather than REHASH.
+
+The downloaded `data/*.mmdb` files are excluded from Git so MaxMind datasets are not committed to the repository.
 
 ## Bootstrap network administrator
 
@@ -134,7 +163,7 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC gateway authorization. Listener/TLS changes require RESTART.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration. Listener/TLS and GeoIP database-path changes require RESTART.
 
 ## Operator permissions
 
@@ -202,19 +231,19 @@ ZLINE
 
 `WEBIRC` is normally emitted by an authorized gateway rather than typed by an administrator, but it is part of the implemented protocol command set.
 
-## Planned DNSBL and GeoIP connection policy
+## Planned DNSBL connection policy
 
-DNSBL and GeoIP will attach to finalized `real_ip` after direct/WebIRC identity establishment and before registration completes. DNSBL checks will be asynchronous; configured hits may automatically create persistent ZLINE records in `data/bans.db`.
-
-GeoIP will use libmaxminddb with `data/GeoLite2-City.mmdb` and `data/GeoLite2-ASN.mmdb`. The nested Client GeoIP record will expose `status`, `ip`, `network`, `source`, `continent_code`, `country_code`, `country_name`, `region_code`, `region_name`, `city`, `asn`, and `organization`.
+DNSBL will attach to finalized `real_ip` at the same pre-registration policy stage now used by GeoIP. DNSBL checks will be asynchronous; configured hits may automatically create persistent ZLINE records in `data/bans.db`.
 
 ## Security and runtime data
 
-All runtime databases and MaxMind databases belong under `data/`. Current SQLite databases are:
+Runtime data belongs under `data/`:
 
 ```text
 data/operators.db
 data/bans.db
+data/GeoLite2-City.mmdb
+data/GeoLite2-ASN.mmdb
 ```
 
-`ircd.conf`, runtime databases, SQLite journal/WAL files, and `build/` are excluded from source control.
+`ircd.conf`, runtime databases, SQLite journal/WAL files, downloaded MMDB files, and `build/` are excluded from source control.
