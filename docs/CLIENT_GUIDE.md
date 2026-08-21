@@ -19,6 +19,26 @@ USER <username> 0 * :<real name>
 
 ScratchIRCd supports IPv4 and IPv6 connections. FCrDNS, GeoIP and optional DNSBL policy are handled before registration completes without blocking the IRC event loop.
 
+## IRCv3 CAP and SASL
+
+ScratchIRCd currently implements IRCv3 capability negotiation for the `sasl` capability and SASL mechanism `PLAIN`. SASL authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
+
+A typical client negotiation is:
+
+```text
+CAP LS 302
+CAP REQ :sasl
+NICK <nickname>
+USER <username> 0 * :<real name>
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64 PLAIN payload>
+CAP END
+```
+
+While CAP negotiation is open, ScratchIRCd deliberately holds normal IRC registration until `CAP END`. Successful SASL returns numeric `903`, attaches the NickServ account before registration completes, sets `+r`, and applies any NickServ vhost exactly as IDENTIFY would. Failed SASL returns numeric `904`; the client may still send `CAP END` and register without an authenticated account.
+
+The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This first implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
+
 ## Hostname privacy
 
 Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
@@ -121,6 +141,16 @@ ADMIN
 
 Displays configured server administration/location/contact information.
 
+### AUTHENTICATE
+
+```text
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64-data>
+AUTHENTICATE *
+```
+
+Used during IRCv3 SASL negotiation after requesting the `sasl` capability. `*` aborts the current SASL exchange.
+
 ### AWAY
 
 ```text
@@ -129,6 +159,16 @@ AWAY
 ```
 
 Sets or clears away status. Users sending a direct PRIVMSG to an away client receive the away message.
+
+### CAP
+
+```text
+CAP LS 302
+CAP REQ :sasl
+CAP END
+```
+
+Negotiates IRCv3 capabilities before registration. ScratchIRCd currently advertises `sasl`.
 
 ### IDENTIFY
 
