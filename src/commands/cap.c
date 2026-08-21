@@ -35,7 +35,7 @@ static void send_cap(Server *server, Client *client,
 static ClientCapabilitySet capability_bit(const char *name) {
     size_t i;
     for (i = 0U; i < sizeof(capabilities) / sizeof(capabilities[0]); ++i)
-        if (strcasecmp(name, capabilities[i].name) == 0) return capabilities[i].bit;
+        if (strcmp(name, capabilities[i].name) == 0) return capabilities[i].bit;
     return 0U;
 }
 
