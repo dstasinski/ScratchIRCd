@@ -70,6 +70,21 @@ IDENTIFY <account> <password>
 
 A NickServ vhost is applied only to `display_host` and sets `+t`; it never changes `real_ip` or `real_host`. User mode `+r` cannot be manufactured with MODE or SAMODE. See `docs/NICKSERV_GUIDE.md` for full service behavior and email-reset details.
 
+## ChanServ registered channels
+
+ChanServ is also a virtual service and never joins channels. Operators may use the ordinary ChanServ account-owner commands when authenticated to the relevant founder account:
+
+```text
+CHANSERV REGISTER <#channel> [:description]
+CHANSERV INFO <#channel>
+CHANSERV DROP <#channel>
+CHANSERV HELP
+```
+
+Equivalent `PRIVMSG ChanServ :...` forms are supported. Registered channels live in `data/chanserv.db`, receive service-controlled `+r`, and restore that state when recreated after becoming empty or after a daemon restart. An authenticated founder receives `+q/+o` when joining the registered channel, regardless of the founder's current nickname.
+
+Ordinary IRC operator status does not itself confer ChanServ founder authority. The network-administrator-only `CSINFO`, `CSSET`, and `CSDROP` commands are separate from ordinary operator permissions. See `docs/CHANSERV_GUIDE.md`.
+
 ## Operator authentication
 
 ```text
@@ -124,13 +139,13 @@ Configured DNS blacklists automatically create exact-IP ZLINE records in `data/b
 ZLINE -203.0.113.42
 ```
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, NickServ mail settings, and history settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, NickServ mail settings, ChanServ database path, and history settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
 ## Network-administrator-only commands
 
-Ordinary operators cannot manage operator or NickServ account records directly:
+Ordinary operators cannot directly manage operator, NickServ, or ChanServ records:
 
 ```text
 OPERADD
@@ -140,6 +155,9 @@ OPERLIST
 NSINFO
 NSSET
 NSDROP
+CSINFO
+CSSET
+CSDROP
 ```
 
 ## General commands available to operators
@@ -149,6 +167,7 @@ ADMIN
 AUTHENTICATE
 AWAY
 CAP
+CHANSERV
 CHATHISTORY
 IDENTIFY
 INVITE
