@@ -8,7 +8,6 @@
 #include "chanserv.h"
 #include "chanserv_db.h"
 #include "modes.h"
-#include "nickserv_db.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,7 +63,11 @@ static void command_register(Server *server, Client *client, char *params) {
         cs_notice(server, client, "You must identify to NickServ before registering a channel.");
         return;
     }
-    name = params != NULL ? strtok(params, " ") : NULL;
+    if (params == NULL || *params == '\0') {
+        cs_notice(server, client, "Syntax: REGISTER <#channel> [:description]");
+        return;
+    }
+    name = strtok(params, " ");
     description = strtok(NULL, "");
     if (description != NULL) {
         while (*description == ' ') ++description;
