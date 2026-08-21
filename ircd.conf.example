@@ -25,6 +25,12 @@ dns_timeout_seconds = 5
 # webirc_gateway = 127.0.0.1 change-me
 # webirc_gateway = 2001:db8::10 another-secret
 
+# Optional MaxMind GeoLite2 enrichment databases. ScratchIRCd continues to run
+# if either file is missing. Both lookups use the finalized real client IP,
+# including the end-user IP supplied by an authenticated WebIRC gateway.
+geoip_city_db = data/GeoLite2-City.mmdb
+geoip_asn_db = data/GeoLite2-ASN.mmdb
+
 # Optional connection password. Leave empty to disable PASS enforcement.
 server_password =
 
