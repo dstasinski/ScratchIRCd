@@ -25,6 +25,15 @@ typedef enum ClientDnsState {
     CLIENT_DNS_TIMEOUT
 } ClientDnsState;
 
+typedef enum ClientDnsblState {
+    CLIENT_DNSBL_NONE = 0,
+    CLIENT_DNSBL_PENDING,
+    CLIENT_DNSBL_CLEAR,
+    CLIENT_DNSBL_LISTED,
+    CLIENT_DNSBL_TIMEOUT,
+    CLIENT_DNSBL_ERROR
+} ClientDnsblState;
+
 typedef enum ClientTlsState {
     CLIENT_TLS_NONE = 0,
     CLIENT_TLS_HANDSHAKE,
@@ -73,6 +82,11 @@ typedef struct Client {
 
     ClientDnsState dns_state;
     time_t dns_deadline;
+
+    /** DNSBL policy is evaluated asynchronously after real_ip is finalized. */
+    ClientDnsblState dnsbl_state;
+    time_t dnsbl_deadline;
+
     time_t signon_time;
     time_t last_activity;
 
