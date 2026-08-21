@@ -36,10 +36,13 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->nickserv_db, sizeof(config->nickserv_db), IRCD_DEFAULT_NICKSERV_DB);
     (void)copy_value(config->geoip_city_db, sizeof(config->geoip_city_db), IRCD_DEFAULT_GEOIP_CITY_DB);
     (void)copy_value(config->geoip_asn_db, sizeof(config->geoip_asn_db), IRCD_DEFAULT_GEOIP_ASN_DB);
+    (void)copy_value(config->sendmail_path, sizeof(config->sendmail_path), IRCD_DEFAULT_SENDMAIL_PATH);
     (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
     config->dnsbl_timeout_seconds = IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS;
+    config->nickserv_reset_seconds = IRCD_DEFAULT_NICKSERV_RESET_SECONDS;
+    config->nickserv_verify_seconds = IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS;
 }
 
 static int add_webirc_gateway(ServerConfig *config, const char *value) {
@@ -72,6 +75,12 @@ static int add_dnsbl(ServerConfig *config, const char *value) {
     return 0;
 }
 
+static int set_seconds(unsigned long number, unsigned int *field) {
+    if (number == 0UL || number > 604800UL) return -1;
+    *field = (unsigned int)number;
+    return 0;
+}
+
 static int set_option(ServerConfig *config, const char *key, const char *value) {
     char *end = NULL;
     unsigned long number;
@@ -85,6 +94,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("server_password", server_password); STRING_OPTION("motd_file", motd_file); STRING_OPTION("rules_file", rules_file);
     STRING_OPTION("admin_location1", admin_location1); STRING_OPTION("admin_location2", admin_location2); STRING_OPTION("admin_email", admin_email);
     STRING_OPTION("operators_db", operators_db); STRING_OPTION("bans_db", bans_db); STRING_OPTION("nickserv_db", nickserv_db);
+    STRING_OPTION("sendmail_path", sendmail_path); STRING_OPTION("mail_from", mail_from);
     STRING_OPTION("netadmin_name", netadmin_name); STRING_OPTION("netadmin_password_hash", netadmin_password_hash);
     STRING_OPTION("netadmin_hostmask", netadmin_hostmask); STRING_OPTION("netadmin_vhost", netadmin_vhost);
 #undef STRING_OPTION
@@ -102,6 +112,10 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
         if (number == 0UL || number > 300UL) return -1;
         config->dnsbl_timeout_seconds = (unsigned int)number; return 0;
     }
+    if (strcmp(key, "nickserv_reset_seconds") == 0)
+        return set_seconds(number, &config->nickserv_reset_seconds);
+    if (strcmp(key, "nickserv_verify_seconds") == 0)
+        return set_seconds(number, &config->nickserv_verify_seconds);
     return -1;
 }
 
