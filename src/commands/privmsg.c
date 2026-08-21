@@ -5,8 +5,8 @@
  * PRIVMSG supports one target. Channel delivery enforces +n, +m and +M.
  * Direct delivery enforces recipient +R/+T and returns RPL_AWAY when the
  * destination has an active AWAY message. All client-visible source prefixes
- * use display_host. NickServ and ChanServ are virtual targets handled without
- * Client records. Accepted channel messages are persisted to SQLite history.
+ * use display_host. NickServ, ChanServ and MemoServ are virtual targets handled
+ * without Client records. Accepted channel messages are persisted to SQLite history.
  */
 
 #include "commands.h"
@@ -14,6 +14,7 @@
 #include "config.h"
 #include "history_db.h"
 #include "ircv3.h"
+#include "memoserv.h"
 #include "modes.h"
 #include "nickserv.h"
 #include "numerics.h"
@@ -87,6 +88,12 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     /* ChanServ has server authority but likewise never occupies a Client slot. */
     if (strcasecmp(target, "ChanServ") == 0) {
         chanserv_handle_message(server, client, text);
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    /* MemoServ is a hidden virtual account-to-account message service. */
+    if (strcasecmp(target, "MemoServ") == 0) {
+        memoserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
 
