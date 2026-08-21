@@ -65,7 +65,7 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
     }
 
     if (service_nickname_reserved(params)) {
-        client_sendf(client, ERR_NICKNAMEINUSE,
+        client_sendf(client, ERR_RESERVEDNICK,
                      server->config.server_name, command_reply_nick(client), params);
         return COMMAND_KEEP_CLIENT;
     }
