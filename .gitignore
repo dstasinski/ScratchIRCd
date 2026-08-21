@@ -1,13 +1,14 @@
 build/
 ircd.conf
 
-# Runtime databases live under data/. Keep the directory available for local
-# use while preventing live database contents and SQLite sidecars from being
+# Runtime databases and downloaded MaxMind datasets live under data/. Keep the
+# directory local while preventing live/purchased data artifacts from being
 # committed.
 data/*.db
 data/*.db-journal
 data/*.db-shm
 data/*.db-wal
+data/*.mmdb
 
 # Also ignore SQLite sidecars for explicitly configured alternate paths.
 *.db-journal
