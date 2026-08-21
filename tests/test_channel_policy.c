@@ -25,8 +25,16 @@ int main(void) {
     /* Channel masks operate only on nick!user@display_host. */
     assert(channel_mask_add(&channel.ban_list, "Daniel!*@example.com") == 0);
     assert(channel_client_is_banned(&channel, &client));
+    assert(!channel_client_is_banned_protected(&channel, &client));
+
+    /* A ban explicitly authorized by +a/+q is effective for protected users. */
+    assert(channel_mask_add_authorized(&channel.ban_list,
+                                       "Daniel!*@example.com", 1) == 0);
+    assert(channel_client_is_banned_protected(&channel, &client));
+
     assert(channel_mask_add(&channel.exception_list, "*!daniel@example.com") == 0);
     assert(!channel_client_is_banned(&channel, &client));
+    assert(!channel_client_is_banned_protected(&channel, &client));
 
     channel_mask_clear(&channel.ban_list);
     channel_mask_clear(&channel.exception_list);
