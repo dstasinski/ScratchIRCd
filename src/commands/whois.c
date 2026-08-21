@@ -4,7 +4,8 @@
  *
  * Ordinary clients see only display_host. IRC operators additionally receive
  * the actual FCrDNS hostname and real client IP. Cloaks and vhosts therefore
- * never overwrite the security/audit identity.
+ * never overwrite the security/audit identity. NickServ-authenticated account
+ * state is reported without assuming the current nickname equals the account.
  */
 
 #include "commands.h"
@@ -14,6 +15,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 static void append_channel(char *buffer, size_t size, const char *name, char prefix) {
@@ -54,9 +56,19 @@ CommandResult command_whois(Server *server, Client *client, char *params) {
     if (target->away[0] != '\0')
         client_sendf(client, RPL_AWAY, server->config.server_name,
                      client->nick, target->nick, target->away);
-    if (client_mode_has(target->modes, CLIENT_MODE_REGISTERED))
-        client_sendf(client, RPL_WHOISREGNICK, server->config.server_name,
-                     client->nick, target->nick);
+    if (client_mode_has(target->modes, CLIENT_MODE_REGISTERED)) {
+        if (target->account_name[0] != '\0' &&
+            strcasecmp(target->nick, target->account_name) != 0) {
+            char account_text[IRC_NICK_MAX + 32U];
+            (void)snprintf(account_text, sizeof(account_text),
+                           "is logged in as %s", target->account_name);
+            client_sendf(client, RPL_WHOISSPECIAL, server->config.server_name,
+                         client->nick, target->nick, account_text);
+        } else {
+            client_sendf(client, RPL_WHOISREGNICK, server->config.server_name,
+                         client->nick, target->nick);
+        }
+    }
     if (client_mode_has(target->modes, CLIENT_MODE_BOT))
         client_sendf(client, RPL_WHOISBOT, server->config.server_name,
                      client->nick, target->nick);
