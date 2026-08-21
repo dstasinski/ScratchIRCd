@@ -2,6 +2,7 @@
 #include "chanserv_db.h"
 #include "config.h"
 #include "geoip.h"
+#include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
 #include "runtime_config.h"
@@ -15,6 +16,7 @@ static int ensure_databases(const ServerConfig *config) {
     BanDb bans;
     NickServDb nickserv;
     ChanServDb chanserv;
+    MemoServDb memoserv;
 
     if (operator_db_open(&operators, config->operators_db) != 0) {
         fprintf(stderr, "Failed to open operator database: %s\n", config->operators_db);
@@ -39,6 +41,12 @@ static int ensure_databases(const ServerConfig *config) {
         return -1;
     }
     chanserv_db_close(&chanserv);
+
+    if (memoserv_db_open(&memoserv, config->memoserv_db) != 0) {
+        fprintf(stderr, "Failed to open MemoServ database: %s\n", config->memoserv_db);
+        return -1;
+    }
+    memoserv_db_close(&memoserv);
     return 0;
 }
 
