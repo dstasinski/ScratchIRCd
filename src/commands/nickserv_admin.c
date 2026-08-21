@@ -21,6 +21,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/random.h>
+#include <sys/types.h>
 
 static int require_netadmin(Server *server, Client *client) {
     if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
@@ -51,6 +52,11 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
                                  salt, sizeof(salt),
                                  IRCD_ARGON2_HASH_BYTES,
                                  encoded, encoded_size) == ARGON2_OK ? 0 : -1;
+}
+
+static int valid_vhost(const char *vhost) {
+    if (vhost == NULL || strlen(vhost) > IRC_HOST_MAX) return 0;
+    return strpbrk(vhost, " \t\r\n") == NULL;
 }
 
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
@@ -119,8 +125,7 @@ CommandResult command_nsset(Server *server, Client *client, char *params) {
             rc = nickserv_db_set_password(&db, name, encoded);
     } else if (strcasecmp(field, "VHOST") == 0) {
         const char *vhost = strcmp(value, "-") == 0 ? "" : value;
-        if (strlen(vhost) <= IRC_HOST_MAX)
-            rc = nickserv_db_set_vhost(&db, name, vhost);
+        if (valid_vhost(vhost)) rc = nickserv_db_set_vhost(&db, name, vhost);
     } else if (strcasecmp(field, "ENABLED") == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
             rc = nickserv_db_set_enabled(&db, name, value[0] == '1');
