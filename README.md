@@ -4,7 +4,7 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 
 ## Current foundation
 
-The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator authentication, and SQLite-backed operator/ban persistence.
 
 ## TLS
 
@@ -44,7 +44,21 @@ Every IRC client has exactly three normal address/host identity fields:
 - `real_host` — FCrDNS-verified hostname for `real_ip`, when available.
 - `display_host` — the only hostname exposed through normal IRC protocol output.
 
-Channel bans and normal WHO/WHOIS/user prefixes use `display_host`. KLINE/ZLINE and operator security inspection use the real fields. Vhosts (`+t`) and future cloaking (`+x`) change only `display_host`.
+Channel bans and normal WHO/WHOIS/user prefixes use `display_host`. KLINE/ZLINE, DNSBL, GeoIP, and operator security inspection use the real fields. Vhosts (`+t`) and future cloaking (`+x`) change only `display_host`.
+
+## DNS blacklist enforcement
+
+DNSBL zones are configured with repeatable entries:
+
+```text
+dnsbl_timeout_seconds = 5
+dnsbl = Spamhaus zen.spamhaus.org
+dnsbl = DroneBL dnsbl.dronebl.org
+```
+
+ScratchIRCd supports up to eight configured lists. DNSBL queries run on a dedicated worker thread and never block the IRC event loop. The lookup begins only after the final direct/WebIRC `real_ip` has been established. IPv4 addresses use the conventional reversed-octet form; IPv6 addresses use reversed nibbles.
+
+Registration waits for the asynchronous DNSBL result or its timeout. A positive result immediately creates an exact-IP persistent ZLINE in `data/bans.db` and rejects the connection. The reason identifies the matching list and zone. Resolver/submission failure or timeout fails open so a DNS outage cannot indefinitely prevent legitimate registration. DNSBL-created ZLINEs are ordinary ZLINE records and may be removed with `ZLINE -<ip>` by an authorized operator.
 
 ## GeoIP / ASN enrichment
 
@@ -93,7 +107,7 @@ Future NickServ, ChanServ, MemoServ, and IRCv3 history databases will use the sa
 
 - `docs/CLIENT_GUIDE.md` — ordinary client commands and modes.
 - `docs/OPERATOR_GUIDE.md` — IRC operator authentication, permissions, identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, bans, TLS, WebIRC, GeoIP, and configuration.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator management, bans, TLS, WebIRC, GeoIP, DNSBL, and configuration.
 
 ## Currently implemented commands
 
@@ -115,14 +129,10 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, GeoIP fallback state, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus socket-level integration tests for protocol behavior, operator actions/overrides, TLS, and WebIRC.
-
-## Next connection policy: DNSBL
-
-With WebIRC and GeoIP now attached to finalized `real_ip`, configured DNSBL zones can be added to the same pre-registration policy stage. DNSBL queries will be asynchronous and configured positive matches can automatically create persistent ZLINE records in `data/bans.db` and reject the connection.
+CTest includes unit tests for client identity, GeoIP fallback state, DNSBL worker behavior, modes, channel policy, visibility, operator permissions, operator database CRUD, and persistent bans, plus socket-level integration tests for protocol behavior, operator actions/overrides, TLS, and WebIRC.
 
 ## Planned architecture
 
-The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; hostname cloaking for `+x`; DNSBL enforcement; GeoIP/ASN-based policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
+The long-term daemon will include SQLite-backed NickServ, ChanServ, MemoServ, and IRCv3 history; persistent ChanServ channels; SASL; hostname cloaking for `+x`; GeoIP/ASN-based policy; complete client/channel mode behavior; full applicable ISUPPORT advertising; and the remaining planned standard command set.
 
 Services will be addressable virtual identities but will never join channels or appear in ordinary client lists. Persistent channels will be restored from ChanServ state rather than requiring a service client in the channel.
