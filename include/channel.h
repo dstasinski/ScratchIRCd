@@ -12,6 +12,8 @@
 /** One mask entry used by +b, +e, or +I. */
 typedef struct ChannelMaskEntry {
     char mask[IRC_CHANNEL_MASK_MAX + 1U];
+    /** Non-zero only for a +b set by an OWNER or PROTECTED member. */
+    int protected_authorized;
     struct ChannelMaskEntry *next;
 } ChannelMaskEntry;
 
@@ -26,10 +28,10 @@ typedef struct ChannelInvite {
  * The counter is reset when its configured interval elapses.
  */
 typedef struct ChannelJoinCounter {
-    uint64_t client_id;                    /**< Stable connection being counted. */
-    unsigned int count;                    /**< Successful joins in current window. */
-    time_t window_start;                   /**< Beginning of current interval. */
-    struct ChannelJoinCounter *next;       /**< Next tracked connection. */
+    uint64_t client_id;
+    unsigned int count;
+    time_t window_start;
+    struct ChannelJoinCounter *next;
 } ChannelJoinCounter;
 
 /** One client's membership and privileges in one channel. */
@@ -83,6 +85,8 @@ int channel_remove_privileges(Channel *channel, Client *client,
                               ChannelPrivilegeSet privileges);
 void channel_broadcast(Channel *channel, const Client *except, const char *message);
 int channel_mask_add(ChannelMaskEntry **list, const char *mask);
+int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
+                                int protected_authorized);
 int channel_mask_remove(ChannelMaskEntry **list, const char *mask);
 void channel_mask_clear(ChannelMaskEntry **list);
 
