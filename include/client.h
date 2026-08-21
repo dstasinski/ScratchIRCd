@@ -40,6 +40,13 @@ typedef enum ClientTlsState {
     CLIENT_TLS_ESTABLISHED
 } ClientTlsState;
 
+typedef enum ClientSaslState {
+    CLIENT_SASL_NONE = 0,
+    CLIENT_SASL_PLAIN_WAIT_DATA,
+    CLIENT_SASL_COMPLETE,
+    CLIENT_SASL_FAILED
+} ClientSaslState;
+
 /** Gateway/audit metadata kept separate from the three client identity fields. */
 typedef struct ClientWebIrc {
     int active;
@@ -71,6 +78,11 @@ typedef struct Client {
 
     /** Authenticated NickServ account name. Empty means not identified. */
     char account_name[IRC_NICK_MAX + 1U];
+
+    /** IRCv3 capability/SASL negotiation state used before registration. */
+    int cap_negotiating;
+    int cap_sasl_enabled;
+    ClientSaslState sasl_state;
 
     /* The only three normal client host/address identity fields. */
     char real_ip[IRC_IP_MAX + 1U];
