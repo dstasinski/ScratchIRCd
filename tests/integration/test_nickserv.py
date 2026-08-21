@@ -86,6 +86,11 @@ def register(client, nick):
     client.expect(f" 001 {nick} ")
 
 
+def assert_current_nick(client, nick):
+    client.send(f"MODE {nick}")
+    client.expect(f" 221 {nick} ")
+
+
 def wait_mail_token(mailbox, marker, start=0, duration=5.0):
     pattern = re.compile(rf"{re.escape(marker)}: ([0-9a-f]{{32}})")
     deadline = time.monotonic() + duration
@@ -150,7 +155,6 @@ def main():
             assert any("r" in line.rsplit(" ", 1)[-1]
                        for line in modes if " 221 Alice " in line), modes
 
-            # NickServ is addressable but never represented as an online Client.
             alice.send("ISON NickServ Alice")
             ison = alice.expect(" 303 Alice ")
             ison_line = next(line for line in ison if " 303 Alice " in line)
@@ -161,7 +165,6 @@ def main():
             impostor.expect(" 437 ")
             impostor.close(); clients.remove(impostor)
 
-            # Email must be verified before it can be used for password recovery.
             alice.send("NICKSERV SET EMAIL alice@example.test")
             alice.expect("Verification email queued.")
             verify_token, mail_offset = wait_mail_token(mailbox, "Verification token")
@@ -170,18 +173,18 @@ def main():
 
             # Default RECOVER safely renames the squatter rather than disconnecting it.
             alice.send("NICK Owner")
-            alice.expect(" NICK :Owner")
+            assert_current_nick(alice, "Owner")
             squatter = IRCClient(port); clients.append(squatter)
             register(squatter, "Alice")
             alice.send("NICKSERV RECOVER Alice")
             alice.expect("previous user was safely renamed")
             squatter.expect("Your nickname was recovered")
             alice.send("NICK Alice")
-            alice.expect(" NICK :Alice")
+            assert_current_nick(alice, "Alice")
 
             # RECOVER KILL disconnects the occupying session.
             alice.send("NICK Owner2")
-            alice.expect(" NICK :Owner2")
+            assert_current_nick(alice, "Owner2")
             squatter2 = IRCClient(port); clients.append(squatter2)
             register(squatter2, "Alice")
             alice.send("NICKSERV RECOVER Alice KILL")
@@ -197,7 +200,6 @@ def main():
             squatter3.expect_closed()
             squatter3.close(); clients.remove(squatter3)
 
-            # Password changes still use Argon2 and invalidate the old password.
             alice.send("NICKSERV SET PASSWORD secondpass")
             alice.expect("Password changed.")
             alice.send("QUIT :email reset test")
