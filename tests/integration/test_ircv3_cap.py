@@ -77,10 +77,10 @@ def main():
             after=watcher.expect(" CAP Watcher LIST :account-notify")
             assert not any(" sasl" in x for x in after if " CAP Watcher LIST " in x),after
             watcher.send("CAP END"); watcher.expect(" 001 Watcher ")
-            watcher.send("JOIN #captest"); watcher.expect(" JOIN :#captest")
+            watcher.send("JOIN #captest"); watcher.expect(" JOIN #captest")
 
             alice=IRCClient(port); clients.append(alice); register(alice,"Alice")
-            alice.send("JOIN #captest"); alice.expect(" JOIN :#captest")
+            alice.send("JOIN #captest"); alice.expect(" JOIN #captest")
             alice.send("NICKSERV REGISTER secretpass")
             alice.expect("Nickname registered and identified.")
             notice=watcher.expect(" ACCOUNT Alice")
