@@ -39,8 +39,8 @@
 #define IRCD_DEFAULT_DNS_TIMEOUT_SECONDS 5U
 #define IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS 5U
 
-/* DNS blacklist definitions. */
-#define IRCD_MAX_DNSBLS 16U
+/* DNS blacklist definitions. Kept small enough for atomic Linux pipe writes. */
+#define IRCD_MAX_DNSBLS 8U
 #define IRCD_DNSBL_NAME_MAX 63U
 #define IRCD_DNSBL_ZONE_MAX 255U
 
