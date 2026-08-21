@@ -11,6 +11,7 @@
 #include "commands.h"
 #include "config.h"
 #include "history_db.h"
+#include "ircv3.h"
 #include "modes.h"
 
 #include <stdio.h>
@@ -49,7 +50,6 @@ static void store_channel_history(Server *server, Client *client,
 CommandResult command_notice(Server *server, Client *client, char *params) {
     char *target;
     char *text;
-    char message[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) return COMMAND_KEEP_CLIENT;
@@ -58,10 +58,6 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     text = strtok(NULL, "");
     if (target == NULL || text == NULL || *target == '\0') return COMMAND_KEEP_CLIENT;
     if (*text == ':') ++text;
-
-    (void)snprintf(message, sizeof(message),
-                   ":%s!%s@%s NOTICE %s :%s\r\n",
-                   client->nick, client->user, client->display_host, target, text);
 
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
@@ -87,7 +83,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         }
 
         store_channel_history(server, client, channel->name, text);
-        channel_broadcast(channel, client, message);
+        ircv3_broadcast_message(channel, client, client, "NOTICE", channel->name, text);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) return COMMAND_KEEP_CLIENT;
@@ -96,7 +92,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && is_ctcp(text))
             return COMMAND_KEEP_CLIENT;
-        (void)client_send_raw(destination, message, strlen(message));
+        ircv3_send_message(destination, client, "NOTICE", destination->nick, text);
     }
 
     return COMMAND_KEEP_CLIENT;
