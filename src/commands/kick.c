@@ -2,11 +2,9 @@
  * @file kick.c
  * @brief Implementation of the IRC KICK command.
  *
- * KICK uses the shared channel privilege rank rather than hard-coded prefix
- * checks. Halfops may kick lower-ranked members, operators may kick halfops or
- * lower, and owners may kick operators or lower. Equal/higher-ranked targets
- * cannot be removed by ordinary KICK. Future service/oper override commands
- * (such as SAPART) will deliberately bypass this normal channel hierarchy.
+ * KICK uses the shared channel privilege rank. Protected (+a) members cannot
+ * be kicked by ordinary operators/halfops; only another protected member or
+ * an owner may kick them. Owners remain above protected members.
  */
 
 #include "commands.h"
@@ -84,7 +82,24 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     }
 
     target_rank = channel_privilege_rank(target_member->privileges);
-    if (target_rank >= actor_rank) {
+    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED)) {
+        if (!channel_privilege_has(actor_member->privileges,
+                                   CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER)) {
+            client_sendf(client, ERR_ATTACKDENY,
+                         server->config.server_name, client->nick,
+                         channel->name, target->nick);
+            return COMMAND_KEEP_CLIENT;
+        }
+    } else if (target_rank >= actor_rank) {
+        client_sendf(client, ERR_ATTACKDENY,
+                     server->config.server_name, client->nick,
+                     channel->name, target->nick);
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    /* Protected members may remove another protected member, but never owner. */
+    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_OWNER) &&
+        !channel_privilege_has(actor_member->privileges, CHANNEL_PRIV_OWNER)) {
         client_sendf(client, ERR_ATTACKDENY,
                      server->config.server_name, client->nick,
                      channel->name, target->nick);
