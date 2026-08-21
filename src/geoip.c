@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 
 static void copy_text(char *dest, size_t size, const char *src, size_t length) {
     if (dest == NULL || size == 0U) return;
@@ -49,6 +50,27 @@ static int get_uint32(MMDB_entry_s *entry, uint32_t *value,
         data.type != MMDB_DATA_TYPE_UINT32) return 0;
     *value = data.uint32;
     return 1;
+}
+
+/** Convert a guaranteed-numeric Client.real_ip into sockaddr storage. */
+static int numeric_sockaddr(const char *ip, struct sockaddr_storage *storage) {
+    struct sockaddr_in *v4;
+    struct sockaddr_in6 *v6;
+
+    memset(storage, 0, sizeof(*storage));
+    v4 = (struct sockaddr_in *)storage;
+    if (inet_pton(AF_INET, ip, &v4->sin_addr) == 1) {
+        v4->sin_family = AF_INET;
+        return 0;
+    }
+
+    memset(storage, 0, sizeof(*storage));
+    v6 = (struct sockaddr_in6 *)storage;
+    if (inet_pton(AF_INET6, ip, &v6->sin6_addr) == 1) {
+        v6->sin6_family = AF_INET6;
+        return 0;
+    }
+    return -1;
 }
 
 static void network_string(const char *ip, uint16_t raw_prefix,
@@ -132,6 +154,7 @@ void geoip_destroy(GeoIPContext *context) {
 }
 
 void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *result) {
+    struct sockaddr_storage address;
     MMDB_lookup_result_s city_result;
     MMDB_lookup_result_s asn_result;
     int city_found = 0;
@@ -147,15 +170,20 @@ void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *resu
         (void)snprintf(result->status, sizeof(result->status), "unavailable");
         return;
     }
+    if (numeric_sockaddr(ip, &address) != 0) {
+        (void)snprintf(result->status, sizeof(result->status), "error");
+        return;
+    }
 
     memset(&city_result, 0, sizeof(city_result));
     memset(&asn_result, 0, sizeof(asn_result));
 
     if (context->city_open) {
-        int gai_error = 0;
         int mmdb_error = MMDB_SUCCESS;
-        city_result = MMDB_lookup_string(&context->city, ip, &gai_error, &mmdb_error);
-        if (gai_error != 0 || mmdb_error != MMDB_SUCCESS) {
+        city_result = MMDB_lookup_sockaddr(&context->city,
+                                           (const struct sockaddr *)&address,
+                                           &mmdb_error);
+        if (mmdb_error != MMDB_SUCCESS) {
             error = 1;
         } else if (city_result.found_entry) {
             city_found = 1;
@@ -169,8 +197,10 @@ void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *resu
                            sizeof(result->region_code), "subdivisions", "0", "iso_code");
             {
                 MMDB_entry_data_s data;
-                int rc = MMDB_get_value(&city_result.entry, &data,
-                                        "subdivisions", "0", "names", "en", NULL);
+                int rc;
+                memset(&data, 0, sizeof(data));
+                rc = MMDB_get_value(&city_result.entry, &data,
+                                    "subdivisions", "0", "names", "en", NULL);
                 if (rc == MMDB_SUCCESS && data.has_data &&
                     data.type == MMDB_DATA_TYPE_UTF8_STRING)
                     copy_text(result->region_name, sizeof(result->region_name),
@@ -184,10 +214,11 @@ void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *resu
     }
 
     if (context->asn_open) {
-        int gai_error = 0;
         int mmdb_error = MMDB_SUCCESS;
-        asn_result = MMDB_lookup_string(&context->asn, ip, &gai_error, &mmdb_error);
-        if (gai_error != 0 || mmdb_error != MMDB_SUCCESS) {
+        asn_result = MMDB_lookup_sockaddr(&context->asn,
+                                          (const struct sockaddr *)&address,
+                                          &mmdb_error);
+        if (mmdb_error != MMDB_SUCCESS) {
             error = 1;
         } else if (asn_result.found_entry) {
             asn_found = 1;
