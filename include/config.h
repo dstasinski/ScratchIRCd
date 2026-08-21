@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.17"
+#define IRCD_VERSION "ScratchIRCd-0.18"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -35,6 +35,7 @@
 #define IRCD_DEFAULT_OPERATORS_DB IRCD_DEFAULT_DATA_DIR "/operators.db"
 #define IRCD_DEFAULT_BANS_DB IRCD_DEFAULT_DATA_DIR "/bans.db"
 #define IRCD_DEFAULT_NICKSERV_DB IRCD_DEFAULT_DATA_DIR "/nickserv.db"
+#define IRCD_DEFAULT_CHANSERV_DB IRCD_DEFAULT_DATA_DIR "/chanserv.db"
 #define IRCD_DEFAULT_HISTORY_DB IRCD_DEFAULT_DATA_DIR "/history.db"
 #define IRCD_DEFAULT_GEOIP_CITY_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-City.mmdb"
 #define IRCD_DEFAULT_GEOIP_ASN_DB IRCD_DEFAULT_DATA_DIR "/GeoLite2-ASN.mmdb"
@@ -45,6 +46,9 @@
 #define IRCD_HISTORY_TEXT_MAX 510U
 #define IRCD_HISTORY_COMMAND_MAX 15U
 #define IRCD_HISTORY_BATCH_ID_MAX 31U
+
+/* ChanServ registration limits. */
+#define IRCD_CHANSERV_DESCRIPTION_MAX 255U
 
 /* NickServ account recovery and outbound-mail limits. */
 #define IRCD_EMAIL_MAX 254U
