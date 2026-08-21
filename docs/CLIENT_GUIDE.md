@@ -29,48 +29,87 @@ A user's actual IP and verified DNS hostname are server-security information and
 
 ## NickServ accounts
 
-NickServ is a virtual service. It can receive messages, but it is not a normal connected client, never joins channels, and does not appear in NAMES, WHO, ISON, or LUSERS. The names `NickServ`, `ChanServ`, and `MemoServ` are reserved so users cannot impersonate services.
+NickServ is a virtual service. It can receive commands, but it is not a connected IRC client, never joins channels, and does not appear in NAMES, WHO, ISON, or LUSERS. The names `NickServ`, `ChanServ`, and `MemoServ` are reserved.
 
-Register your current nickname:
+ScratchIRCd accepts both the direct form:
 
 ```text
-PRIVMSG NickServ :REGISTER <password>
+NICKSERV <command> [parameters]
 ```
 
-Identify to the account matching your current nickname:
+and the traditional form:
 
 ```text
+PRIVMSG NickServ :<command> [parameters]
+```
+
+### Register and identify
+
+```text
+NICKSERV REGISTER <password>
+NICKSERV IDENTIFY <password>
+NICKSERV IDENTIFY <account> <password>
 IDENTIFY <password>
+IDENTIFY <account> <password>
 ```
 
-or:
+Successful identification sets service-controlled user mode `+r`. An account vhost changes only the displayed hostname and sets `+t`.
+
+### Password and email settings
 
 ```text
-PRIVMSG NickServ :IDENTIFY <password>
+NICKSERV SET PASSWORD <new-password>
+NICKSERV SET EMAIL <address>
+NICKSERV VERIFY <token>
 ```
 
-Identify to a different registered account name while keeping your current IRC nickname:
+`SET PASSWORD` and `SET EMAIL` require identification. Email addresses are not trusted until the verification token sent by the server is confirmed with `VERIFY`.
+
+### Recover a registered nickname
 
 ```text
-IDENTIFY <nick> <password>
-PRIVMSG NickServ :IDENTIFY <nick> <password>
+NICKSERV RECOVER <nick>
 ```
 
-Successful identification sets user mode `+r` and stores the authenticated account separately from the current IRC nickname. An account with a configured vhost also changes only the displayed hostname and sets `+t`.
-
-Change the password of the account to which you are currently identified:
+You must be identified to the account matching `<nick>`. Default RECOVER safely renames the occupying client to a generated `Guest<connection-id>` nickname. It does not disconnect them. You can then use the normal:
 
 ```text
-PRIVMSG NickServ :SET PASSWORD <new-password>
+NICK <nick>
 ```
 
-Show the currently implemented service help:
+command to take the freed nickname.
+
+To disconnect the occupying connection instead:
 
 ```text
-PRIVMSG NickServ :HELP
+NICKSERV RECOVER <nick> KILL
 ```
 
-NickServ passwords are stored only as Argon2id hashes. Account switching within one connection is currently intentionally disallowed; reconnect to identify to a different account.
+`GHOST` is a KILL alias:
+
+```text
+NICKSERV GHOST <nick>
+```
+
+### Email password reset
+
+Request a reset:
+
+```text
+NICKSERV RESET <account>
+```
+
+ScratchIRCd always gives the same generic response whether or not the account exists. If the account is enabled and has a verified email address, a one-time reset token is emailed.
+
+Complete the reset:
+
+```text
+NICKSERV RESET <account> <token> <new-password>
+```
+
+Reset tokens expire and can be used only once. The resulting password is stored only as an Argon2id hash.
+
+See `docs/NICKSERV_GUIDE.md` for the complete NickServ guide.
 
 ## Currently implemented client commands
 
@@ -95,7 +134,7 @@ Sets or clears away status. Users sending a direct PRIVMSG to an away client rec
 
 ```text
 IDENTIFY <password>
-IDENTIFY <nick> <password>
+IDENTIFY <account> <password>
 ```
 
 Authenticates to a NickServ account and sets service-controlled user mode `+r`. A configured NickServ vhost is applied to the displayed hostname.
@@ -183,6 +222,14 @@ NICK <new-nickname>
 ```
 
 Sets or changes your nickname. Internal service names are reserved.
+
+### NICKSERV
+
+```text
+NICKSERV <service-command> [parameters]
+```
+
+Direct alias for the virtual NickServ service. Implemented service commands are `REGISTER`, `IDENTIFY`, `RECOVER`, `GHOST`, `SET PASSWORD`, `SET EMAIL`, `VERIFY`, `RESET`, and `HELP`.
 
 ### NOTICE
 
@@ -277,7 +324,7 @@ Displays visible matching users while respecting invisibility and channel visibi
 WHOIS <nickname>
 ```
 
-Displays public information about a user, including displayed hostname, visible channel membership, registered state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
+Displays public information about a user, including displayed hostname, visible channel membership, authenticated account state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
 
 ## User modes
 
