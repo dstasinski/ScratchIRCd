@@ -165,6 +165,8 @@ add_test(NAME history_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_
 set_tests_properties(history_integration PROPERTIES TIMEOUT 60)
 add_test(NAME chanserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_chanserv.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(chanserv_integration PROPERTIES TIMEOUT 60)
+add_test(NAME chanserv_persistence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_chanserv_persistence.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(chanserv_persistence_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist)
