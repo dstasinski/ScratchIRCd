@@ -24,6 +24,10 @@ typedef struct ServerConfig {
     WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
     size_t webirc_gateway_count;
 
+    /** Optional MaxMind GeoLite2 databases. Missing files are non-fatal. */
+    char geoip_city_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char geoip_asn_db[IRCD_CONFIG_PATH_MAX + 1U];
+
     char server_password[IRCD_SERVER_PASSWORD_MAX + 1U];
     char motd_file[IRCD_CONFIG_PATH_MAX + 1U];
     char rules_file[IRCD_CONFIG_PATH_MAX + 1U];
