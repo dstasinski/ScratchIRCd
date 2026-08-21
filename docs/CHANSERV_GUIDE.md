@@ -28,6 +28,7 @@ The founder can grant persistent channel privileges to other enabled NickServ ac
 
 ```text
 CHANSERV ACCESS #channel ADD <account> OWNER
+CHANSERV ACCESS #channel ADD <account> PROTECTED
 CHANSERV ACCESS #channel ADD <account> OP
 CHANSERV ACCESS #channel ADD <account> HALFOP
 CHANSERV ACCESS #channel ADD <account> VOICE
@@ -38,11 +39,18 @@ CHANSERV ACCESS #channel LIST
 Access is bound to the authenticated account, not the current nickname. On JOIN, the corresponding privileges are restored automatically:
 
 - `OWNER` -> channel owner/operator (`+q/+o`, `~` prefix)
+- `PROTECTED` -> protected/operator (`+a/+o`, `&` prefix)
 - `OP` -> channel operator (`+o`, `@` prefix)
 - `HALFOP` -> halfop (`+h`, `%` prefix)
 - `VOICE` -> voice (`+v`, `+` prefix)
 
 The founder is implicitly an owner and is not stored as a separate access-list entry.
+
+### Protected members (+a)
+
+Channel membership mode `+a` marks a member as PROTECTED. Its authority is below OWNER (`+q`) and above ordinary OP (`+o`). Only another PROTECTED member or an OWNER may grant/remove `+a` or KICK a protected member. A PROTECTED member may KICK another PROTECTED member; neither PROTECTED nor OP may KICK an OWNER through ordinary KICK.
+
+Ordinary OP/HALFOP users cannot set a channel ban that currently matches a protected member. Ban entries remember whether they were set with PROTECTED/OWNER authority. When a ChanServ PROTECTED or OWNER account reconnects, ordinary bans are ignored for that protected account, while a matching ban deliberately set by PROTECTED/OWNER authority is still enforced. This prevents an OP from bypassing protection by pre-setting a ban before the protected account rejoins.
 
 ## Persistent boolean modes
 
@@ -52,7 +60,7 @@ The founder can store a channel mode lock:
 CHANSERV SET #channel MLOCK +nt
 ```
 
-The current 0.19 mode lock supports boolean channel modes only: `A c i K M m n O p R S s t T V z`. Service-controlled `+r` is always restored separately and cannot be placed in the lock. Parameter modes and lists such as `+k`, `+l`, `+j`, `+L`, `+B`, `+b`, `+e`, and `+I` are not persisted yet.
+The current 0.19 mode lock supports boolean channel modes only: `A c i K M m n O p R S s t T V z`. Service-controlled `+r` is always restored separately and cannot be placed in the lock. Membership privilege `+a` is account/access state rather than part of MLOCK. Parameter modes and lists such as `+k`, `+l`, `+j`, `+L`, `+B`, `+b`, `+e`, and `+I` are not persisted yet.
 
 The stored mode-lock state is reapplied when a persistent channel is recreated/restored. Updating MLOCK also refreshes the current live registered channel.
 
@@ -107,4 +115,4 @@ CSDROP #channel
 
 ## Current 0.19 scope
 
-0.19 persists registration metadata, founder identity, account access roles, boolean mode-lock state, and topic state. Parameter modes, ban/exception/invex lists, keys, join throttles, limits/redirects, and automatic persistence of arbitrary live MODE/TOPIC changes remain future work.
+0.19 persists registration metadata, founder identity, account access roles including PROTECTED, boolean mode-lock state, and topic state. Parameter modes, persistent ban/exception/invex lists, keys, join throttles, limits/redirects, and automatic persistence of arbitrary live MODE/TOPIC changes remain future work.
