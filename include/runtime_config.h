@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include "config.h"
+#include "dnsbl.h"
 
 typedef struct WebIrcGatewayConfig {
     char ip[IRC_IP_MAX + 1U];
@@ -23,6 +24,11 @@ typedef struct ServerConfig {
 
     WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
     size_t webirc_gateway_count;
+
+    /** Configured DNS blacklists. Every positive hit automatically ZLINEs. */
+    DnsblZone dnsbls[IRCD_MAX_DNSBLS];
+    size_t dnsbl_count;
+    unsigned int dnsbl_timeout_seconds;
 
     /** Optional MaxMind GeoLite2 databases. Missing files are non-fatal. */
     char geoip_city_db[IRCD_CONFIG_PATH_MAX + 1U];
