@@ -62,6 +62,7 @@ typedef uint32_t ChannelPrivilegeSet;
 #define CHANNEL_PRIV_HALFOP          (UINT32_C(1) << 1)
 #define CHANNEL_PRIV_OPERATOR        (UINT32_C(1) << 2)
 #define CHANNEL_PRIV_OWNER           (UINT32_C(1) << 3)
+#define CHANNEL_PRIV_PROTECTED       (UINT32_C(1) << 4)
 
 int client_mode_has(ClientModeSet modes, ClientModeSet mask);
 ClientModeSet client_mode_add(ClientModeSet modes, ClientModeSet mask);
@@ -77,7 +78,7 @@ size_t channel_privilege_format(ChannelPrivilegeSet privileges,
 
 /**
  * Return the highest channel privilege rank.
- * 0 = none, 1 = voice, 2 = halfop, 3 = operator, 4 = owner.
+ * 0 = none, 1 = voice, 2 = halfop, 3 = operator, 4 = protected, 5 = owner.
  */
 unsigned int channel_privilege_rank(ChannelPrivilegeSet privileges);
 
