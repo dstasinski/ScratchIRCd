@@ -2,103 +2,13 @@
 #include "chanserv_db.h"
 #include <stdio.h>
 #include <string.h>
-
-static int exec_sql(sqlite3 *db, const char *sql) {
-    char *error = NULL;
-    int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
-    if (rc != SQLITE_OK) {
-        if (error != NULL) fprintf(stderr, "ChanServ DB: %s\n", error);
-        sqlite3_free(error);
-        return -1;
-    }
-    return 0;
-}
-
-int chanserv_db_open(ChanServDb *db, const char *path) {
-    static const char schema[] =
-        "CREATE TABLE IF NOT EXISTS channels ("
-        "name TEXT COLLATE NOCASE PRIMARY KEY,"
-        "founder TEXT COLLATE NOCASE NOT NULL,"
-        "description TEXT NOT NULL DEFAULT '',"
-        "enabled INTEGER NOT NULL DEFAULT 1,"
-        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
-        ");"
-        "CREATE INDEX IF NOT EXISTS channels_founder_idx ON channels(founder);";
-    if (db == NULL || path == NULL) return -1;
-    memset(db, 0, sizeof(*db));
-    if (sqlite3_open(path, &db->db) != SQLITE_OK) { chanserv_db_close(db); return -1; }
-    sqlite3_busy_timeout(db->db, 2000);
-    if (exec_sql(db->db, "PRAGMA foreign_keys=ON;") != 0 || exec_sql(db->db, schema) != 0) {
-        chanserv_db_close(db); return -1;
-    }
-    return 0;
-}
-
-void chanserv_db_close(ChanServDb *db) {
-    if (db != NULL && db->db != NULL) sqlite3_close(db->db);
-    if (db != NULL) db->db = NULL;
-}
-
-int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
-    sqlite3_stmt *stmt = NULL;
-    int rc;
-    if (db == NULL || db->db == NULL || name == NULL || record == NULL) return -1;
-    memset(record, 0, sizeof(*record));
-    if (sqlite3_prepare_v2(db->db,
-        "SELECT name,founder,description,enabled,created_at,updated_at FROM channels WHERE name=?1",
-        -1, &stmt, NULL) != SQLITE_OK) return -1;
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-        snprintf(record->name, sizeof(record->name), "%s", sqlite3_column_text(stmt,0));
-        snprintf(record->founder, sizeof(record->founder), "%s", sqlite3_column_text(stmt,1));
-        snprintf(record->description, sizeof(record->description), "%s", sqlite3_column_text(stmt,2));
-        record->enabled = sqlite3_column_int(stmt,3);
-        record->created_at = sqlite3_column_int64(stmt,4);
-        record->updated_at = sqlite3_column_int64(stmt,5);
-        sqlite3_finalize(stmt); return 1;
-    }
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? 0 : -1;
-}
-
-int chanserv_db_create(ChanServDb *db, const char *name, const char *founder,
-                       const char *description) {
-    sqlite3_stmt *stmt = NULL; int rc;
-    if (db == NULL || db->db == NULL || name == NULL || founder == NULL) return -1;
-    if (sqlite3_prepare_v2(db->db,
-        "INSERT INTO channels(name,founder,description) VALUES(?1,?2,?3)", -1, &stmt, NULL) != SQLITE_OK) return -1;
-    sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt,2,founder,-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt,3,description != NULL ? description : "",-1,SQLITE_TRANSIENT);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE ? 0 : -1;
-}
-
-static int update_text(ChanServDb *db, const char *name, const char *column, const char *value) {
-    char sql[160]; sqlite3_stmt *stmt=NULL; int rc;
-    if (db==NULL || db->db==NULL || name==NULL || value==NULL) return -1;
-    snprintf(sql,sizeof(sql),"UPDATE channels SET %s=?1,updated_at=unixepoch() WHERE name=?2",column);
-    if(sqlite3_prepare_v2(db->db,sql,-1,&stmt,NULL)!=SQLITE_OK)return -1;
-    sqlite3_bind_text(stmt,1,value,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
-}
-
-int chanserv_db_set_founder(ChanServDb *db,const char *name,const char *founder){return update_text(db,name,"founder",founder);}
-int chanserv_db_set_description(ChanServDb *db,const char *name,const char *description){return update_text(db,name,"description",description);}
-
-int chanserv_db_set_enabled(ChanServDb *db, const char *name, int enabled) {
-    sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||name==NULL)return -1;
-    if(sqlite3_prepare_v2(db->db,"UPDATE channels SET enabled=?1,updated_at=unixepoch() WHERE name=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
-    sqlite3_bind_int(stmt,1,enabled?1:0); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
-}
-
-int chanserv_db_delete(ChanServDb *db, const char *name) {
-    sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||name==NULL)return -1;
-    if(sqlite3_prepare_v2(db->db,"DELETE FROM channels WHERE name=?1",-1,&stmt,NULL)!=SQLITE_OK)return -1;
-    sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT); rc=sqlite3_step(stmt); sqlite3_finalize(stmt);
-    return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
-}
+static int exec_sql(sqlite3*d,const char*s){char*e=NULL;int r=sqlite3_exec(d,s,NULL,NULL,&e);if(r!=SQLITE_OK){if(e)fprintf(stderr,"ChanServ DB: %s\n",e);sqlite3_free(e);return-1;}return 0;}
+int chanserv_db_open(ChanServDb*d,const char*p){static const char schema[]="CREATE TABLE IF NOT EXISTS channels (name TEXT COLLATE NOCASE PRIMARY KEY,founder TEXT COLLATE NOCASE NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL DEFAULT (unixepoch()),updated_at INTEGER NOT NULL DEFAULT (unixepoch()));CREATE INDEX IF NOT EXISTS channels_founder_idx ON channels(founder);";if(!d||!p)return-1;memset(d,0,sizeof(*d));if(sqlite3_open(p,&d->db)!=SQLITE_OK){chanserv_db_close(d);return-1;}sqlite3_busy_timeout(d->db,2000);if(exec_sql(d->db,"PRAGMA foreign_keys=ON;")||exec_sql(d->db,schema)){chanserv_db_close(d);return-1;}return 0;}
+void chanserv_db_close(ChanServDb*d){if(d&&d->db)sqlite3_close(d->db);if(d)d->db=NULL;}
+int chanserv_db_get(ChanServDb*d,const char*n,ChanServChannel*r){sqlite3_stmt*s=NULL;int rc;if(!d||!d->db||!n||!r)return-1;memset(r,0,sizeof(*r));if(sqlite3_prepare_v2(d->db,"SELECT name,founder,description,enabled,created_at,updated_at FROM channels WHERE name=?1",-1,&s,NULL)!=SQLITE_OK)return-1;sqlite3_bind_text(s,1,n,-1,SQLITE_TRANSIENT);rc=sqlite3_step(s);if(rc==SQLITE_ROW){snprintf(r->name,sizeof(r->name),"%s",sqlite3_column_text(s,0));snprintf(r->founder,sizeof(r->founder),"%s",sqlite3_column_text(s,1));snprintf(r->description,sizeof(r->description),"%s",sqlite3_column_text(s,2));r->enabled=sqlite3_column_int(s,3);r->created_at=sqlite3_column_int64(s,4);r->updated_at=sqlite3_column_int64(s,5);sqlite3_finalize(s);return 1;}sqlite3_finalize(s);return rc==SQLITE_DONE?0:-1;}
+int chanserv_db_create(ChanServDb*d,const char*n,const char*f,const char*x){sqlite3_stmt*s=NULL;int r;if(!d||!d->db||!n||!f)return-1;if(sqlite3_prepare_v2(d->db,"INSERT INTO channels(name,founder,description) VALUES(?1,?2,?3)",-1,&s,NULL)!=SQLITE_OK)return-1;sqlite3_bind_text(s,1,n,-1,SQLITE_TRANSIENT);sqlite3_bind_text(s,2,f,-1,SQLITE_TRANSIENT);sqlite3_bind_text(s,3,x?x:"",-1,SQLITE_TRANSIENT);r=sqlite3_step(s);sqlite3_finalize(s);return r==SQLITE_DONE?0:-1;}
+static int update_text(ChanServDb*d,const char*n,const char*c,const char*v){char q[160];sqlite3_stmt*s=NULL;int r;if(!d||!d->db||!n||!v)return-1;snprintf(q,sizeof(q),"UPDATE channels SET %s=?1,updated_at=unixepoch() WHERE name=?2",c);if(sqlite3_prepare_v2(d->db,q,-1,&s,NULL)!=SQLITE_OK)return-1;sqlite3_bind_text(s,1,v,-1,SQLITE_TRANSIENT);sqlite3_bind_text(s,2,n,-1,SQLITE_TRANSIENT);r=sqlite3_step(s);sqlite3_finalize(s);return r==SQLITE_DONE&&sqlite3_changes(d->db)>0?0:-1;}
+int chanserv_db_set_founder(ChanServDb*d,const char*n,const char*f){return update_text(d,n,"founder",f);}int chanserv_db_set_description(ChanServDb*d,const char*n,const char*x){return update_text(d,n,"description",x);}
+int chanserv_db_set_enabled(ChanServDb*d,const char*n,int e){sqlite3_stmt*s=NULL;int r;if(!d||!d->db||!n)return-1;if(sqlite3_prepare_v2(d->db,"UPDATE channels SET enabled=?1,updated_at=unixepoch() WHERE name=?2",-1,&s,NULL)!=SQLITE_OK)return-1;sqlite3_bind_int(s,1,e?1:0);sqlite3_bind_text(s,2,n,-1,SQLITE_TRANSIENT);r=sqlite3_step(s);sqlite3_finalize(s);return r==SQLITE_DONE&&sqlite3_changes(d->db)>0?0:-1;}
+int chanserv_db_delete(ChanServDb*d,const char*n){sqlite3_stmt*s=NULL;int r;if(!d||!d->db||!n)return-1;if(sqlite3_prepare_v2(d->db,"DELETE FROM channels WHERE name=?1",-1,&s,NULL)!=SQLITE_OK)return-1;sqlite3_bind_text(s,1,n,-1,SQLITE_TRANSIENT);r=sqlite3_step(s);sqlite3_finalize(s);return r==SQLITE_DONE&&sqlite3_changes(d->db)>0?0:-1;}
+int chanserv_db_list_enabled(ChanServDb*d,char*b,size_t z){sqlite3_stmt*s=NULL;size_t u=0;int r;if(!d||!d->db||!b||!z)return-1;b[0]='\0';if(sqlite3_prepare_v2(d->db,"SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE NOCASE",-1,&s,NULL)!=SQLITE_OK)return-1;while((r=sqlite3_step(s))==SQLITE_ROW){const char*n=(const char*)sqlite3_column_text(s,0);int w=snprintf(b+u,z-u,"%s%s",u?",":"",n?n:"");if(w<0||(size_t)w>=z-u){sqlite3_finalize(s);return-1;}u+=(size_t)w;}sqlite3_finalize(s);return r==SQLITE_DONE?0:-1;}
