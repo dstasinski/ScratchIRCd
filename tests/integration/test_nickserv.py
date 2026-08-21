@@ -109,10 +109,16 @@ def main():
             assert any("r" in line.rsplit(" ", 1)[-1]
                        for line in modes if " 221 Alice " in line), modes
 
-            # Virtual services are reserved but never occupy a real client slot.
+            # NickServ is addressable but not represented as an online Client.
+            alice.send("ISON NickServ Alice")
+            ison = alice.expect(" 303 Alice ")
+            ison_line = next(line for line in ison if " 303 Alice " in line)
+            assert "Alice" in ison_line and "NickServ" not in ison_line, ison
+
+            # Virtual service names are reserved with the supplied reserved-nick numeric.
             impostor = IRCClient(port); clients.append(impostor)
             impostor.send("NICK NickServ")
-            impostor.expect(" 433 ")
+            impostor.expect(" 437 ")
             impostor.close(); clients.remove(impostor)
 
             # Self-service password change uses only the stored account identity.
@@ -131,6 +137,9 @@ def main():
             modes = user.expect(" 221 Traveler ")
             assert any("r" in line.rsplit(" ", 1)[-1]
                        for line in modes if " 221 Traveler " in line), modes
+            user.send("WHOIS Traveler")
+            whois = user.expect(" 318 Traveler Traveler ")
+            assert any("is logged in as Alice" in line for line in whois), whois
 
             admin = IRCClient(port); clients.append(admin)
             register(admin, "Admin")
@@ -151,6 +160,7 @@ def main():
             whois = user.expect(" 318 Traveler2 Traveler2 ")
             assert any(" 311 Traveler2 Traveler2 " in line and
                        " registered.example.test " in line for line in whois), whois
+            assert any("is logged in as Alice" in line for line in whois), whois
 
             admin.send("NSSET Alice ENABLED 0")
             admin.expect("NickServ account updated.")
