@@ -10,7 +10,7 @@ ScratchIRCd keeps three host/address values for each client:
 - `real_host` — FCrDNS-verified hostname for the actual IP, when available.
 - `display_host` — the public hostname shown to ordinary IRC users.
 
-WHO, ordinary WHOIS, USERHOST, channel traffic, and channel bans use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE and ZLINE ignore the displayed hostname and use the real security identity.
+WHO, ordinary WHOIS, USERHOST, channel traffic, and channel bans use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
 
 For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
 
@@ -34,7 +34,7 @@ Successful login grants `+o` and loads permissions from the SQLite operator reco
 - `can_kill` — use KILL.
 - `can_kline` — add KLINEs.
 - `can_unkline` — remove KLINEs.
-- `can_zline` — add/remove ZLINEs.
+- `can_zline` — add/remove ZLINEs, including automatic DNSBL-generated ZLINEs.
 - `get_host` — receive the configured operator vhost and `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 
@@ -64,7 +64,13 @@ WHOIS <nickname>
 
 KLINE matches `user@real_host` and `user@real_ip`; ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. Their reason identifies the DNSBL name and zone, and `set_by` begins with `DNSBL:`. These bans behave exactly like manually created ZLINEs. An operator with `can_zline` can remove one with:
+
+```text
+ZLINE -203.0.113.42
+```
+
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization and DNSBL definitions/timeouts. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
