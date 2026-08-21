@@ -3,6 +3,35 @@
 #include <stdio.h>
 #include <string.h>
 
+/** Fold one byte according to ScratchIRCd's RFC1459 casemapping. */
+static unsigned char irc_fold(unsigned char ch) {
+    if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
+    switch (ch) {
+        case '{': return '[';
+        case '}': return ']';
+        case '|': return '\\';
+        case '~': return '^';
+        default: return ch;
+    }
+}
+
+/** SQLite collation matching the daemon's case-insensitive channel hash. */
+static int irc_collation(void *context, int left_len, const void *left_data,
+                         int right_len, const void *right_data) {
+    const unsigned char *left = left_data;
+    const unsigned char *right = right_data;
+    int length = left_len < right_len ? left_len : right_len;
+    int i;
+    (void)context;
+    for (i = 0; i < length; ++i) {
+        unsigned char a = irc_fold(left[i]);
+        unsigned char b = irc_fold(right[i]);
+        if (a < b) return -1;
+        if (a > b) return 1;
+    }
+    return left_len < right_len ? -1 : left_len > right_len ? 1 : 0;
+}
+
 static int exec_sql(sqlite3 *db, const char *sql) {
     char *error = NULL;
     int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
@@ -17,7 +46,7 @@ static int exec_sql(sqlite3 *db, const char *sql) {
 int chanserv_db_open(ChanServDb *db, const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS channels ("
-        "name TEXT COLLATE NOCASE PRIMARY KEY,"
+        "name TEXT COLLATE IRCNOCASE PRIMARY KEY,"
         "founder TEXT COLLATE NOCASE NOT NULL,"
         "description TEXT NOT NULL DEFAULT '',"
         "enabled INTEGER NOT NULL DEFAULT 1,"
@@ -28,6 +57,11 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
     if (db == NULL || path == NULL) return -1;
     memset(db, 0, sizeof(*db));
     if (sqlite3_open(path, &db->db) != SQLITE_OK) {
+        chanserv_db_close(db);
+        return -1;
+    }
+    if (sqlite3_create_collation(db->db, "IRCNOCASE", SQLITE_UTF8, NULL,
+                                 irc_collation) != SQLITE_OK) {
         chanserv_db_close(db);
         return -1;
     }
@@ -136,13 +170,17 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
     if (db == NULL || db->db == NULL || buffer == NULL || size == 0U) return -1;
     buffer[0] = '\0';
     if (sqlite3_prepare_v2(db->db,
-        "SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE NOCASE",
+        "SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const char *name = (const char *)sqlite3_column_text(stmt, 0);
-        int written = snprintf(buffer + used, size - used, "%s%s", used != 0U ? "," : "", name);
-        if (written < 0 || (size_t)written >= size - used) break;
-        used += (size_t)written;
+        size_t name_len = strlen(name);
+        size_t needed = name_len + (used != 0U ? 1U : 0U);
+        if (needed >= size - used) break;
+        if (used != 0U) buffer[used++] = ',';
+        memcpy(buffer + used, name, name_len);
+        used += name_len;
+        buffer[used] = '\0';
     }
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE || rc == SQLITE_ROW ? 0 : -1;
