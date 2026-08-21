@@ -4,11 +4,13 @@
  *
  * Nicknames are indexed in the RFC1459-aware client hash table. Registration
  * is attempted after a successful NICK, but the shared helper defers 001 until
- * USER and asynchronous DNS processing are also complete.
+ * USER and asynchronous connection-policy processing are complete. Internal
+ * service names are reserved even though services are not real Client objects.
  */
 
 #include "commands.h"
 #include "config.h"
+#include "nickserv.h"
 #include "numerics.h"
 
 #include <ctype.h>
@@ -26,18 +28,12 @@ static int valid_nickname(const char *nick) {
     size_t length;
 
     if (nick == NULL) return 0;
-
     length = strlen(nick);
     if (length == 0U || length > IRC_NICK_MAX) return 0;
-
     if (!(isalpha((unsigned char)nick[0]) ||
-          strchr("[]\\`_^{|}", nick[0]) != NULL)) {
-        return 0;
-    }
-
-    for (index = 1U; index < length; ++index) {
+          strchr("[]\\`_^{|}", nick[0]) != NULL)) return 0;
+    for (index = 1U; index < length; ++index)
         if (!valid_nick_char((unsigned char)nick[index])) return 0;
-    }
     return 1;
 }
 
@@ -47,9 +43,8 @@ static void broadcast_nick_change(Client *client, const char *old_nick) {
 
     (void)snprintf(message, sizeof(message), ":%s!%s@%s NICK :%s\r\n",
                    old_nick, client->user, client->display_host, client->nick);
-    for (link = client->channels; link != NULL; link = link->next) {
+    for (link = client->channels; link != NULL; link = link->next)
         channel_broadcast(link->channel, NULL, message);
-    }
 }
 
 CommandResult command_nick(Server *server, Client *client, char *params) {
@@ -63,9 +58,14 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
     }
 
     params[strcspn(params, " ")] = '\0';
-
     if (!valid_nickname(params)) {
         client_sendf(client, ERR_ERRONEUSNICKNAME,
+                     server->config.server_name, command_reply_nick(client), params);
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    if (service_nickname_reserved(params)) {
+        client_sendf(client, ERR_NICKNAMEINUSE,
                      server->config.server_name, command_reply_nick(client), params);
         return COMMAND_KEEP_CLIENT;
     }
@@ -87,7 +87,6 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
     }
 
     if (client->registered && old_nick[0] != '\0') broadcast_nick_change(client, old_nick);
-
     command_maybe_register(server, client);
     return COMMAND_KEEP_CLIENT;
 }
