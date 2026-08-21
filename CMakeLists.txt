@@ -136,6 +136,15 @@ target_compile_definitions(test_chanserv_db PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_chanserv_db PRIVATE SQLite::SQLite3)
 add_test(NAME chanserv_database COMMAND test_chanserv_db)
 
+add_executable(test_chanserv_persist
+    tests/test_chanserv_persist.c src/chanserv_db.c src/chanserv_persist.c
+    src/channel.c src/channel_policy.c src/client.c)
+target_include_directories(test_chanserv_persist PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_compile_definitions(test_chanserv_persist PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
+add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
+
 add_test(NAME protocol_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_protocol.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(protocol_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
@@ -158,7 +167,7 @@ add_test(NAME chanserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT
 set_tests_properties(chanserv_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
