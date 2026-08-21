@@ -69,6 +69,9 @@ typedef struct Client {
     char realname[IRC_REALNAME_MAX + 1U];
     char away[IRC_AWAY_MAX + 1U];
 
+    /** Authenticated NickServ account name. Empty means not identified. */
+    char account_name[IRC_NICK_MAX + 1U];
+
     /* The only three normal client host/address identity fields. */
     char real_ip[IRC_IP_MAX + 1U];
     char real_host[IRC_HOST_MAX + 1U];
