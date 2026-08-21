@@ -45,19 +45,19 @@ While CAP negotiation is open, ScratchIRCd deliberately holds normal IRC registr
 
 The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This first implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
 
-For persistent channel history, negotiate:
+For full persistent-history presentation, a client may negotiate:
 
 ```text
 CAP REQ :batch draft/chathistory server-time
 ```
 
-and, after joining a channel, request:
+Only `draft/chathistory` is required to use the current history command. `batch` packages the response as a `chathistory` batch, while `server-time` adds original UTC timestamps. After joining a channel, request:
 
 ```text
 CHATHISTORY LATEST <channel> * <limit>
 ```
 
-The returned messages are enclosed in a `chathistory` batch. When `server-time` is enabled, historical records include their original UTC timestamps. ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. See `docs/IRCV3_GUIDE.md` for the detailed history scope and limitations.
+ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. See `docs/IRCV3_GUIDE.md` for the detailed history scope and limitations.
 
 ## Hostname privacy
 
@@ -191,7 +191,7 @@ CAP REQ :<capability> [capability...]
 CAP END
 ```
 
-Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`, `batch`, `draft/chathistory`, `sasl`, and `server-time`. Capability removals use a leading `-` in CAP REQ.
+Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`, `batch`, `draft/chathistory`, `sasl`, and `server-time`. Capability removals use a leading `-` in CAP REQ. Capability names are case-sensitive.
 
 ### CHATHISTORY
 
@@ -199,7 +199,7 @@ Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`
 CHATHISTORY LATEST <channel> * <limit>
 ```
 
-Returns the most recent persisted PRIVMSG/NOTICE records for a channel. The client must have negotiated `batch` and `draft/chathistory` and must currently be in the requested channel. `server-time` adds original timestamps to playback.
+Returns the most recent persisted PRIVMSG/NOTICE records for a channel. The client must have negotiated `draft/chathistory` and must currently be in the requested channel. `batch` is optional and encloses playback in a `chathistory` batch; `server-time` is optional and adds original timestamps.
 
 ### IDENTIFY
 
@@ -309,7 +309,7 @@ NOTICE <nickname> :<text>
 NOTICE <channel> :<text>
 ```
 
-Sends a notice. NOTICE failures are normally silent. Channel mode `+T` blocks channel notices. Accepted channel NOTICEs are stored in persistent history.
+Sends a notice. NOTICE failures are normally silent. Channel mode `+T` blocks channel notices. Accepted channel NOTICEs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live NOTICE delivery.
 
 ### PART
 
@@ -345,7 +345,7 @@ PRIVMSG <channel> :<text>
 PRIVMSG NickServ :<service-command>
 ```
 
-Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history.
+Sends private/channel messages or addresses the virtual NickServ service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live PRIVMSG delivery.
 
 ### QUIT
 
