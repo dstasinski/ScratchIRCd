@@ -9,6 +9,7 @@
 
 #include "commands.h"
 #include "ircv3.h"
+#include "memoserv.h"
 #include "nickserv.h"
 #include "numerics.h"
 
@@ -22,7 +23,9 @@ CommandResult command_nickserv(Server *server, Client *client, char *params) {
     }
     was_identified = client->account_name[0] != '\0';
     nickserv_handle_message(server, client, params);
-    if (!was_identified && client->account_name[0] != '\0')
+    if (!was_identified && client->account_name[0] != '\0') {
         ircv3_account_notify(client);
+        memoserv_notify_unread(server, client);
+    }
     return COMMAND_KEEP_CLIENT;
 }
