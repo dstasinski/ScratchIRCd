@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.11.0
+    VERSION 0.12.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -31,7 +31,7 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/runtime_config.c src/dns.c src/geoip.c src/modes.c src/oper.c
+    src/hash.c src/irc.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/modes.c src/oper.c
     src/operator_db.c src/ban_db.c src/visibility.c
 
     src/commands/admin.c src/commands/away.c src/commands/common.c
@@ -59,10 +59,7 @@ target_compile_definitions(scratchircd PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(scratchircd PRIVATE Threads::Threads ${ARGON2_LIBRARY} ${MAXMINDDB_LIBRARY} SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 
 add_executable(scratchircd-mkpasswd tools/mkpasswd.c)
-target_include_directories(scratchircd-mkpasswd PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${ARGON2_INCLUDE_DIR}
-)
+target_include_directories(scratchircd-mkpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${ARGON2_INCLUDE_DIR})
 target_link_libraries(scratchircd-mkpasswd PRIVATE ${ARGON2_LIBRARY})
 
 add_executable(test_client_identity tests/test_client_identity.c src/client.c)
@@ -74,6 +71,12 @@ add_executable(test_geoip tests/test_geoip.c src/geoip.c)
 target_include_directories(test_geoip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_link_libraries(test_geoip PRIVATE ${MAXMINDDB_LIBRARY})
 add_test(NAME geoip COMMAND test_geoip)
+
+add_executable(test_dnsbl tests/test_dnsbl.c src/dnsbl.c)
+target_include_directories(test_dnsbl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_dnsbl PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_dnsbl PRIVATE Threads::Threads)
+add_test(NAME dnsbl COMMAND test_dnsbl)
 
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -117,7 +120,7 @@ add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_S
 set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
