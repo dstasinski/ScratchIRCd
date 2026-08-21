@@ -1,6 +1,7 @@
 #include "ban_db.h"
 #include "config.h"
 #include "geoip.h"
+#include "nickserv_db.h"
 #include "operator_db.h"
 #include "runtime_config.h"
 #include "server.h"
@@ -11,6 +12,7 @@
 static int ensure_databases(const ServerConfig *config) {
     OperatorDb operators;
     BanDb bans;
+    NickServDb nickserv;
 
     if (operator_db_open(&operators, config->operators_db) != 0) {
         fprintf(stderr, "Failed to open operator database: %s\n", config->operators_db);
@@ -23,6 +25,12 @@ static int ensure_databases(const ServerConfig *config) {
         return -1;
     }
     ban_db_close(&bans);
+
+    if (nickserv_db_open(&nickserv, config->nickserv_db) != 0) {
+        fprintf(stderr, "Failed to open NickServ database: %s\n", config->nickserv_db);
+        return -1;
+    }
+    nickserv_db_close(&nickserv);
     return 0;
 }
 
