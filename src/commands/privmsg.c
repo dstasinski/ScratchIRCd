@@ -80,8 +80,10 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     if (strcasecmp(target, "NickServ") == 0) {
         int was_identified = client->account_name[0] != '\0';
         nickserv_handle_message(server, client, text);
-        if (!was_identified && client->account_name[0] != '\0')
+        if (!was_identified && client->account_name[0] != '\0') {
             ircv3_account_notify(client);
+            memoserv_notify_unread(server, client);
+        }
         return COMMAND_KEEP_CLIENT;
     }
 
