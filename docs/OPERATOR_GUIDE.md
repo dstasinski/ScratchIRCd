@@ -16,9 +16,21 @@ For authenticated WebIRC users, `real_ip` and `real_host` describe the actual en
 
 IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP.
 
-## NickServ account state
+## NickServ account state and SASL
 
-NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY stores an account name on the Client and sets service-controlled user mode `+r`.
+NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY or SASL login stores an account name on the Client and sets service-controlled user mode `+r`.
+
+Operators may authenticate their personal NickServ account before registration with IRCv3 SASL PLAIN:
+
+```text
+CAP LS 302
+CAP REQ :sasl
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64-data>
+CAP END
+```
+
+SASL uses the same NickServ password hash and vhost path as IDENTIFY. It does not confer IRC operator privileges; `OPER` remains a separate authorization step.
 
 Operators have the same personal account-management commands as ordinary users:
 
@@ -118,7 +130,9 @@ NSDROP
 
 ```text
 ADMIN
+AUTHENTICATE
 AWAY
+CAP
 IDENTIFY
 INVITE
 ISON
