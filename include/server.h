@@ -11,6 +11,7 @@
 #include "dnsbl.h"
 #include "geoip.h"
 #include "hash.h"
+#include "mail.h"
 #include "runtime_config.h"
 
 /** Complete process-level IRC server state. */
@@ -32,6 +33,7 @@ typedef struct Server {
     DnsResolver dns;
     DnsblResolver dnsbl;
     GeoIPContext geoip;
+    MailSender mailer;
 
     int restart_requested;
 } Server;
