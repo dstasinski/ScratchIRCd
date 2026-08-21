@@ -43,6 +43,7 @@ typedef struct ServerConfig {
     char bans_db[IRCD_CONFIG_PATH_MAX + 1U];
     char nickserv_db[IRCD_CONFIG_PATH_MAX + 1U];
     char chanserv_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char memoserv_db[IRCD_CONFIG_PATH_MAX + 1U];
     char history_db[IRCD_CONFIG_PATH_MAX + 1U];
     size_t history_limit;
 
