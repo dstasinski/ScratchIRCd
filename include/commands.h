@@ -14,6 +14,7 @@ CommandResult command_dispatch(Server *server, Client *client,
                                const char *command, char *params);
 CommandResult command_admin(Server *, Client *, char *);
 CommandResult command_away(Server *, Client *, char *);
+CommandResult command_identify(Server *, Client *, char *);
 CommandResult command_invite(Server *, Client *, char *);
 CommandResult command_ison(Server *, Client *, char *);
 CommandResult command_join(Server *, Client *, char *);
