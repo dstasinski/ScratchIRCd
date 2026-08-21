@@ -33,6 +33,8 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->rules_file, sizeof(config->rules_file), IRCD_DEFAULT_RULES_FILE);
     (void)copy_value(config->operators_db, sizeof(config->operators_db), IRCD_DEFAULT_OPERATORS_DB);
     (void)copy_value(config->bans_db, sizeof(config->bans_db), IRCD_DEFAULT_BANS_DB);
+    (void)copy_value(config->geoip_city_db, sizeof(config->geoip_city_db), IRCD_DEFAULT_GEOIP_CITY_DB);
+    (void)copy_value(config->geoip_asn_db, sizeof(config->geoip_asn_db), IRCD_DEFAULT_GEOIP_ASN_DB);
     (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
@@ -72,6 +74,8 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("tls_port", tls_port);
     STRING_OPTION("tls_cert_file", tls_cert_file);
     STRING_OPTION("tls_key_file", tls_key_file);
+    STRING_OPTION("geoip_city_db", geoip_city_db);
+    STRING_OPTION("geoip_asn_db", geoip_asn_db);
     STRING_OPTION("server_password", server_password);
     STRING_OPTION("motd_file", motd_file);
     STRING_OPTION("rules_file", rules_file);
