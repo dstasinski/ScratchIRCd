@@ -29,6 +29,8 @@ static void join_one(Server *server, Client *client, const char *name,
     char message[IRCD_MESSAGE_BUFFER_SIZE];
     int first_member;
     int explicitly_invited;
+    int protected_account;
+    int banned;
 
     if (!valid_channel_name(name)) {
         client_sendf(client, ERR_NOSUCHCHANNEL,
@@ -47,6 +49,9 @@ static void join_one(Server *server, Client *client, const char *name,
     if (channel == NULL || channel_has_client(channel, client)) return;
     chanserv_restore_channel(server, channel);
     service_privileges = chanserv_client_privileges(server, client, channel->name);
+    protected_account = channel_privilege_has(service_privileges,
+                                               CHANNEL_PRIV_OWNER |
+                                               CHANNEL_PRIV_PROTECTED);
 
     explicitly_invited = channel_invite_has(channel, client->id);
 
@@ -56,9 +61,11 @@ static void join_one(Server *server, Client *client, const char *name,
                      server->config.server_name, client->nick, channel->name);
         return;
     }
-    if (channel_client_is_banned(channel, client) &&
-        !channel_privilege_has(service_privileges,
-                               CHANNEL_PRIV_OWNER | CHANNEL_PRIV_PROTECTED)) {
+
+    banned = protected_account
+        ? channel_client_is_banned_protected(channel, client)
+        : channel_client_is_banned(channel, client);
+    if (banned) {
         if (channel->ban_redirect[0] != '\0' &&
             redirect_depth < IRC_JOIN_REDIRECT_MAX &&
             valid_channel_name(channel->ban_redirect)) {
