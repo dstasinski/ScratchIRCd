@@ -6,18 +6,14 @@
  * (modes.h/modes.c) owns representation only, while this file owns parsing,
  * permissions, numeric replies, parameter consumption, and broadcasts.
  *
- * User MODE currently supports querying one's own modes and changing the
- * ordinary client-controlled mode flags. Security-sensitive flags such as
- * operator, registered-account, service, WebIRC, TLS, vhost, and cloak state
- * are internal modes and cannot be granted by a normal MODE command yet.
- *
- * Channel MODE supports boolean modes, membership privileges (+q/+o/+h/+v),
- * key/limit/throttle/redirect parameters (+k/+l/+j/+L/+B), and the +b/+e/+I
- * mask lists. Channel owner or operator privilege is required to mutate
- * channel modes. List modes may be queried without mutation privileges.
+ * Channel membership privileges are +q owner, +a protected, +o operator,
+ * +h halfop, and +v voice. Only protected members or owners may grant or
+ * remove +a. This prevents an ordinary operator from stripping protection
+ * immediately before attempting a kick or ban.
  */
 
 #include "commands.h"
+#include "channel_policy.h"
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
@@ -78,7 +74,6 @@ static void format_client_modes(const Client *client, char *out, size_t out_size
     size_t i;
 
     if (out == NULL || out_size == 0U) return;
-
     out[used++] = '+';
     for (i = 0U; letters[i] != '\0' && used + 1U < out_size; ++i) {
         ClientModeSet bit = client_mode_bit(letters[i]);
@@ -113,6 +108,7 @@ static ChannelModeSet channel_boolean_mode_bit(char letter) {
 static ChannelPrivilegeSet channel_privilege_bit(char letter) {
     switch (letter) {
         case 'q': return CHANNEL_PRIV_OWNER;
+        case 'a': return CHANNEL_PRIV_PROTECTED;
         case 'o': return CHANNEL_PRIV_OPERATOR;
         case 'h': return CHANNEL_PRIV_HALFOP;
         case 'v': return CHANNEL_PRIV_VOICE;
@@ -120,23 +116,52 @@ static ChannelPrivilegeSet channel_privilege_bit(char letter) {
     }
 }
 
+static ChannelMember *actor_membership(const Channel *channel, const Client *actor) {
+    return channel_find_member(channel, actor);
+}
+
 static int may_change_channel(const Channel *channel, const Client *actor) {
-    ChannelMember *member = channel_find_member(channel, actor);
+    ChannelMember *member = actor_membership(channel, actor);
     if (member == NULL) return 0;
     return channel_privilege_has(member->privileges,
-                                 CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+                                 CHANNEL_PRIV_OWNER |
+                                 CHANNEL_PRIV_PROTECTED |
+                                 CHANNEL_PRIV_OPERATOR);
+}
+
+static int may_manage_protected(const Channel *channel, const Client *actor) {
+    ChannelMember *member = actor_membership(channel, actor);
+    return member != NULL &&
+           channel_privilege_has(member->privileges,
+                                 CHANNEL_PRIV_OWNER | CHANNEL_PRIV_PROTECTED);
+}
+
+/** Return true when a ban mask matches any currently protected non-owner member. */
+static int ban_mask_targets_protected(const Channel *channel, const char *mask) {
+    ChannelMember *member;
+    char identity[IRCD_MESSAGE_BUFFER_SIZE];
+
+    if (channel == NULL || mask == NULL) return 0;
+    for (member = channel->members; member != NULL; member = member->next) {
+        if (!channel_privilege_has(member->privileges, CHANNEL_PRIV_PROTECTED) ||
+            channel_privilege_has(member->privileges, CHANNEL_PRIV_OWNER)) {
+            continue;
+        }
+        (void)snprintf(identity, sizeof(identity), "%s!%s@%s",
+                       member->client->nick, member->client->user,
+                       member->client->display_host);
+        if (irc_mask_match(mask, identity)) return 1;
+    }
+    return 0;
 }
 
 static int parse_uint(const char *text, unsigned long *value) {
     char *end = NULL;
     unsigned long parsed;
-
     if (text == NULL || *text == '\0' || value == NULL) return -1;
-
     errno = 0;
     parsed = strtoul(text, &end, 10);
     if (errno != 0 || end == text || *end != '\0') return -1;
-
     *value = parsed;
     return 0;
 }
@@ -153,7 +178,6 @@ static void append_mode(char *buffer, size_t size, size_t *used,
 
 static void append_param(char *buffer, size_t size, const char *param) {
     size_t used;
-
     if (buffer == NULL || size == 0U || param == NULL) return;
     used = strlen(buffer);
     (void)snprintf(buffer + used, size - used, "%s%s",
@@ -163,27 +187,22 @@ static void append_param(char *buffer, size_t size, const char *param) {
 static void send_mask_list(Server *server, Client *client, Channel *channel,
                            char type) {
     ChannelMaskEntry *entry = NULL;
-
     if (type == 'b') {
-        for (entry = channel->ban_list; entry != NULL; entry = entry->next) {
+        for (entry = channel->ban_list; entry != NULL; entry = entry->next)
             client_sendf(client, RPL_BANLIST, server->config.server_name,
                          client->nick, channel->name, entry->mask, "*", 0UL);
-        }
         client_sendf(client, RPL_ENDOFBANLIST, server->config.server_name,
                      client->nick, channel->name);
     } else if (type == 'e') {
-        for (entry = channel->exception_list; entry != NULL; entry = entry->next) {
+        for (entry = channel->exception_list; entry != NULL; entry = entry->next)
             client_sendf(client, RPL_EXLIST, server->config.server_name,
                          client->nick, channel->name, entry->mask, "*", 0UL);
-        }
         client_sendf(client, RPL_ENDOFEXLIST, server->config.server_name,
                      client->nick, channel->name);
     } else if (type == 'I') {
-        for (entry = channel->invite_exception_list; entry != NULL;
-             entry = entry->next) {
+        for (entry = channel->invite_exception_list; entry != NULL; entry = entry->next)
             client_sendf(client, RPL_INVEXLIST, server->config.server_name,
                          client->nick, channel->name, entry->mask, "*", 0UL);
-        }
         client_sendf(client, RPL_ENDOFINVEXLIST, server->config.server_name,
                      client->nick, channel->name);
     }
@@ -201,10 +220,8 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
         ChannelModeSet bit = channel_boolean_mode_bit(booleans[i]);
         if (bit != 0U && channel_mode_has(channel->modes, bit)) modes[used++] = booleans[i];
     }
-
     if (channel->key[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'k';
-        append_param(params, sizeof(params), channel->key);
+        modes[used++] = 'k'; append_param(params, sizeof(params), channel->key);
     }
     if (channel->user_limit != 0U && used + 1U < sizeof(modes)) {
         modes[used++] = 'l';
@@ -214,20 +231,16 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
     if (channel->join_throttle_count != 0U && used + 1U < sizeof(modes)) {
         modes[used++] = 'j';
         (void)snprintf(number, sizeof(number), "%u:%u",
-                       channel->join_throttle_count,
-                       channel->join_throttle_seconds);
+                       channel->join_throttle_count, channel->join_throttle_seconds);
         append_param(params, sizeof(params), number);
     }
     if (channel->limit_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'L';
-        append_param(params, sizeof(params), channel->limit_redirect);
+        modes[used++] = 'L'; append_param(params, sizeof(params), channel->limit_redirect);
     }
     if (channel->ban_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'B';
-        append_param(params, sizeof(params), channel->ban_redirect);
+        modes[used++] = 'B'; append_param(params, sizeof(params), channel->ban_redirect);
     }
     modes[used] = '\0';
-
     client_sendf(client, RPL_CHANNELMODEIS, server->config.server_name,
                  client->nick, channel->name, modes,
                  params[0] != '\0' ? params : "");
@@ -250,7 +263,6 @@ static CommandResult mode_user(Server *server, Client *client,
                      client->nick);
         return COMMAND_KEEP_CLIENT;
     }
-
     if (mode_string == NULL || *mode_string == '\0') {
         format_client_modes(client, formatted, sizeof(formatted));
         client_sendf(client, RPL_UMODEIS, server->config.server_name,
@@ -261,29 +273,21 @@ static CommandResult mode_user(Server *server, Client *client,
     for (i = 0U; mode_string[i] != '\0'; ++i) {
         char letter = mode_string[i];
         ClientModeSet bit;
-
-        if (letter == '+' || letter == '-') {
-            sign = letter;
-            continue;
-        }
-
+        if (letter == '+' || letter == '-') { sign = letter; continue; }
         bit = client_mode_bit(letter);
         if (bit == 0U) {
             client_sendf(client, ERR_UMODEUNKNOWNFLAG,
                          server->config.server_name, client->nick);
             continue;
         }
-
         if (!client_mode_self_settable(letter)) {
             client_sendf(client, ERR_NOPRIVILEGES,
                          server->config.server_name, client->nick);
             continue;
         }
-
         if (sign == '+') client->modes = client_mode_add(client->modes, bit);
         else client->modes = client_mode_remove(client->modes, bit);
     }
-
     format_client_modes(client, formatted, sizeof(formatted));
     client_sendf(client, RPL_UMODEIS, server->config.server_name,
                  client->nick, formatted);
@@ -308,30 +312,23 @@ static CommandResult mode_channel(Server *server, Client *client,
                      client->nick, target);
         return COMMAND_KEEP_CLIENT;
     }
-
     if (mode_string == NULL || *mode_string == '\0') {
         send_channel_modes(server, client, channel);
         return COMMAND_KEEP_CLIENT;
     }
 
     may_change = may_change_channel(channel, client);
-
     for (i = 0U; mode_string[i] != '\0'; ++i) {
         char letter = mode_string[i];
         ChannelModeSet boolean_bit;
         ChannelPrivilegeSet privilege_bit;
         const char *param = argi < argc ? argv[argi] : NULL;
 
-        if (letter == '+' || letter == '-') {
-            sign = letter;
-            continue;
-        }
-
+        if (letter == '+' || letter == '-') { sign = letter; continue; }
         if ((letter == 'b' || letter == 'e' || letter == 'I') && param == NULL) {
             send_mask_list(server, client, channel, letter);
             continue;
         }
-
         if (!may_change) {
             client_sendf(client, ERR_CHANOPRIVSNEEDED,
                          server->config.server_name, client->nick, channel->name);
@@ -373,6 +370,11 @@ static CommandResult mode_channel(Server *server, Client *client,
                              subject->nick, channel->name);
                 continue;
             }
+            if (letter == 'a' && !may_manage_protected(channel, client)) {
+                client_sendf(client, ERR_CHANOPRIVSNEEDED,
+                             server->config.server_name, client->nick, channel->name);
+                continue;
+            }
             if (sign == '+') (void)channel_add_privileges(channel, subject, privilege_bit);
             else (void)channel_remove_privileges(channel, subject, privilege_bit);
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
@@ -392,10 +394,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                 append_param(changed_params, sizeof(changed_params), param);
             } else {
                 channel->key[0] = '\0';
-                if (param != NULL) {
-                    ++argi;
-                    append_param(changed_params, sizeof(changed_params), param);
-                }
+                if (param != NULL) { ++argi; append_param(changed_params, sizeof(changed_params), param); }
             }
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
@@ -413,9 +412,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                 ++argi;
                 channel->user_limit = (size_t)value;
                 append_param(changed_params, sizeof(changed_params), param);
-            } else {
-                channel->user_limit = 0U;
-            }
+            } else channel->user_limit = 0U;
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
@@ -441,8 +438,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                 }
                 *colon++ = '\0';
                 if (parse_uint(copy, &count) != 0 || parse_uint(colon, &seconds) != 0 ||
-                    count == 0UL || seconds == 0UL || count > UINT_MAX ||
-                    seconds > UINT_MAX) {
+                    count == 0UL || seconds == 0UL || count > UINT_MAX || seconds > UINT_MAX) {
                     client_sendf(client, ERR_NEEDMOREPARAMS,
                                  server->config.server_name, client->nick, "MODE");
                     continue;
@@ -471,9 +467,7 @@ static CommandResult mode_channel(Server *server, Client *client,
                 ++argi;
                 (void)snprintf(field, field_size, "%s", param);
                 append_param(changed_params, sizeof(changed_params), param);
-            } else {
-                field[0] = '\0';
-            }
+            } else field[0] = '\0';
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
@@ -482,6 +476,13 @@ static CommandResult mode_channel(Server *server, Client *client,
             ChannelMaskEntry **list;
             if (param == NULL) continue;
             ++argi;
+            if (letter == 'b' && sign == '+' &&
+                ban_mask_targets_protected(channel, param) &&
+                !may_manage_protected(channel, client)) {
+                client_sendf(client, ERR_CHANOPRIVSNEEDED,
+                             server->config.server_name, client->nick, channel->name);
+                continue;
+            }
             list = letter == 'b' ? &channel->ban_list
                  : letter == 'e' ? &channel->exception_list
                                  : &channel->invite_exception_list;
@@ -505,7 +506,6 @@ static CommandResult mode_channel(Server *server, Client *client,
                        changed_params);
         channel_broadcast(channel, NULL, message);
     }
-
     return COMMAND_KEEP_CLIENT;
 }
 
