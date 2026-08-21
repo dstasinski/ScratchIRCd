@@ -7,6 +7,7 @@
 #include "channel.h"
 
 #include <stdio.h>
+#include <time.h>
 
 /** Return true when recipient already appeared in a channel visited before stop. */
 static int seen_in_earlier_channel(const Client *source,
@@ -16,6 +17,58 @@ static int seen_in_earlier_channel(const Client *source,
     for (link = source->channels; link != NULL && link != stop; link = link->next)
         if (channel_has_client(link->channel, recipient)) return 1;
     return 0;
+}
+
+static void current_timestamp(char *out, size_t out_size) {
+    struct timespec now;
+    struct tm utc;
+    long millis = 0L;
+    time_t seconds;
+
+    if (clock_gettime(CLOCK_REALTIME, &now) == 0) {
+        seconds = now.tv_sec;
+        millis = now.tv_nsec / 1000000L;
+    } else {
+        seconds = time(NULL);
+    }
+    if (gmtime_r(&seconds, &utc) == NULL) {
+        (void)snprintf(out, out_size, "1970-01-01T00:00:00.000Z");
+        return;
+    }
+    (void)snprintf(out, out_size,
+                   "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
+                   utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
+                   utc.tm_hour, utc.tm_min, utc.tm_sec, millis);
+}
+
+void ircv3_send_message(Client *recipient, const Client *source,
+                        const char *command, const char *target,
+                        const char *text) {
+    char timestamp[40];
+    if (recipient == NULL || source == NULL || command == NULL ||
+        target == NULL || text == NULL) return;
+
+    if ((recipient->capabilities & CLIENT_CAP_SERVER_TIME) != 0U) {
+        current_timestamp(timestamp, sizeof(timestamp));
+        client_sendf(recipient, "@time=%s :%s!%s@%s %s %s :%s",
+                     timestamp, source->nick, source->user, source->display_host,
+                     command, target, text);
+    } else {
+        client_sendf(recipient, ":%s!%s@%s %s %s :%s",
+                     source->nick, source->user, source->display_host,
+                     command, target, text);
+    }
+}
+
+void ircv3_broadcast_message(Channel *channel, const Client *except,
+                             const Client *source, const char *command,
+                             const char *target, const char *text) {
+    ChannelMember *member;
+    if (channel == NULL) return;
+    for (member = channel->members; member != NULL; member = member->next) {
+        if (member->client == except) continue;
+        ircv3_send_message(member->client, source, command, target, text);
+    }
 }
 
 void ircv3_account_notify(Client *client) {
