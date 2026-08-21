@@ -70,6 +70,59 @@ static int ensure_channel_columns(sqlite3 *db) {
     return 0;
 }
 
+/**
+ * Return non-zero when the existing access table accepts the new PROTECTED
+ * value 5. ScratchIRCd 0.19 created the table with CHECK(level BETWEEN 1 AND 4),
+ * so CREATE TABLE IF NOT EXISTS alone cannot upgrade an existing database.
+ */
+static int access_table_supports_protected(sqlite3 *db) {
+    sqlite3_stmt *stmt = NULL;
+    int supported = 0;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='access'",
+        -1, &stmt, NULL) != SQLITE_OK) {
+        return 0;
+    }
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *sql = (const char *)sqlite3_column_text(stmt, 0);
+        if (sql != NULL && strstr(sql, "BETWEEN 1 AND 5") != NULL)
+            supported = 1;
+    }
+    sqlite3_finalize(stmt);
+    return supported;
+}
+
+/**
+ * Upgrade the 0.19 access table without renumbering existing rows.
+ *
+ * OWNER was stored as level 4 in 0.19 and remains level 4. PROTECTED is the
+ * new level 5. Rebuilding the table only widens its CHECK constraint, so all
+ * existing account access semantics remain unchanged.
+ */
+static int ensure_access_schema(sqlite3 *db) {
+    static const char migration[] =
+        "BEGIN IMMEDIATE;"
+        "CREATE TABLE access_new ("
+        "channel TEXT COLLATE IRCNOCASE NOT NULL,"
+        "account TEXT COLLATE NOCASE NOT NULL,"
+        "level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 5),"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "PRIMARY KEY(channel,account),"
+        "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
+        ");"
+        "INSERT INTO access_new(channel,account,level,created_at,updated_at) "
+        "SELECT channel,account,level,created_at,updated_at FROM access;"
+        "DROP TABLE access;"
+        "ALTER TABLE access_new RENAME TO access;"
+        "COMMIT;";
+
+    if (access_table_supports_protected(db)) return 0;
+    return exec_sql(db, migration);
+}
+
 int chanserv_db_open(ChanServDb *db, const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS channels ("
@@ -88,7 +141,7 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
         "CREATE TABLE IF NOT EXISTS access ("
         "channel TEXT COLLATE IRCNOCASE NOT NULL,"
         "account TEXT COLLATE NOCASE NOT NULL,"
-        "level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 4),"
+        "level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 5),"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "PRIMARY KEY(channel,account),"
@@ -102,7 +155,9 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
     }
     sqlite3_busy_timeout(db->db, 2000);
     if (exec_sql(db->db, "PRAGMA foreign_keys=ON;") != 0 ||
-        exec_sql(db->db, schema) != 0 || ensure_channel_columns(db->db) != 0) {
+        exec_sql(db->db, schema) != 0 ||
+        ensure_channel_columns(db->db) != 0 ||
+        ensure_access_schema(db->db) != 0) {
         chanserv_db_close(db); return -1;
     }
     return 0;
@@ -214,7 +269,9 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccessLevel level) {
     sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||channel==NULL||account==NULL||level<CHANSERV_ACCESS_VOICE||level>CHANSERV_ACCESS_OWNER)return -1;
+    if(db==NULL||db->db==NULL||channel==NULL||account==NULL||
+       level<CHANSERV_ACCESS_VOICE||
+       (level>CHANSERV_ACCESS_OWNER && level!=CHANSERV_ACCESS_PROTECTED)) return -1;
     if(sqlite3_prepare_v2(db->db,
         "INSERT INTO access(channel,account,level) VALUES(?1,?2,?3) "
         "ON CONFLICT(channel,account) DO UPDATE SET level=excluded.level,updated_at=unixepoch()",
