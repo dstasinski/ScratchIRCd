@@ -1,4 +1,5 @@
 #include "server.h"
+#include "ban_db.h"
 #include "commands.h"
 #include "irc.h"
 #include "modes.h"
@@ -80,9 +81,7 @@ static int make_listeners(Server *server) {
 /** Initialize a hardened shared server-side TLS context when TLS is enabled. */
 static int init_tls(Server *server) {
     if (server->config.tls_cert_file[0] == '\0' &&
-        server->config.tls_key_file[0] == '\0') {
-        return 0;
-    }
+        server->config.tls_key_file[0] == '\0') return 0;
     if (server->config.tls_cert_file[0] == '\0' ||
         server->config.tls_key_file[0] == '\0') {
         fprintf(stderr, "TLS requires both tls_cert_file and tls_key_file\n");
@@ -91,7 +90,6 @@ static int init_tls(Server *server) {
 
     server->tls_ctx = SSL_CTX_new(TLS_server_method());
     if (server->tls_ctx == NULL) return -1;
-
     if (SSL_CTX_set_min_proto_version(server->tls_ctx, TLS1_2_VERSION) != 1 ||
         SSL_CTX_use_certificate_chain_file(server->tls_ctx,
                                            server->config.tls_cert_file) != 1 ||
@@ -102,7 +100,6 @@ static int init_tls(Server *server) {
         fprintf(stderr, "Failed to initialize TLS certificate/key\n");
         return -1;
     }
-
     SSL_CTX_set_options(server->tls_ctx, SSL_OP_NO_COMPRESSION);
     return 0;
 }
@@ -117,7 +114,6 @@ static int peer_ip(const struct sockaddr_storage *address, socklen_t length,
 static int ensure_client_capacity(Server *server) {
     size_t capacity;
     Client **clients;
-
     if (server->client_count < server->client_capacity) return 0;
     capacity = server->client_capacity == 0U ? 16U : server->client_capacity * 2U;
     if (capacity > server->config.max_clients) capacity = server->config.max_clients;
@@ -171,9 +167,7 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         client->dns_state = CLIENT_DNS_PENDING;
         client->dns_deadline = time(NULL) + (time_t)server->config.dns_timeout_seconds;
 
-        /* Plain clients can receive notices immediately; TLS clients wait for handshake. */
         if (!use_tls) client_sendf(client, NOTICE_STARTDNS, server->config.server_name);
-
         if (dns_resolver_submit(&server->dns, client->id,
                                 client->address_family, client->real_ip) != 0) {
             client->dns_state = CLIENT_DNS_FAILED;
@@ -186,15 +180,12 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
 static int advance_tls_handshake(Server *server, Client *client) {
     int rc;
     int error;
-
     if (client->tls_state != CLIENT_TLS_HANDSHAKE || client->ssl == NULL) return 0;
-
     rc = SSL_accept(client->ssl);
     if (rc == 1) {
         client->tls_state = CLIENT_TLS_ESTABLISHED;
         client->tls_want_write = 0;
         client->modes = client_mode_add(client->modes, CLIENT_MODE_SECURE);
-
         if (client->dns_state == CLIENT_DNS_PENDING)
             client_sendf(client, NOTICE_STARTDNS, server->config.server_name);
         else if (client->dns_state == CLIENT_DNS_VERIFIED)
@@ -203,16 +194,9 @@ static int advance_tls_handshake(Server *server, Client *client) {
             client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
         return 0;
     }
-
     error = SSL_get_error(client->ssl, rc);
-    if (error == SSL_ERROR_WANT_READ) {
-        client->tls_want_write = 0;
-        return 0;
-    }
-    if (error == SSL_ERROR_WANT_WRITE) {
-        client->tls_want_write = 1;
-        return 0;
-    }
+    if (error == SSL_ERROR_WANT_READ) { client->tls_want_write = 0; return 0; }
+    if (error == SSL_ERROR_WANT_WRITE) { client->tls_want_write = 1; return 0; }
     return 1;
 }
 
@@ -237,7 +221,6 @@ static int process_buffered_lines(Server *server, Client *client) {
 static int read_client(Server *server, Client *client) {
     int received;
     size_t available;
-
     if (client->inbuf_len >= sizeof(client->inbuf) - 1U) return 1;
     available = sizeof(client->inbuf) - client->inbuf_len - 1U;
 
@@ -264,9 +247,8 @@ static int read_client(Server *server, Client *client) {
 Client *server_find_client_by_id(Server *server, uint64_t id) {
     size_t index;
     if (server == NULL) return NULL;
-    for (index = 0U; index < server->client_count; ++index) {
+    for (index = 0U; index < server->client_count; ++index)
         if (server->clients[index]->id == id) return server->clients[index];
-    }
     return NULL;
 }
 
@@ -277,9 +259,8 @@ static void handle_dns_result(Server *server, const DnsResult *result) {
     if (result->verified && result->resolved_host[0] != '\0') {
         client->dns_state = CLIENT_DNS_VERIFIED;
         (void)snprintf(client->real_host, sizeof(client->real_host), "%s", result->resolved_host);
-        if (!client_mode_has(client->modes, CLIENT_MODE_CLOAKED | CLIENT_MODE_VHOST)) {
+        if (!client_mode_has(client->modes, CLIENT_MODE_CLOAKED | CLIENT_MODE_VHOST))
             (void)snprintf(client->display_host, sizeof(client->display_host), "%s", client->real_host);
-        }
         if (client->tls_state != CLIENT_TLS_HANDSHAKE)
             client_sendf(client, NOTICE_GOTDNS, server->config.server_name);
     } else {
@@ -293,12 +274,51 @@ static void handle_dns_result(Server *server, const DnsResult *result) {
 
 static void drain_dns_results(Server *server) {
     DnsResult result;
-    int rc;
-    while ((rc = dns_resolver_read_result(&server->dns, &result)) == 1)
+    while (dns_resolver_read_result(&server->dns, &result) == 1)
         handle_dns_result(server, &result);
 }
 
-static void expire_dns(Server *server) {
+/** Persist and enforce an automatic exact-IP ZLINE for a positive DNSBL hit. */
+static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
+    Client *client = server_find_client_by_id(server, result->client_id);
+    if (client == NULL || client->dnsbl_state != CLIENT_DNSBL_PENDING) return;
+
+    if (!result->listed) {
+        client->dnsbl_state = CLIENT_DNSBL_CLEAR;
+        command_maybe_register(server, client);
+        return;
+    }
+
+    {
+        BanDb db = {0};
+        char reason[IRC_QUIT_REASON_MAX + 1U];
+        char set_by[IRCD_OPER_NAME_MAX + 1U];
+        client->dnsbl_state = CLIENT_DNSBL_LISTED;
+        (void)snprintf(reason, sizeof(reason), "DNSBL %s (%s)",
+                       result->name[0] != '\0' ? result->name : "listed",
+                       result->zone[0] != '\0' ? result->zone : "unknown");
+        (void)snprintf(set_by, sizeof(set_by), "DNSBL:%s",
+                       result->name[0] != '\0' ? result->name : "automatic");
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_db_add(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by);
+            ban_db_close(&db);
+        }
+        client_sendf(client, ERR_YOUREBANNEDCREEP,
+                     server->config.server_name,
+                     client->nick[0] != '\0' ? client->nick : "*",
+                     server->config.admin_email);
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", reason);
+        (void)shutdown(client->fd, SHUT_RDWR);
+    }
+}
+
+static void drain_dnsbl_results(Server *server) {
+    DnsblResult result;
+    while (dnsbl_resolver_read_result(&server->dnsbl, &result) == 1)
+        handle_dnsbl_result(server, &result);
+}
+
+static void expire_connection_lookups(Server *server) {
     time_t now = time(NULL);
     size_t index;
     for (index = 0U; index < server->client_count; ++index) {
@@ -310,6 +330,11 @@ static void expire_dns(Server *server) {
                 client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
             command_maybe_register(server, client);
         }
+        if (client->dnsbl_state == CLIENT_DNSBL_PENDING &&
+            client->dnsbl_deadline <= now) {
+            client->dnsbl_state = CLIENT_DNSBL_TIMEOUT;
+            command_maybe_register(server, client);
+        }
     }
 }
 
@@ -317,13 +342,21 @@ int server_init(Server *server, const ServerConfig *config) {
     if (server == NULL || config == NULL) return -1;
     memset(server, 0, sizeof(*server));
     server->config = *config;
+    server->dns.request_read_fd = server->dns.request_write_fd = -1;
+    server->dns.result_read_fd = server->dns.result_write_fd = -1;
+    server->dnsbl.request_read_fd = server->dnsbl.request_write_fd = -1;
+    server->dnsbl.result_read_fd = server->dnsbl.result_write_fd = -1;
 
     if (hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 ||
         hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0) {
         server_destroy(server);
         return -1;
     }
-    if (init_tls(server) != 0 || dns_resolver_init(&server->dns) != 0 ||
+    if (init_tls(server) != 0 ||
+        dns_resolver_init(&server->dns) != 0 ||
+        dnsbl_resolver_init(&server->dnsbl) != 0 ||
+        geoip_init(&server->geoip, server->config.geoip_city_db,
+                   server->config.geoip_asn_db) != 0 ||
         make_listeners(server) != 0) {
         server_destroy(server);
         return -1;
@@ -358,11 +391,10 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     int fd;
 
     if (server == NULL || client == NULL) return;
-    if (client->registered) {
+    if (client->registered)
         (void)snprintf(quit_message, sizeof(quit_message),
                        ":%s!%s@%s QUIT :%s\r\n",
                        client->nick, client->user, client->display_host, quit_reason);
-    }
     while (client->channels != NULL) {
         Channel *channel = client->channels->channel;
         if (client->registered) channel_broadcast(channel, client, quit_message);
@@ -388,7 +420,8 @@ void server_run(Server *server) {
 
     while (!server->restart_requested) {
         const size_t dns_index = server->listener_count;
-        const size_t client_base = server->listener_count + 1U;
+        const size_t dnsbl_index = server->listener_count + 1U;
+        const size_t client_base = server->listener_count + 2U;
         const size_t total = client_base + server->client_count;
         struct pollfd *poll_fds = calloc(total, sizeof(*poll_fds));
         Client **snapshot = calloc(server->client_count, sizeof(*snapshot));
@@ -396,9 +429,7 @@ void server_run(Server *server) {
         int ready;
 
         if (poll_fds == NULL || (server->client_count > 0U && snapshot == NULL)) {
-            free(poll_fds);
-            free(snapshot);
-            return;
+            free(poll_fds); free(snapshot); return;
         }
         for (index = 0U; index < server->listener_count; ++index) {
             poll_fds[index].fd = server->listen_fds[index];
@@ -406,76 +437,58 @@ void server_run(Server *server) {
         }
         poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns);
         poll_fds[dns_index].events = POLLIN;
+        poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl);
+        poll_fds[dnsbl_index].events = POLLIN;
         for (index = 0U; index < server->client_count; ++index) {
             snapshot[index] = server->clients[index];
             poll_fds[client_base + index].fd = snapshot[index]->fd;
             poll_fds[client_base + index].events = POLLIN;
-            if (snapshot[index]->tls_state == CLIENT_TLS_HANDSHAKE &&
-                snapshot[index]->tls_want_write)
+            if (snapshot[index]->tls_state == CLIENT_TLS_HANDSHAKE && snapshot[index]->tls_want_write)
                 poll_fds[client_base + index].events |= POLLOUT;
         }
 
         ready = poll(poll_fds, (nfds_t)total, 1000);
         if (ready < 0 && errno != EINTR) {
-            perror("poll");
-            free(snapshot);
-            free(poll_fds);
-            return;
+            perror("poll"); free(snapshot); free(poll_fds); return;
         }
         if (ready > 0) {
             for (index = 0U; index < server->listener_count; ++index) {
                 if ((poll_fds[index].revents & POLLIN) != 0)
-                    accept_clients(server, server->listen_fds[index],
-                                   server->listener_tls[index] != 0U);
+                    accept_clients(server, server->listen_fds[index], server->listener_tls[index] != 0U);
             }
             if ((poll_fds[dns_index].revents & POLLIN) != 0) drain_dns_results(server);
+            if ((poll_fds[dnsbl_index].revents & POLLIN) != 0) drain_dnsbl_results(server);
 
             for (index = 0U; index + client_base < total; ++index) {
                 Client *client = snapshot[index];
                 short events = poll_fds[client_base + index].revents;
                 int disconnect = 0;
-
-                if (client == NULL || events == 0 ||
-                    server_find_client_by_id(server, client->id) != client) continue;
-
-                if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-                    disconnect = 1;
-                } else if (client->tls_state == CLIENT_TLS_HANDSHAKE) {
-                    if ((events & (POLLIN | POLLOUT)) != 0)
-                        disconnect = advance_tls_handshake(server, client);
-                } else if ((events & POLLIN) != 0) {
-                    disconnect = read_client(server, client);
-                }
-
-                if (disconnect) {
+                if (client == NULL || events == 0 || server_find_client_by_id(server, client->id) != client) continue;
+                if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) disconnect = 1;
+                else if (client->tls_state == CLIENT_TLS_HANDSHAKE) {
+                    if ((events & (POLLIN | POLLOUT)) != 0) disconnect = advance_tls_handshake(server, client);
+                } else if ((events & POLLIN) != 0) disconnect = read_client(server, client);
+                if (disconnect)
                     server_disconnect(server, client,
-                                      client->quit_reason[0] != '\0'
-                                          ? client->quit_reason
-                                          : IRC_DEFAULT_QUIT_REASON);
-                }
+                                      client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
             }
         }
-        free(snapshot);
-        free(poll_fds);
-        if (!server->restart_requested) expire_dns(server);
+        free(snapshot); free(poll_fds);
+        if (!server->restart_requested) expire_connection_lookups(server);
     }
 }
 
 void server_destroy(Server *server) {
     size_t index;
     if (server == NULL) return;
-
-    while (server->client_count > 0U) {
-        server_disconnect(server, server->clients[server->client_count - 1U],
-                          IRCD_SHUTDOWN_REASON);
-    }
+    while (server->client_count > 0U)
+        server_disconnect(server, server->clients[server->client_count - 1U], IRCD_SHUTDOWN_REASON);
     free(server->clients);
     server->clients = NULL;
     server->client_capacity = 0U;
 
     if (server->listen_fds != NULL) {
-        for (index = 0U; index < server->listener_count; ++index)
-            close(server->listen_fds[index]);
+        for (index = 0U; index < server->listener_count; ++index) close(server->listen_fds[index]);
         free(server->listen_fds);
         server->listen_fds = NULL;
     }
@@ -483,7 +496,9 @@ void server_destroy(Server *server) {
     server->listener_tls = NULL;
     server->listener_count = 0U;
 
+    dnsbl_resolver_destroy(&server->dnsbl);
     dns_resolver_destroy(&server->dns);
+    geoip_destroy(&server->geoip);
     if (server->tls_ctx != NULL) {
         SSL_CTX_free(server->tls_ctx);
         server->tls_ctx = NULL;
