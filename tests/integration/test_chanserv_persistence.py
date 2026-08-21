@@ -83,9 +83,24 @@ def stop(proc):
             proc.wait(timeout=3.0)
 
 
+def rfc1459_fold(text):
+    table = str.maketrans({"{": "[", "}": "]", "|": "\\", "~": "^"})
+    return text.lower().translate(table)
+
+
+def rfc1459_collate(left, right):
+    left_folded = rfc1459_fold(left)
+    right_folded = rfc1459_fold(right)
+    return (left_folded > right_folded) - (left_folded < right_folded)
+
+
 def mask_rows(path):
     con = sqlite3.connect(path)
     try:
+        # chanserv.db declares channel keys with the server's custom IRCNOCASE
+        # collation. Standalone SQLite clients must register it before querying
+        # tables whose schema/foreign keys refer to that collation.
+        con.create_collation("IRCNOCASE", rfc1459_collate)
         return con.execute(
             "SELECT type,mask,protected_authorized FROM channel_masks "
             "WHERE channel=? ORDER BY type,mask", ("#persist",)
