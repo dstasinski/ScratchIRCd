@@ -72,6 +72,7 @@ static int parse_mode_lock(const char *text, ChannelModeSet *modes) {
 static const char *access_name(ChanServAccessLevel level) {
     switch (level) {
         case CHANSERV_ACCESS_OWNER: return "OWNER";
+        case CHANSERV_ACCESS_PROTECTED: return "PROTECTED";
         case CHANSERV_ACCESS_OP: return "OP";
         case CHANSERV_ACCESS_HALFOP: return "HALFOP";
         case CHANSERV_ACCESS_VOICE: return "VOICE";
@@ -82,6 +83,7 @@ static const char *access_name(ChanServAccessLevel level) {
 static ChanServAccessLevel parse_access(const char *text) {
     if (text == NULL) return CHANSERV_ACCESS_NONE;
     if (strcasecmp(text, "OWNER") == 0) return CHANSERV_ACCESS_OWNER;
+    if (strcasecmp(text, "PROTECTED") == 0) return CHANSERV_ACCESS_PROTECTED;
     if (strcasecmp(text, "OP") == 0) return CHANSERV_ACCESS_OP;
     if (strcasecmp(text, "HALFOP") == 0) return CHANSERV_ACCESS_HALFOP;
     if (strcasecmp(text, "VOICE") == 0) return CHANSERV_ACCESS_VOICE;
@@ -132,6 +134,7 @@ ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *cli
     else if (chanserv_db_access_get(&db, channel_name, client->account_name, &access) == 1) {
         switch (access.level) {
             case CHANSERV_ACCESS_OWNER: privileges = CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR; break;
+            case CHANSERV_ACCESS_PROTECTED: privileges = CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OPERATOR; break;
             case CHANSERV_ACCESS_OP: privileges = CHANNEL_PRIV_OPERATOR; break;
             case CHANSERV_ACCESS_HALFOP: privileges = CHANNEL_PRIV_HALFOP; break;
             case CHANSERV_ACCESS_VOICE: privileges = CHANNEL_PRIV_VOICE; break;
@@ -207,7 +210,7 @@ static void command_access(Server *server, Client *client, char *params) {
         chanserv_db_close(&db); return;
     }
     account_name=strtok(NULL," ");
-    if (account_name==NULL) { chanserv_db_close(&db); cs_notice(server,client,"Syntax: ACCESS <#channel> ADD <account> <OWNER|OP|HALFOP|VOICE> or DEL <account>"); return; }
+    if (account_name==NULL) { chanserv_db_close(&db); cs_notice(server,client,"Syntax: ACCESS <#channel> ADD <account> <OWNER|PROTECTED|OP|HALFOP|VOICE> or DEL <account>"); return; }
     if (strcasecmp(account_name,channel_record.founder)==0) { chanserv_db_close(&db); cs_notice(server,client,"The founder is implicitly OWNER and cannot be added to the access list."); return; }
     if (strcasecmp(action,"DEL")==0) {
         int rc=chanserv_db_access_delete(&db,name,account_name); chanserv_db_close(&db);
@@ -215,7 +218,7 @@ static void command_access(Server *server, Client *client, char *params) {
     }
     level_text=strtok(NULL," ");
     if (strcasecmp(action,"ADD")!=0 || parse_access(level_text)==CHANSERV_ACCESS_NONE) {
-        chanserv_db_close(&db); cs_notice(server,client,"Syntax: ACCESS <#channel> ADD <account> <OWNER|OP|HALFOP|VOICE>"); return;
+        chanserv_db_close(&db); cs_notice(server,client,"Syntax: ACCESS <#channel> ADD <account> <OWNER|PROTECTED|OP|HALFOP|VOICE>"); return;
     }
     if (nickserv_db_open(&nsdb,server->config.nickserv_db)!=0 || nickserv_db_get(&nsdb,account_name,&account)!=1 || !account.enabled) {
         nickserv_db_close(&nsdb); chanserv_db_close(&db); cs_notice(server,client,"NickServ account does not exist or is disabled."); return;
