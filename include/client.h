@@ -49,8 +49,11 @@ typedef enum ClientSaslState {
 
 /** IRCv3 capabilities currently supported by the daemon. */
 typedef uint64_t ClientCapabilitySet;
-#define CLIENT_CAP_SASL           (UINT64_C(1) << 0)
-#define CLIENT_CAP_ACCOUNT_NOTIFY (UINT64_C(1) << 1)
+#define CLIENT_CAP_SASL             (UINT64_C(1) << 0)
+#define CLIENT_CAP_ACCOUNT_NOTIFY   (UINT64_C(1) << 1)
+#define CLIENT_CAP_BATCH            (UINT64_C(1) << 2)
+#define CLIENT_CAP_SERVER_TIME      (UINT64_C(1) << 3)
+#define CLIENT_CAP_CHATHISTORY      (UINT64_C(1) << 4)
 
 /** Gateway/audit metadata kept separate from the three client identity fields. */
 typedef struct ClientWebIrc {
