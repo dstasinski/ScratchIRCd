@@ -78,6 +78,11 @@ target_compile_definitions(test_dnsbl PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_dnsbl PRIVATE Threads::Threads)
 add_test(NAME dnsbl COMMAND test_dnsbl)
 
+add_executable(test_runtime_config tests/test_runtime_config.c src/runtime_config.c)
+target_include_directories(test_runtime_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_runtime_config PRIVATE _POSIX_C_SOURCE=200809L)
+add_test(NAME runtime_config COMMAND test_runtime_config)
+
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME modes COMMAND test_modes)
@@ -120,7 +125,7 @@ add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_S
 set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
