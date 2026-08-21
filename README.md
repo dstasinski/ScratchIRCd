@@ -4,7 +4,7 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 
 ## Current foundation
 
-The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, IRCv3 CAP negotiation with SASL PLAIN and persistent channel history, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account/history persistence, and a virtual NickServ service with nickname and email-based account recovery.
+The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, IRCv3 CAP negotiation with SASL PLAIN and persistent channel history, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account/channel/history persistence, a virtual NickServ service with nickname and email-based account recovery, and a virtual ChanServ service for registered persistent channels.
 
 ## TLS
 
@@ -36,13 +36,13 @@ history_db = data/history.db
 history_limit = 100
 ```
 
-Clients that negotiate `batch` and `draft/chathistory` may request:
+A client needs `draft/chathistory` to request:
 
 ```text
 CHATHISTORY LATEST <channel> * <limit>
 ```
 
-The requester must currently be a member of the channel. Playback is returned inside a `chathistory` batch, and clients that also negotiate `server-time` receive the original UTC timestamp on every replayed record. ScratchIRCd advertises `MSGREFTYPES=timestamp` in ISUPPORT for this first history implementation.
+The requester must currently be a member of the channel. `batch` optionally packages playback in a `chathistory` batch, and `server-time` supplies original UTC timestamps. ScratchIRCd advertises `MSGREFTYPES=timestamp` and the configured `CHATHISTORY=<limit>` value in ISUPPORT.
 
 See `docs/IRCV3_GUIDE.md` for the current IRCv3 behavior and limitations.
 
@@ -147,6 +147,31 @@ nickserv_verify_seconds = 86400
 
 ScratchIRCd invokes the configured sendmail-compatible binary directly rather than through a shell, and delivery is detached from the IRC event loop. Email delivery is disabled when either `sendmail_path` or `mail_from` is empty.
 
+## ChanServ persistent channels
+
+Registered channels are stored in:
+
+```text
+chanserv_db = data/chanserv.db
+```
+
+ChanServ is a virtual service with server authority. It never joins channels and never appears in ordinary client lists. Users may address it with either `CHANSERV ...` or `PRIVMSG ChanServ :...`.
+
+The initial service commands are:
+
+```text
+REGISTER <#channel> [:description]
+INFO <#channel>
+DROP <#channel>
+HELP
+```
+
+Registration requires an authenticated NickServ account and owner/operator privilege in the live channel. The authenticated account becomes founder and the channel receives service-controlled `+r`. When the channel later disappears from memory or the daemon restarts, the SQLite registration remains; on the next JOIN ScratchIRCd restores `+r`. An authenticated founder automatically receives `+q/+o` when joining the registered channel, even under a different current nickname.
+
+Network administrators additionally have `CSINFO`, `CSSET`, and `CSDROP` management commands. Numeric 005 advertises the ScratchIRCd-specific `PCHANNELS=` token listing enabled registered channels.
+
+See `docs/CHANSERV_GUIDE.md` for the complete current ChanServ behavior.
+
 ## Runtime data
 
 All ScratchIRCd runtime databases and downloaded MaxMind files live under `data/`:
@@ -155,24 +180,26 @@ All ScratchIRCd runtime databases and downloaded MaxMind files live under `data/
 data/operators.db
 data/bans.db
 data/nickserv.db
+data/chanserv.db
 data/history.db
 data/GeoLite2-City.mmdb
 data/GeoLite2-ASN.mmdb
 ```
 
-Future ChanServ and MemoServ databases will use the same directory.
+Future MemoServ data will use the same directory.
 
 ## Documentation
 
 - `docs/CLIENT_GUIDE.md` — ordinary client commands, CAP/SASL/history, and modes.
 - `docs/IRCV3_GUIDE.md` — capability negotiation, account-notify, SASL, and persistent history.
 - `docs/NICKSERV_GUIDE.md` — complete NickServ registration, SASL relationship, recovery and email-reset guide.
+- `docs/CHANSERV_GUIDE.md` — registered-channel persistence, founder authority, PCHANNELS, and administrator commands.
 - `docs/OPERATOR_GUIDE.md` — IRC operator authentication, permissions, identity access, and commands.
-- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator/NickServ management, bans, TLS, WebIRC, GeoIP, DNSBL, SASL/history, and configuration.
+- `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator/service management, bans, TLS, WebIRC, GeoIP, DNSBL, SASL/history, and configuration.
 
 ## Currently implemented commands
 
-`ADMIN`, `AUTHENTICATE`, `AWAY`, `CAP`, `CHATHISTORY`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NICKSERV`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WEBIRC` (authorized gateways), `WHO`, `WHOIS`, and `ZLINE`.
+`ADMIN`, `AUTHENTICATE`, `AWAY`, `CAP`, `CHANSERV`, `CHATHISTORY`, `CSDROP`, `CSINFO`, `CSSET`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NICKSERV`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WEBIRC` (authorized gateways), `WHO`, `WHOIS`, and `ZLINE`.
 
 ## Dependencies
 
@@ -192,10 +219,10 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CTest includes unit tests for client identity, GeoIP, DNSBL, runtime configuration, modes, channel policy, visibility, operator permissions/databases, persistent bans, NickServ persistence, and history persistence. Socket-level integration tests cover core protocol behavior, operator actions/overrides, TLS, WebIRC, NickServ nickname/email recovery, IRCv3 SASL/capabilities, and history persistence across a daemon restart.
+CTest includes unit tests for client identity, GeoIP, DNSBL, runtime configuration, modes, channel policy, visibility, operator permissions/databases, persistent bans, NickServ persistence, ChanServ persistence, and history persistence. Socket-level integration tests cover core protocol behavior, operator actions/overrides, TLS, WebIRC, NickServ nickname/email recovery, IRCv3 SASL/capabilities, persistent history, and ChanServ persistence across a daemon restart.
 
 ## Planned architecture
 
-The long-term daemon will add ChanServ, MemoServ, persistent ChanServ channels, hostname cloaking for `+x`, broader CHATHISTORY reference modes and message IDs, additional IRCv3 capabilities, GeoIP/ASN-based policy, complete client/channel mode behavior, full applicable ISUPPORT advertising, and the remaining planned standard command set.
+The long-term daemon will add MemoServ, ChanServ access lists and persistent settings, hostname cloaking for `+x`, broader CHATHISTORY reference modes and message IDs, additional IRCv3 capabilities, GeoIP/ASN-based policy, complete client/channel mode behavior, full applicable ISUPPORT advertising, and the remaining planned standard command set.
 
-Services will remain addressable virtual identities that never join channels or appear in ordinary client lists. Persistent channels will be restored from ChanServ state rather than requiring a service client in the channel.
+Services remain addressable virtual identities that never join channels or appear in ordinary client lists.
