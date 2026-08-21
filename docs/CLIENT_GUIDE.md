@@ -155,27 +155,23 @@ See `docs/NICKSERV_GUIDE.md` for the complete NickServ guide.
 
 ## ChanServ persistent channels
 
-ChanServ is also virtual: it has server authority but is not a connected client and never joins channels. Registered-channel state is stored in `data/chanserv.db`.
-
-Both forms are accepted:
-
-```text
-CHANSERV <command> [parameters]
-PRIVMSG ChanServ :<command> [parameters]
-```
-
-Implemented ChanServ commands are:
+ChanServ is virtual, never joins channels, and stores registered-channel state in `data/chanserv.db`. The founder may manage persistent account privileges with `ACCESS` and persistent boolean modes/topics with `SET`.
 
 ```text
 CHANSERV REGISTER <#channel> [:description]
 CHANSERV INFO <#channel>
+CHANSERV ACCESS <#channel> ADD <account> <OWNER|PROTECTED|OP|HALFOP|VOICE>
+CHANSERV ACCESS <#channel> DEL <account>
+CHANSERV ACCESS <#channel> LIST
+CHANSERV SET <#channel> MLOCK <modes>
+CHANSERV SET <#channel> TOPIC :<text>
 CHANSERV DROP <#channel>
 CHANSERV HELP
 ```
 
-REGISTER requires an authenticated NickServ account and owner/operator privilege in the live channel. The authenticated account becomes founder and the channel receives service-controlled mode `+r`.
+Access follows authenticated NickServ accounts, not current nicknames. OWNER receives `+q/+o`, PROTECTED receives `+a/+o`, OP receives `+o`, HALFOP receives `+h`, and VOICE receives `+v`. The visible membership prefixes are `~`, `&`, `@`, `%`, and `+` respectively.
 
-The registration survives the channel becoming empty and survives daemon restarts. When the registered channel is recreated, `+r` is restored. When its authenticated founder joins, that client automatically receives channel owner/operator privilege (`+q/+o`) even if using a different current nickname.
+A protected (`+a`) member cannot be kicked or deliberately banned by an ordinary OP/HALFOP. Another PROTECTED member or an OWNER may kick or deliberately ban a protected member. Only PROTECTED/OWNER authority may grant or remove `+a`.
 
 Numeric 005 includes `PCHANNELS=` listing enabled ChanServ registrations. See `docs/CHANSERV_GUIDE.md` for details.
 
@@ -222,13 +218,10 @@ Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`
 ### CHANSERV
 
 ```text
-CHANSERV REGISTER <#channel> [:description]
-CHANSERV INFO <#channel>
-CHANSERV DROP <#channel>
-CHANSERV HELP
+CHANSERV <service-command> [parameters]
 ```
 
-Direct alias for the virtual ChanServ service. ChanServ persists registered-channel ownership in SQLite and never joins the channel itself.
+Direct alias for the virtual ChanServ service. See the ChanServ section above and `docs/CHANSERV_GUIDE.md` for the current command set.
 
 ### CHATHISTORY
 
@@ -270,7 +263,7 @@ JOIN <channel>
 JOIN <channel> <key>
 ```
 
-Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions. Registered ChanServ state and founder privilege are restored when applicable.
+Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions. ChanServ account authority is restored when applicable.
 
 ### KICK
 
@@ -278,7 +271,7 @@ Joins a channel. Channel names may begin with `#` or `&`. `&` channels are priva
 KICK <channel> <nickname> :<reason>
 ```
 
-Removes a member when the requester has sufficient channel privilege. Privilege hierarchy is owner (`+q`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member.
+Removes a member when the requester has sufficient channel privilege. Privilege hierarchy is owner (`+q`) > protected (`+a`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member. A PROTECTED member may kick another PROTECTED member; only an OWNER can kick above that level.
 
 ### LIST
 
@@ -305,7 +298,7 @@ MODE <channel>
 MODE <channel> <modes> [parameters...]
 ```
 
-Queries or changes user/channel modes subject to authority rules. Security/service-derived modes such as `+r`, `+o`, `+N`, `+t`, `+V`, and `+z` cannot be self-granted.
+Queries or changes user/channel modes subject to authority rules. Security/service-derived user modes such as `+r`, `+o`, `+N`, `+t`, `+V`, and `+z` cannot be self-granted. Channel membership `+a` requires PROTECTED or OWNER authority to add/remove.
 
 ### MOTD
 
@@ -321,7 +314,7 @@ Displays the server message of the day.
 NAMES <channel>
 ```
 
-Displays visible channel members. Membership prefixes include `~` owner, `@` operator, `%` halfop, and `+` voice.
+Displays visible channel members. Membership prefixes are `~` owner, `&` protected, `@` operator, `%` halfop, and `+` voice.
 
 ### NICK
 
@@ -464,8 +457,9 @@ ScratchIRCd defines these client modes:
 ## Channel modes
 
 - `A` — network administrators only.
+- `a <nick>` — protected channel member. Only PROTECTED or OWNER authority may add/remove it; protected members cannot be kicked or deliberately banned by ordinary OP/HALFOP members.
 - `B <channel>` — redirect banned clients.
-- `b <mask>` — ban displayed `nick!user@host` identity.
+- `b <mask>` — ban displayed `nick!user@host` identity; protected-account enforcement observes the `+a` authority rules above.
 - `c` — no ANSI color; full filtering behavior planned.
 - `e <mask>` — channel-ban exception against displayed identity.
 - `h <nick>` — halfop.
@@ -477,7 +471,7 @@ ScratchIRCd defines these client modes:
 - `l <count>` — member limit.
 - `L <channel>` — redirect when `+l` is full.
 - `M` — authenticated NickServ account (`+r`) required to speak.
-- `m` — moderated; voice/halfop/op/owner may speak.
+- `m` — moderated; voice/halfop/op/protected/owner may speak.
 - `n` — no outside channel messages.
 - `O` — IRC operators only.
 - `o <nick>` — channel operator.
