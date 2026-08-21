@@ -117,29 +117,57 @@ Ordinary operators are stored in `data/operators.db`; plaintext OPER passwords a
 
 ## NickServ account management
 
-Registered nickname/account records are stored in `data/nickserv.db`. Users normally create their own account by messaging the virtual NickServ service:
+Registered account records live in `data/nickserv.db`. NickServ is virtual rather than a Client and never joins channels or appears in NAMES, WHO, ISON, or LUSERS. `NickServ`, `ChanServ`, and `MemoServ` are reserved nickname strings.
+
+Users may issue NickServ commands either through `PRIVMSG NickServ` or the direct `NICKSERV` command. The account-owner command set is:
 
 ```text
-PRIVMSG NickServ :REGISTER <password>
+NICKSERV REGISTER <password>
+NICKSERV IDENTIFY [account] <password>
+NICKSERV RECOVER <nick>
+NICKSERV RECOVER <nick> KILL
+NICKSERV GHOST <nick>
+NICKSERV SET PASSWORD <new-password>
+NICKSERV SET EMAIL <address>
+NICKSERV VERIFY <token>
+NICKSERV RESET <account>
+NICKSERV RESET <account> <token> <new-password>
+NICKSERV HELP
 ```
 
-NickServ is not a real Client. It never joins channels or appears in NAMES, WHO, ISON, or LUSERS. `NickServ`, `ChanServ`, and `MemoServ` are reserved nickname strings so users cannot impersonate services.
+Default `RECOVER` renames the occupying session to a generated `Guest<connection-id>` nick. `RECOVER ... KILL` and `GHOST` disconnect it. These actions authorize against the authenticated account and do not depend on IRC-operator `can_kill` permission.
 
-The network administrator has these direct account-management commands:
+The network administrator has direct account-management commands:
 
 ```text
 NSINFO <account>
 NSSET <account> PASSWORD <new-password>
 NSSET <account> VHOST <vhost|->
+NSSET <account> EMAIL <address|->
 NSSET <account> ENABLED <0|1>
 NSDROP <account>
 ```
 
-`NSINFO` displays account metadata but never the password hash. `NSSET ... PASSWORD` replaces the stored password with a new Argon2id hash. `NSSET ... VHOST` assigns or removes the account vhost; use `-` to remove it. `NSSET ... ENABLED 0` blocks future IDENTIFY attempts without deleting the account. `NSDROP` permanently deletes the account.
+`NSINFO` displays account metadata including email verification state, but never displays password hashes or recovery-token hashes. `NSSET ... EMAIL` is an administrator override: a non-empty address is immediately considered verified; `-` clears it. `NSSET ... ENABLED 0` prevents future identification/reset completion without forcibly changing an already authenticated connection.
 
-When an account with a vhost identifies, the vhost changes only `display_host` and sets `+t`. It never modifies `real_ip` or `real_host`. Successful account authentication stores the account name on the Client and grants `+r`, which is used by registered-user modes such as `+R` and `+M`.
+### NickServ email verification and reset
 
-Current account-state changes affect future authentication. Disabling or deleting an account does not forcibly de-identify an already connected client in this milestone.
+Email delivery is optional and uses a local sendmail-compatible MTA:
+
+```text
+sendmail_path = /usr/sbin/sendmail
+mail_from = services@example.net
+nickserv_reset_seconds = 1800
+nickserv_verify_seconds = 86400
+```
+
+Leaving either `sendmail_path` or `mail_from` empty disables email delivery. ScratchIRCd executes the configured binary directly with `-t -i`; no shell is invoked. Delivery is detached from the IRC event loop, so slow MTA delivery does not block IRC traffic.
+
+When a user issues `NICKSERV SET EMAIL`, ScratchIRCd creates a random verification token and stores only its SHA-256 hash plus expiry. The address does not become reset-capable until the user successfully issues `NICKSERV VERIFY <token>`.
+
+`NICKSERV RESET <account>` intentionally gives the same generic response whether or not an account exists or has email configured. This prevents account/email enumeration. Valid reset tokens are random, time-limited, single-use, stored only as SHA-256 hashes, and result in a new Argon2id password hash when consumed.
+
+See `docs/NICKSERV_GUIDE.md` for the complete user-facing flow.
 
 ## Persistent server bans
 
@@ -179,7 +207,7 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC, DNSBL, and database paths. Listener/TLS and GeoIP database-path changes require RESTART.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC, DNSBL, database paths, and NickServ mail settings. Listener/TLS and GeoIP database-path changes require RESTART.
 
 ## Operator permissions
 
@@ -214,6 +242,7 @@ MODE
 MOTD
 NAMES
 NICK
+NICKSERV
 NOTICE
 NSDROP
 NSINFO
@@ -249,7 +278,7 @@ WHOIS
 ZLINE
 ```
 
-The network administrator may also use all NickServ virtual-service commands available to ordinary users: `REGISTER`, `IDENTIFY`, `SET PASSWORD`, and `HELP` through `PRIVMSG NickServ`.
+The network administrator may also use every NickServ subcommand listed above.
 
 ## Security and runtime data
 
