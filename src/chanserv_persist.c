@@ -3,9 +3,9 @@
  * @brief SQLite persistence for ChanServ parameter modes and mask lists.
  *
  * Registered-channel metadata and account access live in chanserv_db.c. This
- * module stores the mutable runtime state that ordinary MODE commands can
- * change: +k, +l, +j, +L, +B, and the +b/+e/+I lists. All data lives in the
- * same chanserv.db and is restored when a persistent channel is recreated.
+ * module stores mutable runtime state changed by MODE: +k, +l, +j, +L, +B,
+ * and the +b/+e/+I lists. Mask kinds are stored as integers rather than IRC
+ * mode letters so SQLite collation/case rules can never alter their meaning.
  */
 
 #include "chanserv_persist.h"
@@ -13,6 +13,13 @@
 #include <sqlite3.h>
 #include <stdio.h>
 #include <string.h>
+
+/** Persistent numeric identifiers for the three channel mask lists. */
+enum {
+    CHANSERV_MASK_BAN = 1,
+    CHANSERV_MASK_EXCEPTION = 2,
+    CHANSERV_MASK_INVEX = 3
+};
 
 static unsigned char irc_fold(unsigned char ch) {
     if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
@@ -74,8 +81,34 @@ static int open_db(sqlite3 **out, const char *path) {
     return 0;
 }
 
+/** Return non-zero when channel_masks.type is declared as INTEGER. */
+static int mask_schema_is_numeric(sqlite3 *db) {
+    sqlite3_stmt *stmt = NULL;
+    int numeric = 0;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channel_masks)",
+                           -1, &stmt, NULL) != SQLITE_OK) return 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        const char *type = (const char *)sqlite3_column_text(stmt, 2);
+        if (name != NULL && strcmp(name, "type") == 0) {
+            numeric = type != NULL && strcmp(type, "INTEGER") == 0;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return numeric;
+}
+
+/**
+ * Ensure the runtime persistence schema exists.
+ *
+ * Early 0.20 development builds used TEXT mode letters in channel_masks.type.
+ * Because this project is still pre-release and those databases contain no
+ * production state, that development-only table is rebuilt automatically if
+ * encountered. Registered channels and access entries are untouched.
+ */
 int chanserv_persist_init(const char *path) {
-    static const char schema[] =
+    static const char runtime_schema[] =
         "CREATE TABLE IF NOT EXISTS channel_runtime ("
         "channel TEXT COLLATE IRCNOCASE PRIMARY KEY,"
         "channel_key TEXT NOT NULL DEFAULT '',"
@@ -85,25 +118,44 @@ int chanserv_persist_init(const char *path) {
         "limit_redirect TEXT NOT NULL DEFAULT '',"
         "ban_redirect TEXT NOT NULL DEFAULT '',"
         "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
-        ");"
+        ");";
+    static const char mask_schema[] =
         "CREATE TABLE IF NOT EXISTS channel_masks ("
         "channel TEXT COLLATE IRCNOCASE NOT NULL,"
-        "type TEXT NOT NULL CHECK(type IN ('b','e','I')) ,"
+        "type INTEGER NOT NULL CHECK(type BETWEEN 1 AND 3),"
         "mask TEXT NOT NULL,"
         "protected_authorized INTEGER NOT NULL DEFAULT 0,"
         "PRIMARY KEY(channel,type,mask),"
         "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
         ");";
     sqlite3 *db = NULL;
-    int rc;
+    sqlite3_stmt *stmt = NULL;
+    int exists = 0;
+    int rc = -1;
+
     if (open_db(&db, path) != 0) return -1;
-    rc = exec_sql(db, schema);
+    if (exec_sql(db, runtime_schema) != 0) goto done;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='channel_masks'",
+        -1, &stmt, NULL) != SQLITE_OK) goto done;
+    exists = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt); stmt = NULL;
+
+    if (exists && !mask_schema_is_numeric(db)) {
+        if (exec_sql(db, "DROP TABLE channel_masks;") != 0) goto done;
+    }
+    if (exec_sql(db, mask_schema) != 0) goto done;
+    rc = 0;
+
+done:
+    if (stmt != NULL) sqlite3_finalize(stmt);
     sqlite3_close(db);
     return rc;
 }
 
 static int save_masks(sqlite3 *db, const char *channel,
-                      const ChannelMaskEntry *list, const char *type) {
+                      const ChannelMaskEntry *list, int type) {
     sqlite3_stmt *stmt = NULL;
     const ChannelMaskEntry *entry;
     if (sqlite3_prepare_v2(db,
@@ -113,7 +165,7 @@ static int save_masks(sqlite3 *db, const char *channel,
         sqlite3_reset(stmt);
         sqlite3_clear_bindings(stmt);
         sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, type, -1, SQLITE_STATIC);
+        sqlite3_bind_int(stmt, 2, type);
         sqlite3_bind_text(stmt, 3, entry->mask, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 4, entry->protected_authorized ? 1 : 0);
         if (sqlite3_step(stmt) != SQLITE_DONE) {
@@ -149,18 +201,25 @@ int chanserv_persist_save(const char *path, const Channel *channel) {
     sqlite3_bind_text(stmt, 7, channel->ban_redirect, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_DONE) goto rollback;
     sqlite3_finalize(stmt); stmt = NULL;
+
     if (sqlite3_prepare_v2(db, "DELETE FROM channel_masks WHERE channel=?1",
                            -1, &stmt, NULL) != SQLITE_OK) goto rollback;
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_DONE) goto rollback;
     sqlite3_finalize(stmt); stmt = NULL;
-    if (save_masks(db, channel->name, channel->ban_list, "b") != 0 ||
-        save_masks(db, channel->name, channel->exception_list, "e") != 0 ||
-        save_masks(db, channel->name, channel->invite_exception_list, "I") != 0)
+
+    if (save_masks(db, channel->name, channel->ban_list,
+                   CHANSERV_MASK_BAN) != 0 ||
+        save_masks(db, channel->name, channel->exception_list,
+                   CHANSERV_MASK_EXCEPTION) != 0 ||
+        save_masks(db, channel->name, channel->invite_exception_list,
+                   CHANSERV_MASK_INVEX) != 0)
         goto rollback;
+
     if (exec_sql(db, "COMMIT;") != 0) goto done;
     ok = 0;
     goto done;
+
 rollback:
     if (stmt != NULL) { sqlite3_finalize(stmt); stmt = NULL; }
     (void)exec_sql(db, "ROLLBACK;");
@@ -178,16 +237,19 @@ static int restore_masks(sqlite3 *db, Channel *channel) {
         "WHERE channel=?1 ORDER BY rowid", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        const char *type = (const char *)sqlite3_column_text(stmt, 0);
+        int type = sqlite3_column_int(stmt, 0);
         const char *mask = (const char *)sqlite3_column_text(stmt, 1);
         int authorized = sqlite3_column_int(stmt, 2);
-        ChannelMaskEntry **list;
-        if (type == NULL || mask == NULL) continue;
-        if (strcmp(type, "b") == 0) list = &channel->ban_list;
-        else if (strcmp(type, "e") == 0) list = &channel->exception_list;
-        else if (strcmp(type, "I") == 0) list = &channel->invite_exception_list;
-        else continue;
-        if (channel_mask_add_authorized(list, mask, authorized) != 0) {
+        ChannelMaskEntry **list = NULL;
+        if (mask == NULL) continue;
+        switch (type) {
+            case CHANSERV_MASK_BAN: list = &channel->ban_list; break;
+            case CHANSERV_MASK_EXCEPTION: list = &channel->exception_list; break;
+            case CHANSERV_MASK_INVEX: list = &channel->invite_exception_list; break;
+            default: break;
+        }
+        if (list != NULL &&
+            channel_mask_add_authorized(list, mask, authorized) != 0) {
             sqlite3_finalize(stmt);
             return -1;
         }
@@ -223,7 +285,8 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
         const char *key = (const char *)sqlite3_column_text(stmt, 0);
         const char *limit_redirect = (const char *)sqlite3_column_text(stmt, 4);
         const char *ban_redirect = (const char *)sqlite3_column_text(stmt, 5);
-        (void)snprintf(channel->key, sizeof(channel->key), "%s", key != NULL ? key : "");
+        (void)snprintf(channel->key, sizeof(channel->key), "%s",
+                       key != NULL ? key : "");
         channel->user_limit = (size_t)sqlite3_column_int64(stmt, 1);
         channel->join_throttle_count = (unsigned int)sqlite3_column_int(stmt, 2);
         channel->join_throttle_seconds = (unsigned int)sqlite3_column_int(stmt, 3);
@@ -233,8 +296,10 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
                        ban_redirect != NULL ? ban_redirect : "");
     } else if (rc != SQLITE_DONE) goto done;
     sqlite3_finalize(stmt); stmt = NULL;
+
     if (restore_masks(db, channel) != 0) goto done;
     result = 0;
+
 done:
     if (stmt != NULL) sqlite3_finalize(stmt);
     if (db != NULL) sqlite3_close(db);
