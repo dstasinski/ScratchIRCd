@@ -7,6 +7,7 @@
  */
 #include "chanserv.h"
 #include "chanserv_db.h"
+#include "chanserv_persist.h"
 #include "modes.h"
 #include "nickserv_db.h"
 
@@ -101,9 +102,35 @@ void chanserv_restore_channel(Server *server, Channel *channel) {
             (void)snprintf(channel->topic, sizeof(channel->topic), "%s", record.topic);
             (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter), "%s", record.topic_setter);
             channel->topic_time = (time_t)record.topic_time;
+            (void)chanserv_persist_restore(server->config.chanserv_db, channel);
         }
         chanserv_db_close(&db);
     }
+}
+
+int chanserv_mode_change_allowed(Server *server, const Channel *channel,
+                                 ChannelModeSet bit, int adding) {
+    ChanServDb db = {0};
+    ChanServChannel record;
+    int desired;
+    int result = 1;
+
+    if (server == NULL || channel == NULL || bit == 0U ||
+        !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) return 1;
+
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0;
+    if (chanserv_db_get(&db, channel->name, &record) == 1 && record.enabled) {
+        desired = (((ChannelModeSet)record.mode_lock & bit) != 0U) ? 1 : 0;
+        result = desired == (adding ? 1 : 0);
+    }
+    chanserv_db_close(&db);
+    return result;
+}
+
+void chanserv_persist_channel(Server *server, const Channel *channel) {
+    if (server == NULL || channel == NULL ||
+        !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) return;
+    (void)chanserv_persist_save(server->config.chanserv_db, channel);
 }
 
 int chanserv_client_is_founder(Server *server, const Client *client, const char *channel_name) {
@@ -173,6 +200,7 @@ static void command_register(Server *server, Client *client, char *params) {
     }
     chanserv_db_close(&db); channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
     (void)channel_add_privileges(channel, client, CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+    chanserv_persist_channel(server, channel);
     cs_notice(server, client, "Channel registered successfully.");
 }
 
