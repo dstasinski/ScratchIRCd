@@ -25,6 +25,24 @@ tls_key_file = /etc/letsencrypt/live/irc.example.net/privkey.pem
 
 TLS is enabled only when both certificate and private-key paths are configured. TLS 1.2 is the minimum accepted protocol version. Successful TLS clients receive `+z`. TLS listener/certificate changes require RESTART.
 
+## IRCv3 CAP and SASL
+
+ScratchIRCd currently advertises IRCv3 capability `sasl` and supports mechanism `PLAIN`. SASL authenticates against the same NickServ account records in `data/nickserv.db` and therefore shares Argon2id password validation, account state, `+r`, and NickServ vhost behavior.
+
+Typical negotiation is:
+
+```text
+CAP LS 302
+CAP REQ :sasl
+NICK <nickname>
+USER <username> 0 * :<real name>
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64 PLAIN payload>
+CAP END
+```
+
+Registration is intentionally held while CAP negotiation is open and resumes on `CAP END`. Successful SASL uses numeric `903`; failure uses `904`; abort uses `906`. SASL does not grant IRC operator authority. `OPER` remains separate.
+
 ## WebIRC gateways
 
 Authorized gateways are configured in `ircd.conf` by numeric TCP peer IP and password. Repeat the setting to authorize multiple gateways:
@@ -228,7 +246,9 @@ WHOIS <nickname>
 
 ```text
 ADMIN
+AUTHENTICATE
 AWAY
+CAP
 IDENTIFY
 INVITE
 ISON
