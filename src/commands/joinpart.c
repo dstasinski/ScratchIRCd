@@ -9,6 +9,7 @@
 
 #include "commands.h"
 #include "channel_policy.h"
+#include "chanserv.h"
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
@@ -125,6 +126,12 @@ static void join_one(Server *server, Client *client, const char *name,
     channel_join_throttle_record(channel, client->id);
     if (explicitly_invited) (void)channel_invite_consume(channel, client->id);
     if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+        (void)channel_add_privileges(channel, client,
+                                     CHANNEL_PRIV_OWNER |
+                                     CHANNEL_PRIV_OPERATOR);
+    }
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
+        chanserv_client_is_founder(server, client, channel->name)) {
         (void)channel_add_privileges(channel, client,
                                      CHANNEL_PRIV_OWNER |
                                      CHANNEL_PRIV_OPERATOR);
