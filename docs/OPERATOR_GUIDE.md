@@ -16,13 +16,30 @@ For authenticated WebIRC users, `real_ip` and `real_host` describe the actual en
 
 IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP.
 
-## Authentication
+## NickServ account state
+
+NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY stores an account name on the Client and sets service-controlled user mode `+r`.
+
+Operators may use the same account commands as ordinary users:
+
+```text
+IDENTIFY <password>
+IDENTIFY <account> <password>
+PRIVMSG NickServ :REGISTER <password>
+PRIVMSG NickServ :IDENTIFY [account] <password>
+PRIVMSG NickServ :SET PASSWORD <new-password>
+PRIVMSG NickServ :HELP
+```
+
+A NickServ vhost is applied only to `display_host` and sets `+t`; it never changes `real_ip` or `real_host`. User mode `+r` cannot be manufactured with MODE or SAMODE.
+
+## Operator authentication
 
 ```text
 OPER <operator-name> <password>
 ```
 
-Successful login grants `+o` and loads permissions from the SQLite operator record. `helpop` grants `+h`; `get_host` applies the configured vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
+Successful login grants `+o` and loads permissions from the SQLite operator record. `helpop` grants `+h`; `get_host` applies the configured operator vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
 
 ## Permission flags
 
@@ -70,17 +87,22 @@ Configured DNS blacklists automatically create exact-IP ZLINE records in `data/b
 ZLINE -203.0.113.42
 ```
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization and DNSBL definitions/timeouts. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, and database paths. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
 ## Network-administrator-only commands
+
+Ordinary operators cannot manage operator or NickServ account records directly:
 
 ```text
 OPERADD
 OPERDEL
 OPERSET
 OPERLIST
+NSINFO
+NSSET
+NSDROP
 ```
 
 ## General commands available to operators
@@ -88,6 +110,7 @@ OPERLIST
 ```text
 ADMIN
 AWAY
+IDENTIFY
 INVITE
 ISON
 JOIN
@@ -137,6 +160,7 @@ ZLINE
 - `+H` — hide IRCop status; full behavior still planned.
 - `+I` — hide operator idle time from regular users.
 - `+g` — globops/locops capability; full behavior still planned.
+- `+r` — authenticated NickServ account; service-controlled.
 - `+s` — server-notice reception; full behavior still planned.
 - `+w` — receive WALLOPS.
 - `+W` — WHOIS notification for IRCops; full behavior still planned.
