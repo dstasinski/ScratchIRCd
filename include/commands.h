@@ -16,6 +16,7 @@ CommandResult command_admin(Server *, Client *, char *);
 CommandResult command_authenticate(Server *, Client *, char *);
 CommandResult command_away(Server *, Client *, char *);
 CommandResult command_cap(Server *, Client *, char *);
+CommandResult command_chathistory(Server *, Client *, char *);
 CommandResult command_identify(Server *, Client *, char *);
 CommandResult command_invite(Server *, Client *, char *);
 CommandResult command_ison(Server *, Client *, char *);
