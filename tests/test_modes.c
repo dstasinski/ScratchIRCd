@@ -30,14 +30,18 @@ int main(void) {
     assert(!channel_mode_has(channel_modes, CHANNEL_MODE_MODERATED));
 
     privileges = CHANNEL_PRIV_VOICE | CHANNEL_PRIV_HALFOP |
-                 CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_OWNER;
+                 CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_PROTECTED |
+                 CHANNEL_PRIV_OWNER;
     assert(channel_privilege_has(privileges, CHANNEL_PRIV_OWNER));
     assert(channel_privilege_prefix(privileges) == '~');
-    assert(channel_privilege_rank(privileges) == 4U);
-    assert(channel_privilege_format(privileges, letters, sizeof(letters)) == 4U);
-    assert(strcmp(letters, "qohv") == 0);
+    assert(channel_privilege_rank(privileges) == 5U);
+    assert(channel_privilege_format(privileges, letters, sizeof(letters)) == 5U);
+    assert(strcmp(letters, "qaohv") == 0);
 
     privileges &= ~CHANNEL_PRIV_OWNER;
+    assert(channel_privilege_prefix(privileges) == '&');
+    assert(channel_privilege_rank(privileges) == 4U);
+    privileges &= ~CHANNEL_PRIV_PROTECTED;
     assert(channel_privilege_prefix(privileges) == '@');
     assert(channel_privilege_rank(privileges) == 3U);
     privileges &= ~CHANNEL_PRIV_OPERATOR;
