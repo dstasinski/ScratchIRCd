@@ -25,8 +25,9 @@ typedef enum ChanServAccessLevel {
     CHANSERV_ACCESS_VOICE = 1,
     CHANSERV_ACCESS_HALFOP = 2,
     CHANSERV_ACCESS_OP = 3,
-    CHANSERV_ACCESS_PROTECTED = 4,
-    CHANSERV_ACCESS_OWNER = 5
+    /* Keep OWNER at 4 for compatibility with existing 0.19 databases. */
+    CHANSERV_ACCESS_OWNER = 4,
+    CHANSERV_ACCESS_PROTECTED = 5
 } ChanServAccessLevel;
 
 typedef struct ChanServAccess {
