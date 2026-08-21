@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.13.0
+    VERSION 0.14.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -31,7 +31,7 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/modes.c src/oper.c
+    src/hash.c src/irc.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/mail.c src/modes.c src/oper.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/visibility.c
 
     src/commands/admin.c src/commands/away.c src/commands/common.c
@@ -39,7 +39,7 @@ add_executable(scratchircd
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c
     src/commands/kline.c src/commands/list.c src/commands/lusers.c
     src/commands/mode.c src/commands/motd.c src/commands/names.c
-    src/commands/nick.c src/commands/nickserv_admin.c src/commands/notice.c src/commands/oper.c
+    src/commands/nick.c src/commands/nickserv.c src/commands/nickserv_admin.c src/commands/notice.c src/commands/oper.c
     src/commands/operator_admin.c src/commands/pass.c src/commands/ping.c
     src/commands/privmsg.c src/commands/quit.c src/commands/rehash.c
     src/commands/restart.c src/commands/rules.c src/commands/sajoin.c
@@ -130,7 +130,7 @@ set_tests_properties(tls_integration PROPERTIES TIMEOUT 60)
 add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_webirc.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 add_test(NAME nickserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_nickserv.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
-set_tests_properties(nickserv_integration PROPERTIES TIMEOUT 90)
+set_tests_properties(nickserv_integration PROPERTIES TIMEOUT 120)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_nickserv_db)
