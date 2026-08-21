@@ -56,6 +56,15 @@ operators_db = data/operators.db
 bans_db = data/bans.db
 nickserv_db = data/nickserv.db
 
+# NickServ email verification/password recovery. ScratchIRCd invokes this
+# sendmail-compatible binary directly (never through a shell). Leave either
+# sendmail_path or mail_from empty to disable email delivery. Postfix, Exim,
+# Sendmail, and msmtp's sendmail-compatible wrapper are suitable examples.
+sendmail_path =
+mail_from =
+nickserv_reset_seconds = 1800
+nickserv_verify_seconds = 86400
+
 # Ordinary IRC operators are NOT configured in this file. They are managed by
 # the network administrator through OPERADD / OPERDEL / OPERSET / OPERLIST.
 # Registered nicknames/accounts are managed by the virtual NickServ service and
