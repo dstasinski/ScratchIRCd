@@ -52,26 +52,35 @@ int irc_mask_match(const char *pattern, const char *text) {
     return *pattern == '\0';
 }
 
+static int mask_entry_matches_client(const ChannelMaskEntry *entry,
+                                     const Client *client) {
+    char identity[IRCD_MESSAGE_BUFFER_SIZE];
+    if (entry == NULL || client == NULL) return 0;
+    (void)snprintf(identity, sizeof(identity), "%s!%s@%s",
+                   client->nick, client->user, client->display_host);
+    return irc_mask_match(entry->mask, identity);
+}
+
 /**
  * Match a channel ban/exception/invex against the client's public identity.
- *
- * Channel masks intentionally use display_host only. A user's real IP and
- * FCrDNS hostname are security/operator data and never participate in normal
- * channel ban matching. Consequently +x cloaks and +t vhosts are exactly what
- * channel operators see and what their channel masks match.
+ * Channel masks intentionally use display_host only.
  */
 int channel_mask_matches_client(const ChannelMaskEntry *list,
                                 const Client *client) {
-    char identity[IRCD_MESSAGE_BUFFER_SIZE];
     const ChannelMaskEntry *entry;
-
     if (client == NULL) return 0;
+    for (entry = list; entry != NULL; entry = entry->next)
+        if (mask_entry_matches_client(entry, client)) return 1;
+    return 0;
+}
 
-    (void)snprintf(identity, sizeof(identity), "%s!%s@%s",
-                   client->nick, client->user, client->display_host);
-
+static int authorized_ban_matches_client(const ChannelMaskEntry *list,
+                                         const Client *client) {
+    const ChannelMaskEntry *entry;
+    if (client == NULL) return 0;
     for (entry = list; entry != NULL; entry = entry->next) {
-        if (irc_mask_match(entry->mask, identity)) return 1;
+        if (entry->protected_authorized &&
+            mask_entry_matches_client(entry, client)) return 1;
     }
     return 0;
 }
@@ -79,6 +88,13 @@ int channel_mask_matches_client(const ChannelMaskEntry *list,
 int channel_client_is_banned(const Channel *channel, const Client *client) {
     if (channel == NULL || client == NULL) return 0;
     return channel_mask_matches_client(channel->ban_list, client) &&
+           !channel_mask_matches_client(channel->exception_list, client);
+}
+
+int channel_client_is_banned_protected(const Channel *channel,
+                                       const Client *client) {
+    if (channel == NULL || client == NULL) return 0;
+    return authorized_ban_matches_client(channel->ban_list, client) &&
            !channel_mask_matches_client(channel->exception_list, client);
 }
 
@@ -115,7 +131,6 @@ int channel_invite_consume(Channel *channel, uint64_t client_id) {
     ChannelInvite **link;
 
     if (channel == NULL || client_id == 0U) return 0;
-
     link = &channel->invites;
     while (*link != NULL) {
         if ((*link)->client_id == client_id) {
@@ -131,7 +146,6 @@ int channel_invite_consume(Channel *channel, uint64_t client_id) {
 
 void channel_invite_clear(Channel *channel) {
     ChannelInvite *invite;
-
     if (channel == NULL) return;
     invite = channel->invites;
     while (invite != NULL) {
@@ -145,13 +159,9 @@ void channel_invite_clear(Channel *channel) {
 static ChannelJoinCounter *join_counter(Channel *channel, uint64_t client_id,
                                         int create) {
     ChannelJoinCounter *counter;
-
-    for (counter = channel->join_counters; counter != NULL; counter = counter->next) {
+    for (counter = channel->join_counters; counter != NULL; counter = counter->next)
         if (counter->client_id == client_id) return counter;
-    }
-
     if (!create) return NULL;
-
     counter = calloc(1U, sizeof(*counter));
     if (counter == NULL) return NULL;
     counter->client_id = client_id;
@@ -163,39 +173,26 @@ static ChannelJoinCounter *join_counter(Channel *channel, uint64_t client_id,
 int channel_join_throttle_allows(Channel *channel, uint64_t client_id) {
     ChannelJoinCounter *counter;
     time_t now;
-
     if (channel == NULL || client_id == 0U ||
         channel->join_throttle_count == 0U ||
-        channel->join_throttle_seconds == 0U) {
-        return 1;
-    }
-
+        channel->join_throttle_seconds == 0U) return 1;
     counter = join_counter(channel, client_id, 0);
     if (counter == NULL || counter->count == 0U) return 1;
-
     now = time(NULL);
-    if (now < counter->window_start ||
+    if (counter->count == 0U || now < counter->window_start ||
         (unsigned long)(now - counter->window_start) >=
-            (unsigned long)channel->join_throttle_seconds) {
-        return 1;
-    }
-
+            (unsigned long)channel->join_throttle_seconds) return 1;
     return counter->count < channel->join_throttle_count;
 }
 
 void channel_join_throttle_record(Channel *channel, uint64_t client_id) {
     ChannelJoinCounter *counter;
     time_t now;
-
     if (channel == NULL || client_id == 0U ||
         channel->join_throttle_count == 0U ||
-        channel->join_throttle_seconds == 0U) {
-        return;
-    }
-
+        channel->join_throttle_seconds == 0U) return;
     counter = join_counter(channel, client_id, 1);
     if (counter == NULL) return;
-
     now = time(NULL);
     if (counter->count == 0U || now < counter->window_start ||
         (unsigned long)(now - counter->window_start) >=
@@ -204,15 +201,12 @@ void channel_join_throttle_record(Channel *channel, uint64_t client_id) {
         counter->count = 1U;
         return;
     }
-
     ++counter->count;
 }
 
 void channel_join_throttle_clear(Channel *channel) {
     ChannelJoinCounter *counter;
-
     if (channel == NULL) return;
-
     counter = channel->join_counters;
     while (counter != NULL) {
         ChannelJoinCounter *next = counter->next;
