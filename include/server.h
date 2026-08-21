@@ -8,6 +8,7 @@
 #include "channel.h"
 #include "client.h"
 #include "dns.h"
+#include "dnsbl.h"
 #include "geoip.h"
 #include "hash.h"
 #include "runtime_config.h"
@@ -17,9 +18,9 @@ typedef struct Server {
     ServerConfig config;
 
     int *listen_fds;
-    unsigned char *listener_tls; /**< Parallel array: non-zero for TLS listeners. */
+    unsigned char *listener_tls;
     size_t listener_count;
-    SSL_CTX *tls_ctx;            /**< Shared server-side OpenSSL context. */
+    SSL_CTX *tls_ctx;
 
     Client **clients;
     size_t client_count;
@@ -29,9 +30,9 @@ typedef struct Server {
     HashTable clients_by_nick;
     HashTable channels_by_name;
     DnsResolver dns;
-    GeoIPContext geoip;          /**< Memory-mapped optional GeoLite2 databases. */
+    DnsblResolver dnsbl;
+    GeoIPContext geoip;
 
-    /** Set by RESTART so the event loop returns to main for reinitialization. */
     int restart_requested;
 } Server;
 
@@ -43,4 +44,4 @@ Channel *server_get_or_create_channel(Server *server, const char *name);
 void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
 
-#endif /* IRCD_SERVER_H */
+#endif
