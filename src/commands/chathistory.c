@@ -105,8 +105,13 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
     if (use_batch) {
         (void)snprintf(batch_id, sizeof(batch_id), "h%llu%ld",
                        (unsigned long long)client->id, (long)time(NULL));
-        client_sendf(client, ":%s BATCH +%s chathistory %s",
-                     server->config.server_name, batch_id, channel->name);
+        if (count < limit) {
+            client_sendf(client, "@draft/chathistory-end :%s BATCH +%s chathistory %s",
+                         server->config.server_name, batch_id, channel->name);
+        } else {
+            client_sendf(client, ":%s BATCH +%s chathistory %s",
+                         server->config.server_name, batch_id, channel->name);
+        }
     }
 
     for (i = 0U; i < count; ++i) {
