@@ -44,6 +44,7 @@ static void join_one(Server *server, Client *client, const char *name,
     channel = hash_get(&server->channels_by_name, name);
     if (channel == NULL) channel = server_get_or_create_channel(server, name);
     if (channel == NULL || channel_has_client(channel, client)) return;
+    chanserv_restore_channel(server, channel);
 
     explicitly_invited = channel_invite_has(channel, client->id);
 
