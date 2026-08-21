@@ -12,7 +12,7 @@ Every connected client has exactly three host/address identity fields:
 
 WHO, ordinary WHOIS, USERHOST, channel/user prefixes, and channel ban masks use `display_host`. Vhosts (`+t`) replace only `display_host`; planned cloaking (`+x`) will do the same.
 
-KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE uses only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP.
+KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP.
 
 ## TLS configuration
 
@@ -40,11 +40,39 @@ The gateway sends, before registration:
 WEBIRC <password> <gateway-name> <supplied-hostname> <client-ip>
 ```
 
-Authorization requires both the configured numeric gateway IP and matching password. Gateway DNS names are not used for authorization.
-
-After successful WEBIRC, gateway information is saved only in `Client.webirc` audit metadata, `real_ip` becomes the supplied end-user IP, asynchronous FCrDNS restarts for that address, `display_host` follows the actual client identity, and user mode `+V` is set.
+Authorization requires both the configured numeric gateway IP and matching password. Gateway DNS names are not used for authorization. After successful WEBIRC, gateway information is saved only in `Client.webirc` audit metadata, `real_ip` becomes the supplied end-user IP, asynchronous FCrDNS restarts for that address, `display_host` follows the actual client identity, and user mode `+V` is set.
 
 A failed/unauthorized WEBIRC attempt disconnects before registration. Protect `ircd.conf` with suitable filesystem permissions and prefer TLS between remote gateways and ScratchIRCd.
+
+## DNS blacklist enforcement
+
+DNSBL checks are configured with repeatable entries. ScratchIRCd currently supports up to eight configured lists:
+
+```text
+dnsbl_timeout_seconds = 5
+dnsbl = Spamhaus zen.spamhaus.org
+dnsbl = DroneBL dnsbl.dronebl.org
+```
+
+The first field after `dnsbl =` is the descriptive name written into ban metadata; the second is the DNS blacklist zone. The check runs only after the final direct/WebIRC `real_ip` is established. IPv4 queries use reversed octets; IPv6 queries use reversed nibbles.
+
+All DNSBL resolver calls run on a dedicated worker thread, so a slow external DNS service never blocks the IRC event loop. Registration remains pending while the check is outstanding. If the configured timeout expires, or if the request cannot be queued, ScratchIRCd fails open and continues registration. This prevents an external DNS outage from taking the IRC server offline.
+
+A positive result automatically writes an exact-IP ZLINE to `data/bans.db` and rejects the client. For example, a hit might create metadata equivalent to:
+
+```text
+mask:   203.0.113.42
+reason: DNSBL Spamhaus (zen.spamhaus.org)
+set_by: DNSBL:Spamhaus
+```
+
+Because this is a normal persistent ZLINE record, an authorized operator can remove it with:
+
+```text
+ZLINE -203.0.113.42
+```
+
+A later hit for the same IP replaces the existing exact-IP record rather than creating duplicates. DNSBL configuration and timeout changes may be applied with REHASH; the lookup request already in progress retains the configuration snapshot it started with.
 
 ## MaxMind GeoIP / ASN
 
@@ -57,9 +85,7 @@ geoip_asn_db = data/GeoLite2-ASN.mmdb
 
 The files are optional. If one or both are absent, ScratchIRCd continues to start and `Client.geoip.status` reflects that data is unavailable or not found.
 
-GeoIP lookup occurs immediately before registration, after the final direct/WebIRC `real_ip` and FCrDNS state are established. WebIRC gateways are therefore never accidentally geolocated as the end user.
-
-Each Client contains the nested fields:
+GeoIP lookup occurs immediately before registration, after the final direct/WebIRC `real_ip` and FCrDNS state are established. Each Client contains:
 
 ```text
 geoip.status
@@ -76,11 +102,7 @@ geoip.asn
 geoip.organization
 ```
 
-`status` is currently `ok`, `not_found`, `unavailable`, or `error`. `ip` is the finalized `real_ip`. `network` is the actual matched CIDR network reported by libmaxminddb. `source` identifies `GeoLite2-City`, `GeoLite2-ASN`, or both. Geographic names use the English (`en`) entry when present. `asn` is numeric and `organization` comes from the ASN database.
-
-All strings are copied into the Client record. No Client field holds a pointer into the memory-mapped MMDB files. Changing either GeoIP database path requires RESTART rather than REHASH.
-
-The downloaded `data/*.mmdb` files are excluded from Git so MaxMind datasets are not committed to the repository.
+`status` is currently `ok`, `not_found`, `unavailable`, or `error`. `ip` is the finalized `real_ip`. `network` is the actual matched CIDR network. `source` identifies City, ASN, or both. All strings are copied into the Client record. Changing either GeoIP database path requires RESTART rather than REHASH.
 
 ## Bootstrap network administrator
 
@@ -143,7 +165,7 @@ ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 ```
 
-ZLINE persists in `data/bans.db` and matches only `real_ip`. For WebIRC users this is the end-user IP, not the gateway IP.
+ZLINE persists in `data/bans.db` and matches only `real_ip`. For WebIRC users this is the end-user IP, not the gateway IP. DNSBL-generated bans use this same persistent ZLINE table.
 
 ## Implemented administrative/operator commands
 
@@ -163,7 +185,7 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration. Listener/TLS and GeoIP database-path changes require RESTART.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including WebIRC and DNSBL definitions. Listener/TLS and GeoIP database-path changes require RESTART.
 
 ## Operator permissions
 
@@ -175,7 +197,7 @@ WHOIS <nickname>
 - `can_kill` — use KILL.
 - `can_kline` — add KLINEs.
 - `can_unkline` — remove KLINEs.
-- `can_zline` — add/remove ZLINEs.
+- `can_zline` — add/remove ZLINEs, including DNSBL-generated records.
 - `get_host` — apply the configured operator vhost and grant `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 - `netadmin` — bootstrap network administrator only.
@@ -230,10 +252,6 @@ ZLINE
 ```
 
 `WEBIRC` is normally emitted by an authorized gateway rather than typed by an administrator, but it is part of the implemented protocol command set.
-
-## Planned DNSBL connection policy
-
-DNSBL will attach to finalized `real_ip` at the same pre-registration policy stage now used by GeoIP. DNSBL checks will be asynchronous; configured hits may automatically create persistent ZLINE records in `data/bans.db`.
 
 ## Security and runtime data
 
