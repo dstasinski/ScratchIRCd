@@ -27,6 +27,7 @@ CommandResult command_mode(Server *, Client *, char *);
 CommandResult command_motd(Server *, Client *, char *);
 CommandResult command_names(Server *, Client *, char *);
 CommandResult command_nick(Server *, Client *, char *);
+CommandResult command_nickserv(Server *, Client *, char *);
 CommandResult command_notice(Server *, Client *, char *);
 CommandResult command_nsdrop(Server *, Client *, char *);
 CommandResult command_nsinfo(Server *, Client *, char *);
