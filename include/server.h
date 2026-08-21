@@ -3,12 +3,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
 #include <openssl/ssl.h>
 
 #include "channel.h"
 #include "client.h"
 #include "dns.h"
+#include "geoip.h"
 #include "hash.h"
 #include "runtime_config.h"
 
@@ -29,6 +29,7 @@ typedef struct Server {
     HashTable clients_by_nick;
     HashTable channels_by_name;
     DnsResolver dns;
+    GeoIPContext geoip;          /**< Memory-mapped optional GeoLite2 databases. */
 
     /** Set by RESTART so the event loop returns to main for reinitialization. */
     int restart_requested;
