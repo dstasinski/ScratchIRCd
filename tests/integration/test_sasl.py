@@ -57,7 +57,8 @@ def main():
             seed.send("QUIT :seed done"); seed.close(); clients.remove(seed)
 
             c=IRCClient(port); clients.append(c)
-            c.send("CAP LS 302"); c.expect(" CAP * LS :sasl")
+            c.send("CAP LS 302"); ls=c.expect(" CAP * LS :")
+            assert any("sasl" in line for line in ls),ls
             c.send("CAP REQ :sasl"); c.expect(" CAP * ACK :sasl")
             c.send("NICK Traveler"); c.send("USER traveler 0 * :Traveler")
             c.send("AUTHENTICATE PLAIN"); c.expect("AUTHENTICATE +")
@@ -70,7 +71,8 @@ def main():
             assert any("is logged in as Alice" in line for line in whois),whois
 
             bad=IRCClient(port); clients.append(bad)
-            bad.send("CAP LS 302"); bad.expect(" CAP * LS :sasl")
+            bad.send("CAP LS 302"); ls=bad.expect(" CAP * LS :")
+            assert any("sasl" in line for line in ls),ls
             bad.send("CAP REQ :sasl"); bad.expect(" CAP * ACK :sasl")
             bad.send("NICK Bad"); bad.send("USER bad 0 * :Bad")
             bad.send("AUTHENTICATE PLAIN"); bad.expect("AUTHENTICATE +")
