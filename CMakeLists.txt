@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.14.0
+    VERSION 0.15.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -34,7 +34,7 @@ add_executable(scratchircd
     src/hash.c src/irc.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/mail.c src/modes.c src/oper.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/visibility.c
 
-    src/commands/admin.c src/commands/away.c src/commands/common.c
+    src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/common.c
     src/commands/dispatch.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c
     src/commands/kline.c src/commands/list.c src/commands/lusers.c
@@ -116,7 +116,7 @@ add_test(NAME ban_database COMMAND test_ban_db)
 add_executable(test_nickserv_db tests/test_nickserv_db.c src/nickserv_db.c)
 target_include_directories(test_nickserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(test_nickserv_db PRIVATE _POSIX_C_SOURCE=200809L)
-target_link_libraries(test_nickserv_db PRIVATE SQLite::SQLite3)
+target_link_libraries(test_nickserv_db PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
 add_test(NAME nickserv_database COMMAND test_nickserv_db)
 
 add_test(NAME protocol_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_protocol.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
@@ -131,6 +131,8 @@ add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_S
 set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 add_test(NAME nickserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_nickserv.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(nickserv_integration PROPERTIES TIMEOUT 120)
+add_test(NAME sasl_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sasl.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(sasl_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_nickserv_db)
