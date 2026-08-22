@@ -36,54 +36,31 @@ History is stored in `data/history.db` by default. Operator status does not bypa
 
 NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY or SASL login stores an account name on the Client and sets service-controlled user mode `+r`.
 
-Operators may authenticate their personal NickServ account before registration with IRCv3 SASL PLAIN:
+Operators may authenticate their personal NickServ account before registration with IRCv3 SASL PLAIN. SASL uses the same NickServ password hash and vhost path as IDENTIFY and does not confer IRC operator privileges; `OPER` remains separate.
 
-```text
-CAP LS 302
-CAP REQ :sasl
-AUTHENTICATE PLAIN
-AUTHENTICATE <base64-data>
-CAP END
-```
-
-SASL uses the same NickServ password hash and vhost path as IDENTIFY. It does not confer IRC operator privileges; `OPER` remains a separate authorization step.
-
-Operators have the same personal account-management commands as ordinary users:
-
-```text
-NICKSERV REGISTER <password>
-NICKSERV IDENTIFY [account] <password>
-NICKSERV RECOVER <nick>
-NICKSERV RECOVER <nick> KILL
-NICKSERV GHOST <nick>
-NICKSERV SET PASSWORD <new-password>
-NICKSERV SET EMAIL <address>
-NICKSERV VERIFY <token>
-NICKSERV RESET <account>
-NICKSERV RESET <account> <token> <new-password>
-NICKSERV HELP
-IDENTIFY <password>
-IDENTIFY <account> <password>
-```
-
-`RECOVER` and `GHOST` authorize against the authenticated NickServ account, not IRC-operator privileges. Default RECOVER renames the occupying session; `RECOVER ... KILL` and `GHOST` disconnect it. These actions therefore do not require `can_kill`.
-
-A NickServ vhost is applied only to `display_host` and sets `+t`; it never changes `real_ip` or `real_host`. User mode `+r` cannot be manufactured with MODE or SAMODE. See `docs/NICKSERV_GUIDE.md` for full service behavior and email-reset details.
+Operators have the same personal NickServ account-management commands as ordinary users. See `docs/NICKSERV_GUIDE.md` for the complete command set.
 
 ## ChanServ registered channels
 
-ChanServ is also a virtual service and never joins channels. Operators may use the ordinary ChanServ account-owner commands when authenticated to the relevant founder account:
+ChanServ is a virtual service and never joins channels. Ordinary IRC operator status does not itself confer ChanServ founder authority. Operators authenticated to a founder/access account may use the normal ChanServ commands and receive the corresponding account-based OWNER/PROTECTED/OP/HALFOP/VOICE privileges. Network-administrator-only `CSINFO`, `CSSET`, and `CSDROP` remain separate. See `docs/CHANSERV_GUIDE.md`.
+
+## MemoServ
+
+MemoServ is also virtual and account-based. Operators may use the same personal MemoServ commands as ordinary clients:
 
 ```text
-CHANSERV REGISTER <#channel> [:description]
-CHANSERV INFO <#channel>
-CHANSERV DROP <#channel>
-CHANSERV HELP
+MEMOSERV SEND <account> :<message>
+MEMOSERV LIST
+MEMOSERV SENT
+MEMOSERV READ <memo-id>
+MEMOSERV REPLY <memo-id> :<message>
+MEMOSERV FORWARD <memo-id> <account>
+MEMOSERV DEL <memo-id|ALL>
+MEMOSERV STATUS
+MEMOSERV HELP
 ```
 
-Equivalent `PRIVMSG ChanServ :...` forms are supported. Registered channels live in `data/chanserv.db`, receive service-controlled `+r`, and restore that state when recreated after becoming empty or after a daemon restart. An authenticated founder receives `+q/+o` when joining the registered channel, regardless of the founder's current nickname.
-
-Ordinary IRC operator status does not itself confer ChanServ founder authority. The network-administrator-only `CSINFO`, `CSSET`, and `CSDROP` commands are separate from ordinary operator permissions. See `docs/CHANSERV_GUIDE.md`.
+MemoServ authority is based on the authenticated NickServ account, not IRC operator status. Ordinary operators do not gain access to other accounts' memo contents. `MSINFO` and `MSPURGE` are network-administrator-only. See `docs/MEMOSERV_GUIDE.md`.
 
 ## Operator authentication
 
@@ -133,19 +110,15 @@ WHOIS <nickname>
 
 KLINE matches `user@real_host` and `user@real_ip`; ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
-Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. Their reason identifies the DNSBL name and zone, and `set_by` begins with `DNSBL:`. These bans behave exactly like manually created ZLINEs. An operator with `can_zline` can remove one with:
+Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. An operator with `can_zline` can remove one with `ZLINE -<ip>`.
 
-```text
-ZLINE -203.0.113.42
-```
-
-REHASH reloads safely mutable runtime configuration, including WebIRC gateway authorization, DNSBL definitions/timeouts, database paths, NickServ mail settings, ChanServ database path, and history settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateways, DNSBL definitions/timeouts, database paths, NickServ mail settings, history settings, and MemoServ quota/retention settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
 ## Network-administrator-only commands
 
-Ordinary operators cannot directly manage operator, NickServ, or ChanServ records:
+Ordinary operators cannot directly manage operator, NickServ, ChanServ, or MemoServ administrative state:
 
 ```text
 OPERADD
@@ -158,6 +131,8 @@ NSDROP
 CSINFO
 CSSET
 CSDROP
+MSINFO
+MSPURGE
 ```
 
 ## General commands available to operators
@@ -178,6 +153,7 @@ KILL
 KLINE
 LIST
 LUSERS
+MEMOSERV
 MODE
 MOTD
 NAMES
