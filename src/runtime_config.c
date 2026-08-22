@@ -41,12 +41,16 @@ void runtime_config_defaults(ServerConfig *config) {
     (void)copy_value(config->geoip_asn_db, sizeof(config->geoip_asn_db), IRCD_DEFAULT_GEOIP_ASN_DB);
     (void)copy_value(config->sendmail_path, sizeof(config->sendmail_path), IRCD_DEFAULT_SENDMAIL_PATH);
     (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
+    (void)copy_value(config->kline_default_reason, sizeof(config->kline_default_reason), IRCD_DEFAULT_KLINE_REASON);
+    (void)copy_value(config->zline_default_reason, sizeof(config->zline_default_reason), IRCD_DEFAULT_ZLINE_REASON);
     config->max_clients = IRCD_DEFAULT_MAX_CLIENTS;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
     config->dnsbl_timeout_seconds = IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS;
     config->history_limit = IRCD_DEFAULT_HISTORY_LIMIT;
     config->memoserv_quota = IRCD_DEFAULT_MEMOSERV_QUOTA;
     config->memoserv_retention_days = IRCD_DEFAULT_MEMOSERV_RETENTION_DAYS;
+    config->kline_default_duration_seconds = IRCD_DEFAULT_KLINE_DURATION_SECONDS;
+    config->zline_default_duration_seconds = IRCD_DEFAULT_ZLINE_DURATION_SECONDS;
     config->nickserv_reset_seconds = IRCD_DEFAULT_NICKSERV_RESET_SECONDS;
     config->nickserv_verify_seconds = IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS;
 }
@@ -87,6 +91,12 @@ static int set_seconds(unsigned long number, unsigned int *field) {
     return 0;
 }
 
+static int set_ban_duration(unsigned long number, unsigned int *field) {
+    if (number == 0UL || number > IRCD_BAN_DURATION_HARD_MAX_SECONDS) return -1;
+    *field = (unsigned int)number;
+    return 0;
+}
+
 static int set_option(ServerConfig *config, const char *key, const char *value) {
     char *end = NULL;
     unsigned long number;
@@ -101,6 +111,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("admin_location1", admin_location1); STRING_OPTION("admin_location2", admin_location2); STRING_OPTION("admin_email", admin_email);
     STRING_OPTION("operators_db", operators_db); STRING_OPTION("bans_db", bans_db); STRING_OPTION("nickserv_db", nickserv_db);
     STRING_OPTION("chanserv_db", chanserv_db); STRING_OPTION("memoserv_db", memoserv_db); STRING_OPTION("history_db", history_db);
+    STRING_OPTION("kline_default_reason", kline_default_reason); STRING_OPTION("zline_default_reason", zline_default_reason);
     STRING_OPTION("sendmail_path", sendmail_path); STRING_OPTION("mail_from", mail_from);
     STRING_OPTION("netadmin_name", netadmin_name); STRING_OPTION("netadmin_password_hash", netadmin_password_hash);
     STRING_OPTION("netadmin_hostmask", netadmin_hostmask); STRING_OPTION("netadmin_vhost", netadmin_vhost);
@@ -123,6 +134,10 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
         if (number > IRCD_MEMOSERV_RETENTION_HARD_MAX_DAYS) return -1;
         config->memoserv_retention_days = (unsigned int)number; return 0;
     }
+    if (strcmp(key, "kline_default_duration_seconds") == 0)
+        return set_ban_duration(number, &config->kline_default_duration_seconds);
+    if (strcmp(key, "zline_default_duration_seconds") == 0)
+        return set_ban_duration(number, &config->zline_default_duration_seconds);
     if (strcmp(key, "dns_timeout_seconds") == 0) {
         if (number == 0UL || number > 300UL) return -1;
         config->dns_timeout_seconds = (unsigned int)number; return 0;
