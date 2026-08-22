@@ -14,26 +14,28 @@ class IRCClient:
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=3.0)
         self.sock.settimeout(0.20)
         self.buffer = b""
+        self.pending = []
 
     def send(self, line):
         self.sock.sendall((line + "\r\n").encode())
 
-    def _next_buffered_line(self):
-        if b"\n" not in self.buffer:
-            return None
-        raw, self.buffer = self.buffer.split(b"\n", 1)
-        return raw.rstrip(b"\r").decode(errors="replace")
+    def _lines(self):
+        out = self.pending
+        self.pending = []
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            out.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return out
 
     def expect(self, needle, duration=5.0):
         deadline = time.monotonic() + duration
         got = []
         while time.monotonic() < deadline:
-            while True:
-                line = self._next_buffered_line()
-                if line is None:
-                    break
+            lines = self._lines()
+            for index, line in enumerate(lines):
                 got.append(line)
                 if needle in line:
+                    self.pending.extend(lines[index + 1:])
                     return line
             try:
                 data = self.sock.recv(4096)
@@ -48,10 +50,8 @@ class IRCClient:
         deadline = time.monotonic() + duration
         got = []
         while time.monotonic() < deadline:
-            while True:
-                line = self._next_buffered_line()
-                if line is None:
-                    break
+            lines = self._lines()
+            for line in lines:
                 got.append(line)
                 if needle in line:
                     raise AssertionError(f"unexpected {needle!r}; got {got!r}")
@@ -159,12 +159,19 @@ def main():
             subject.send("SILENCE +Watcher!*@*")
             subject.send("SILENCE")
             subject.expect(" 271 Renamed Renamed Watcher!*@*")
+            subject.expect(" 272 Renamed :End of Silence List")
             watcher.send("PRIVMSG Renamed :this must be blocked")
             subject.expect_not("this must be blocked")
             watcher.send("NOTICE Renamed :this notice must also be blocked")
             subject.expect_not("this notice must also be blocked")
 
+            # Commands on different client sockets have no cross-connection
+            # ordering guarantee. Query the list after removal and wait for 272
+            # so the server has definitely processed the removal before Watcher
+            # sends the delivery-restored PRIVMSG.
             subject.send("SILENCE -Watcher!*@*")
+            subject.send("SILENCE")
+            subject.expect(" 272 Renamed :End of Silence List")
             watcher.send("PRIVMSG Renamed :delivery restored")
             subject.expect("PRIVMSG Renamed :delivery restored")
 
