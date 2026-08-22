@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.25.0
+    VERSION 0.26.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -36,8 +36,8 @@ add_executable(scratchircd
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
     src/commands/dispatch.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
-    src/commands/joinpart.c src/commands/kick.c src/commands/kill.c
-    src/commands/kline.c src/commands/list.c src/commands/lusers.c
+    src/commands/joinpart.c src/commands/kick.c src/commands/kill.c src/commands/kline.c src/commands/knock.c
+    src/commands/list.c src/commands/lusers.c
     src/commands/memoserv.c src/commands/memoserv_admin.c src/commands/mode.c src/commands/mode_persist.c src/commands/motd.c src/commands/names.c
     src/commands/nick.c src/commands/nickserv.c src/commands/nickserv_admin.c src/commands/notice.c src/commands/oper.c
     src/commands/operator_admin.c src/commands/pass.c src/commands/ping.c
@@ -179,6 +179,8 @@ add_test(NAME user_modes_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(user_modes_integration PROPERTIES TIMEOUT 60)
 add_test(NAME message_policy_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_message_policy.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(message_policy_integration PROPERTIES TIMEOUT 60)
+add_test(NAME knock_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_knock.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(knock_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
