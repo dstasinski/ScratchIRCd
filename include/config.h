@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.23"
+#define IRCD_VERSION "ScratchIRCd-0.24"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -52,6 +52,10 @@
 #define IRCD_SILENCE_MAX 64U
 #define IRCD_WATCH_MAX 128U
 #define IRCD_WHOWAS_MAX 256U
+
+/* User-mode behavior defaults. */
+#define IRCD_DEAF_COMMAND_PREFIXES "!"
+#define IRCD_CLOAK_HEX_BYTES 12U
 
 /* ChanServ registration limits. */
 #define IRCD_CHANSERV_DESCRIPTION_MAX 255U
