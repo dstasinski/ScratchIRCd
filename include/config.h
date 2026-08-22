@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.21"
+#define IRCD_VERSION "ScratchIRCd-0.22"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -51,9 +51,13 @@
 /* ChanServ registration limits. */
 #define IRCD_CHANSERV_DESCRIPTION_MAX 255U
 
-/* MemoServ limits. */
+/* MemoServ limits and defaults. */
 #define IRCD_MEMOSERV_TEXT_MAX 400U
 #define IRCD_MEMOSERV_LIST_LIMIT 50U
+#define IRCD_DEFAULT_MEMOSERV_QUOTA 100U
+#define IRCD_MEMOSERV_QUOTA_HARD_MAX 10000U
+#define IRCD_DEFAULT_MEMOSERV_RETENTION_DAYS 90U
+#define IRCD_MEMOSERV_RETENTION_HARD_MAX_DAYS 3650U
 
 /* NickServ account recovery and outbound-mail limits. */
 #define IRCD_EMAIL_MAX 254U
