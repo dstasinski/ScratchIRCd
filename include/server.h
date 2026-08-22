@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 #include <openssl/ssl.h>
 
 #include "channel.h"
@@ -12,6 +13,16 @@
 #include "geoip.h"
 #include "hash.h"
 #include "runtime_config.h"
+
+/** One historical nickname identity retained for WHOWAS. */
+typedef struct WhowasRecord {
+    char nick[IRC_NICK_MAX + 1U];
+    char user[IRC_USER_MAX + 1U];
+    char host[IRC_HOST_MAX + 1U];
+    char realname[IRC_REALNAME_MAX + 1U];
+    char server_name[IRC_HOST_MAX + 1U];
+    time_t when;
+} WhowasRecord;
 
 /** Complete process-level IRC server state. */
 typedef struct Server {
@@ -32,6 +43,11 @@ typedef struct Server {
     DnsResolver dns;
     DnsblResolver dnsbl;
     GeoIPContext geoip;
+
+    /** Fixed-size in-memory ring; newest entries overwrite oldest entries. */
+    WhowasRecord whowas[IRCD_WHOWAS_MAX];
+    size_t whowas_next;
+    size_t whowas_count;
 
     int restart_requested;
 } Server;
