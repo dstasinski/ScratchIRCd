@@ -39,15 +39,13 @@ static int muted_channel_send(Server *server, Client *client,
     /* IRC operators and network administrators are globally immune to +M. */
     if (is_oper_or_above(client)) return 0;
 
-    /* Channel owners (+q) and protected users (+a) are immune in channels
-     * where they currently hold that authority. */
+    /* +M affects only ordinary channel members. Any channel membership
+     * privilege (+v, +h, +o, +a, or +q) makes the member immune in that
+     * channel. */
     channel = hash_get(&server->channels_by_name, target);
     if (channel != NULL) {
         member = channel_find_member(channel, client);
-        if (member != NULL &&
-            channel_privilege_has(member->privileges,
-                                  CHANNEL_PRIV_OWNER | CHANNEL_PRIV_PROTECTED))
-            return 0;
+        if (member != NULL && member->privileges != 0U) return 0;
     }
 
     client_sendf(client, ERR_CANNOTSENDTOCHAN,
