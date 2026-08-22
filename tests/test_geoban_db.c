@@ -70,9 +70,18 @@ int main(void) {
     assert(listed == 4);
 
     assert(geoban_db_delete(&db, GEOBAN_COUNTRY, "RU") == 0);
+
+    /* Force a temporary row into the past and verify active-list purge. */
+    assert(geoban_db_add(&db, GEOBAN_COUNTRY, "CA", "temporary", "root", 60U) == 0);
+    assert(sqlite3_exec(db.handle,
+        "UPDATE geo_bans SET expires_at=unixepoch()-1 WHERE type=1 AND value='CA'",
+        NULL, NULL, NULL) == SQLITE_OK);
+    listed = 0;
+    assert(geoban_db_list(&db, count_record, NULL) == 0);
+    assert(listed == 3);
     geoban_db_close(&db);
 
-    /* Persistence across reopen. */
+    /* Persistence across reopen. Expired rows remain purged. */
     assert(geoban_db_open(&db, path) == 0);
     listed = 0;
     assert(geoban_db_list(&db, count_record, NULL) == 0);
