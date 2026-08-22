@@ -61,14 +61,17 @@ CommandResult command_sapart(Server *, Client *, char *);
 CommandResult command_sethost(Server *, Client *, char *);
 CommandResult command_setident(Server *, Client *, char *);
 CommandResult command_setname(Server *, Client *, char *);
+CommandResult command_silence(Server *, Client *, char *);
 CommandResult command_topic(Server *, Client *, char *);
 CommandResult command_user(Server *, Client *, char *);
 CommandResult command_userhost(Server *, Client *, char *);
 CommandResult command_userip(Server *, Client *, char *);
 CommandResult command_wallops(Server *, Client *, char *);
+CommandResult command_watch(Server *, Client *, char *);
 CommandResult command_webirc(Server *, Client *, char *);
 CommandResult command_who(Server *, Client *, char *);
 CommandResult command_whois(Server *, Client *, char *);
+CommandResult command_whowas(Server *, Client *, char *);
 CommandResult command_zline(Server *, Client *, char *);
 
 const char *command_reply_nick(const Client *client);
