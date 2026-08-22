@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
         server_run(&server);
-        restart = server.restart_requested;
+        restart = server.restart_requested && !server.shutdown_requested;
         geoip_destroy(&server.geoip);
         server_destroy(&server);
 
