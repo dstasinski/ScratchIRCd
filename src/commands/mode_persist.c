@@ -1,19 +1,17 @@
 /**
  * @file mode_persist.c
- * @brief ChanServ-aware wrapper around the existing MODE implementation.
+ * @brief ChanServ/user-mode-aware wrapper around the existing MODE implementation.
  *
  * CMake compiles mode.c with command_mode renamed to command_mode_core. This
- * wrapper leaves the mature MODE parser untouched while adding ChanServ
- * policy and persistence around it. Boolean MLOCK is checked before a
- * registered-channel MODE runs, accepted parameter/list changes are persisted
- * afterward, and channel-mode queries include all parameter values in numeric
- * 324 while still using RPL_CHANNELMODEIS from numerics.h.
+ * wrapper leaves the mature parser untouched while adding ChanServ persistence
+ * and the small set of user modes that need behavior beyond simple bit flips.
  */
 
 #include "commands.h"
 #include "chanserv.h"
 #include "modes.h"
 #include "numerics.h"
+#include "usermode_policy.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -50,15 +48,6 @@ static void append_param(char *buffer, size_t size, const char *param) {
                    used != 0U ? " " : "", param);
 }
 
-/**
- * Send RPL_CHANNELMODEIS with both mode letters and parameter values.
- *
- * numerics.h defines RPL_CHANNELMODEIS with one final string field after the
- * channel name. The historical MODE implementation passed modes and params as
- * separate varargs, so the params were silently ignored by printf formatting.
- * Build the complete final field here so numeric 324 remains sourced from
- * numerics.h and reports +k/+l/+j/+L/+B values correctly.
- */
 static void send_channel_modes(Server *server, Client *client, Channel *channel) {
     static const char booleans[] = "AciKMmnOprRSstTVz";
     char modes[128] = "+";
@@ -75,8 +64,7 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
             modes[used++] = booleans[i];
     }
     if (channel->key[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'k';
-        append_param(params, sizeof(params), channel->key);
+        modes[used++] = 'k'; append_param(params, sizeof(params), channel->key);
     }
     if (channel->user_limit != 0U && used + 1U < sizeof(modes)) {
         modes[used++] = 'l';
@@ -86,17 +74,14 @@ static void send_channel_modes(Server *server, Client *client, Channel *channel)
     if (channel->join_throttle_count != 0U && used + 1U < sizeof(modes)) {
         modes[used++] = 'j';
         (void)snprintf(number, sizeof(number), "%u:%u",
-                       channel->join_throttle_count,
-                       channel->join_throttle_seconds);
+                       channel->join_throttle_count, channel->join_throttle_seconds);
         append_param(params, sizeof(params), number);
     }
     if (channel->limit_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'L';
-        append_param(params, sizeof(params), channel->limit_redirect);
+        modes[used++] = 'L'; append_param(params, sizeof(params), channel->limit_redirect);
     }
     if (channel->ban_redirect[0] != '\0' && used + 1U < sizeof(modes)) {
-        modes[used++] = 'B';
-        append_param(params, sizeof(params), channel->ban_redirect);
+        modes[used++] = 'B'; append_param(params, sizeof(params), channel->ban_redirect);
     }
     modes[used] = '\0';
 
@@ -131,6 +116,66 @@ static int check_mlock(Server *server, Client *client, Channel *channel,
     return 1;
 }
 
+/**
+ * Handle user modes whose policy cannot be represented by mode.c's simple
+ * self-settable table. Returns 1 when at least one special mode was consumed.
+ */
+static int handle_special_user_modes(Server *server, Client *client,
+                                     const char *target, const char *mode_string,
+                                     char *filtered, size_t filtered_size) {
+    Client *target_client;
+    char sign = '+';
+    char last_output_sign = '\0';
+    size_t used = 0U;
+    size_t i;
+    int consumed = 0;
+    int is_oper;
+
+    if (server == NULL || client == NULL || target == NULL || mode_string == NULL ||
+        filtered == NULL || filtered_size == 0U) return 0;
+    filtered[0] = '\0';
+    target_client = hash_get(&server->clients_by_nick, target);
+    if (target_client == NULL || target_client != client) return 0;
+
+    is_oper = client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN);
+    for (i = 0U; mode_string[i] != '\0'; ++i) {
+        char letter = mode_string[i];
+        if (letter == '+' || letter == '-') {
+            sign = letter;
+            continue;
+        }
+
+        if (letter == 'x') {
+            consumed = 1;
+            if (sign == '+') usermode_apply_cloak(server, client);
+            else usermode_remove_cloak(client);
+            continue;
+        }
+        if (letter == 'H' || letter == 'I' || letter == 'W') {
+            ClientModeSet bit = letter == 'H' ? CLIENT_MODE_HIDE_OPER :
+                                letter == 'I' ? CLIENT_MODE_HIDE_IDLE :
+                                                CLIENT_MODE_WHOIS_NOTICE;
+            consumed = 1;
+            if (!is_oper) {
+                client_sendf(client, ERR_NOPRIVILEGES,
+                             server->config.server_name, client->nick);
+                continue;
+            }
+            if (sign == '+') client->modes = client_mode_add(client->modes, bit);
+            else client->modes = client_mode_remove(client->modes, bit);
+            continue;
+        }
+
+        if (last_output_sign != sign && used + 1U < filtered_size) {
+            filtered[used++] = sign;
+            last_output_sign = sign;
+        }
+        if (used + 1U < filtered_size) filtered[used++] = letter;
+        filtered[used] = '\0';
+    }
+    return consumed;
+}
+
 CommandResult command_mode(Server *server, Client *client, char *params) {
     char copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *target;
@@ -147,20 +192,25 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
     if (target != NULL && strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         (void)snprintf(channel_name, sizeof(channel_name), "%s", target);
         channel = hash_get(&server->channels_by_name, channel_name);
-
-        /*
-         * Intercept a plain MODE #channel query so numeric 324 includes its
-         * parameter values. Registration and channel existence checks remain
-         * equivalent to the core command path.
-         */
         if (mode_string == NULL && channel != NULL) {
             if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
             send_channel_modes(server, client, channel);
             return COMMAND_KEEP_CLIENT;
         }
-
         if (!check_mlock(server, client, channel, mode_string))
             return COMMAND_KEEP_CLIENT;
+    } else if (target != NULL && mode_string != NULL) {
+        char filtered[128];
+        if (handle_special_user_modes(server, client, target, mode_string,
+                                      filtered, sizeof(filtered))) {
+            char forwarded[IRCD_MESSAGE_BUFFER_SIZE];
+            if (filtered[0] == '\0') {
+                (void)snprintf(forwarded, sizeof(forwarded), "%s", target);
+            } else {
+                (void)snprintf(forwarded, sizeof(forwarded), "%s %s", target, filtered);
+            }
+            return command_mode_core(server, client, forwarded);
+        }
     }
 
     result = command_mode_core(server, client, params);
