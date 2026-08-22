@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.29.0
+    VERSION 0.30.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -31,11 +31,11 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/oper.c src/presence.c src/usermode_policy.c
+    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/oper.c src/presence.c src/usermode_policy.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
-    src/commands/deafmute.c src/commands/dispatch.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
+    src/commands/deafmute.c src/commands/dispatch.c src/commands/geoban.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c src/commands/kline.c src/commands/knock.c
     src/commands/list.c src/commands/lusers.c
     src/commands/memoserv.c src/commands/memoserv_admin.c src/commands/mode.c src/commands/mode_persist.c src/commands/mode_control.c src/commands/moderation_policy.c src/commands/motd.c src/commands/names.c
@@ -80,6 +80,12 @@ add_executable(test_geoip tests/test_geoip.c src/geoip.c)
 target_include_directories(test_geoip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_link_libraries(test_geoip PRIVATE ${MAXMINDDB_LIBRARY})
 add_test(NAME geoip COMMAND test_geoip)
+
+add_executable(test_geoban_db tests/test_geoban_db.c src/geoban_db.c)
+target_include_directories(test_geoban_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_compile_definitions(test_geoban_db PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_geoban_db PRIVATE SQLite::SQLite3)
+add_test(NAME geoban_database COMMAND test_geoban_db)
 
 add_executable(test_dnsbl tests/test_dnsbl.c src/dnsbl.c)
 target_include_directories(test_dnsbl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -193,7 +199,7 @@ add_test(NAME moderation_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(moderation_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
