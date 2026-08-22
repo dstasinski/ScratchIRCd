@@ -89,6 +89,7 @@ operators_db = data/operators.db
 bans_db = data/bans.db
 nickserv_db = data/nickserv.db
 chanserv_db = data/chanserv.db
+memoserv_db = data/memoserv.db
 history_db = data/history.db
 netadmin_name = root
 netadmin_password_hash = $argon2id$...
@@ -169,16 +170,7 @@ chanserv_db = data/chanserv.db
 
 ChanServ is virtual and has server authority without joining channels. Users can address it as `CHANSERV ...` or `PRIVMSG ChanServ :...`.
 
-Account-owner commands are:
-
-```text
-CHANSERV REGISTER <#channel> [:description]
-CHANSERV INFO <#channel>
-CHANSERV DROP <#channel>
-CHANSERV HELP
-```
-
-REGISTER requires an authenticated NickServ account and owner/operator privilege in the current live channel. The authenticated account becomes founder and the live channel receives service-controlled `+r`. Registration survives the in-memory channel becoming empty and survives daemon restart; the next JOIN recreates `+r`. An authenticated founder automatically receives `+q/+o` when joining.
+Account-owner commands include registration, information, access management, persistent settings, and drop. Founder/access roles are account-based and include OWNER, PROTECTED, OP, HALFOP, and VOICE. Persistent channel state includes MLOCK, topic, parameter modes, and `+b/+e/+I` lists. See `docs/CHANSERV_GUIDE.md` for the complete command set.
 
 Network-administrator commands are:
 
@@ -190,13 +182,28 @@ CSSET <#channel> ENABLED <0|1>
 CSDROP <#channel>
 ```
 
-Founder reassignment requires an existing enabled NickServ account. Numeric 005 includes the ScratchIRCd extension:
+Numeric 005 includes the ScratchIRCd extension `PCHANNELS=` listing enabled ChanServ registrations.
+
+## MemoServ administration
+
+MemoServ stores account-to-account messages in:
 
 ```text
-PCHANNELS=#one,#two,#three
+memoserv_db = data/memoserv.db
+memoserv_quota = 100
+memoserv_retention_days = 90
 ```
 
-listing enabled ChanServ registrations. See `docs/CHANSERV_GUIDE.md`.
+`memoserv_quota` limits the number of stored inbox memos per account. `memoserv_retention_days` expires messages by creation time; `0` disables automatic expiration. User MemoServ commands are `SEND`, `LIST`, `SENT`, `READ`, `REPLY`, `FORWARD`, `DEL`, `STATUS`, and `HELP`.
+
+Network-administrator MemoServ commands are:
+
+```text
+MSINFO <account>
+MSPURGE <account|*>
+```
+
+`MSINFO` reports stored and unread counts plus the active quota/retention policy without displaying memo contents. `MSPURGE` removes messages older than the configured retention period for one account or globally with `*`.
 
 ## Persistent server bans
 
@@ -236,7 +243,7 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including service database paths, WebIRC/DNSBL definitions, NickServ mail settings, and history settings. Listener/TLS and GeoIP path changes require RESTART.
+`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including service database paths, WebIRC/DNSBL definitions, NickServ mail settings, history settings, and MemoServ quota/retention settings. Listener/TLS and GeoIP path changes require RESTART.
 
 ## Operator permissions
 
@@ -274,8 +281,11 @@ KILL
 KLINE
 LIST
 LUSERS
+MEMOSERV
 MODE
 MOTD
+MSINFO
+MSPURGE
 NAMES
 NICK
 NICKSERV
@@ -314,7 +324,7 @@ WHOIS
 ZLINE
 ```
 
-The network administrator may also use every NickServ and ChanServ subcommand listed above.
+The network administrator may also use every NickServ, ChanServ, and MemoServ subcommand documented in their respective service guides.
 
 ## Security and runtime data
 
@@ -325,6 +335,7 @@ data/operators.db
 data/bans.db
 data/nickserv.db
 data/chanserv.db
+data/memoserv.db
 data/history.db
 data/GeoLite2-City.mmdb
 data/GeoLite2-ASN.mmdb
