@@ -10,9 +10,9 @@ Every connected client has exactly three host/address identity fields:
 - `real_host` — FCrDNS-verified hostname for that actual IP, when available.
 - `display_host` — the only hostname disclosed through normal IRC client-visible protocol output.
 
-WHO, ordinary WHOIS, USERHOST, channel/user prefixes, channel ban masks, and replayable channel history use `display_host`. Vhosts (`+t`) replace only `display_host`; planned cloaking (`+x`) will do the same.
+WHO, ordinary WHOIS, USERHOST, channel/user prefixes, channel ban masks, and replayable channel history use `display_host`. Vhosts (`+t`) and cloaks (`+x`) replace only `display_host`.
 
-KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP. Persistent chat history never stores a replayable real IP or real DNS hostname.
+KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. GeoBAN uses only MaxMind-enriched metadata derived from final `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP. Persistent chat history never stores a replayable real IP or real DNS hostname.
 
 ## TLS configuration
 
@@ -80,6 +80,27 @@ geoip_asn_db = data/GeoLite2-ASN.mmdb
 
 The files are optional. Lookup uses final `real_ip`. Client GeoIP state includes status, IP/network/source, continent/country/region/city data, ASN, and organization. Changing MMDB paths requires RESTART.
 
+## Persistent GeoIP policy bans
+
+GeoBAN is separate from KLINE and ZLINE and is stored in a dedicated `geo_bans` table inside `data/bans.db`.
+
+```text
+GEOBAN <COUNTRY|REGION|ASN|ORG> <value> <duration|0> [:reason]
+GEOBAN LIST
+UNGEOBAN <COUNTRY|REGION|ASN|ORG> <value>
+```
+
+COUNTRY and REGION are case-insensitive and normalized uppercase. ASN accepts either `22773` or `AS22773`. ORG matches MaxMind `autonomous_system_organization` with case-insensitive Tcl-style glob matching; use braces around values containing spaces.
+
+```text
+GEOBAN COUNTRY RU 0 :Connections from this country are not accepted
+GEOBAN REGION AZ 7d :Temporary regional restriction
+GEOBAN ASN AS22773 1d :Network abuse
+GEOBAN ORG {*Example Network*} forever :Blocked provider family
+```
+
+Durations accept `s`, `m`, `h`, `d`, and `w`. `0`, `permanent`, `perm`, and `forever` are permanent. Policies survive restart and keep their original expiration timestamp. Adding a policy immediately disconnects matching registered clients except the setter; new matching clients are rejected before registration. Operators require `can_geoban`. See `docs/GEOBAN_GUIDE.md`.
+
 ## Bootstrap network administrator
 
 Only the bootstrap network administrator is stored in `ircd.conf`. Ordinary IRC operators live in `data/operators.db`.
@@ -109,7 +130,7 @@ Authenticate with:
 OPER root <password>
 ```
 
-A successful bootstrap login receives `+N` and the complete operator permission set. The bootstrap hostmask is evaluated against real identity, never `display_host` or a WebIRC gateway.
+A successful bootstrap login receives `+N` and the complete operator permission set, including `can_geoban`. The bootstrap hostmask is evaluated against real identity, never `display_host` or a WebIRC gateway.
 
 ## Operator database management
 
@@ -129,23 +150,7 @@ Ordinary operators are stored in `data/operators.db`; plaintext OPER passwords a
 
 ## NickServ account management
 
-Registered accounts live in `data/nickserv.db`. NickServ is virtual and never joins channels or appears in NAMES, WHO, ISON, or LUSERS.
-
-User/account-owner commands are:
-
-```text
-NICKSERV REGISTER <password>
-NICKSERV IDENTIFY [account] <password>
-NICKSERV RECOVER <nick>
-NICKSERV RECOVER <nick> KILL
-NICKSERV GHOST <nick>
-NICKSERV SET PASSWORD <new-password>
-NICKSERV SET EMAIL <address>
-NICKSERV VERIFY <token>
-NICKSERV RESET <account>
-NICKSERV RESET <account> <token> <new-password>
-NICKSERV HELP
-```
+Registered accounts live in `data/nickserv.db`. NickServ is virtual and never joins channels or appears in NAMES, WHO, ISON, or LUSERS. See `docs/NICKSERV_GUIDE.md` for the full command set.
 
 Network-administrator account commands are:
 
@@ -158,19 +163,9 @@ NSSET <account> ENABLED <0|1>
 NSDROP <account>
 ```
 
-`NSINFO` never exposes password or token hashes. Optional email verification/recovery uses the configured local sendmail-compatible MTA. See `docs/NICKSERV_GUIDE.md`.
-
 ## ChanServ registered-channel management
 
-Registered channels live in:
-
-```text
-chanserv_db = data/chanserv.db
-```
-
-ChanServ is virtual and has server authority without joining channels. Users can address it as `CHANSERV ...` or `PRIVMSG ChanServ :...`.
-
-Account-owner commands include registration, information, access management, persistent settings, and drop. Founder/access roles are account-based and include OWNER, PROTECTED, OP, HALFOP, and VOICE. Persistent channel state includes MLOCK, topic, parameter modes, and `+b/+e/+I` lists. See `docs/CHANSERV_GUIDE.md` for the complete command set.
+Registered channels live in `data/chanserv.db`. ChanServ is virtual and has server authority without joining channels. See `docs/CHANSERV_GUIDE.md` for the full command set.
 
 Network-administrator commands are:
 
@@ -186,15 +181,7 @@ Numeric 005 includes the ScratchIRCd extension `PCHANNELS=` listing enabled Chan
 
 ## MemoServ administration
 
-MemoServ stores account-to-account messages in:
-
-```text
-memoserv_db = data/memoserv.db
-memoserv_quota = 100
-memoserv_retention_days = 90
-```
-
-`memoserv_quota` limits the number of stored inbox memos per account. `memoserv_retention_days` expires messages by creation time; `0` disables automatic expiration. User MemoServ commands are `SEND`, `LIST`, `SENT`, `READ`, `REPLY`, `FORWARD`, `DEL`, `STATUS`, and `HELP`.
+MemoServ stores account-to-account messages in `data/memoserv.db`. See `docs/MEMOSERV_GUIDE.md` for user commands.
 
 Network-administrator MemoServ commands are:
 
@@ -203,47 +190,42 @@ MSINFO <account>
 MSPURGE <account|*>
 ```
 
-`MSINFO` reports stored and unread counts plus the active quota/retention policy without displaying memo contents. `MSPURGE` removes messages older than the configured retention period for one account or globally with `*`.
-
 ## Persistent server bans
 
 ### KLINE
 
 ```text
+KLINE <nickname>
 KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 ```
 
-KLINE persists in `data/bans.db`, matches real host/IP identity, and ignores cloaks/vhosts.
+Explicit KLINE persists in `data/bans.db`, matches real host/IP identity, and ignores cloaks/vhosts. Nickname shorthand creates a temporary policy using the configured default duration and reason.
 
 ### ZLINE
 
 ```text
+ZLINE <nickname>
 ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 ```
 
-ZLINE persists in `data/bans.db` and matches only `real_ip`. For WebIRC users this is the end-user IP, not the gateway IP.
+Explicit ZLINE persists in `data/bans.db` and matches only `real_ip`. Nickname shorthand creates a temporary exact-IP policy using the configured default duration and reason. For WebIRC users this is the end-user IP, not the gateway IP.
 
-## Implemented administrative/operator commands
+### GeoBAN
+
+GeoBAN policies are stored separately from KLINE/ZLINE in `geo_bans` within the same `data/bans.db`. They match COUNTRY, REGION, ASN, or ORG metadata only.
+
+## Operator-controlled moderation
 
 ```text
-KILL <nickname> :<reason>
-WALLOPS :<message>
-REHASH
-RESTART
-SAJOIN <nick> <channel>[,<channel>...]
-SAPART <nick> <channel>[,<channel>...]
-SAMODE <nick> <modes>
-SAMODE <channel> <modes> [parameters...]
-SETHOST <nick> <newhost>
-SETIDENT <nick> <newident>
-SETNAME <nick> :<new real name>
-USERIP <nick1> [nick2 ...]
-WHOIS <nickname>
+DEAF +<nick>
+DEAF -<nick>
+MUTE +<nick>
+MUTE -<nick>
 ```
 
-`SETHOST` changes only `display_host`; `USERIP` and operator WHOIS reveal real identity. REHASH reloads safely mutable configuration, including service database paths, WebIRC/DNSBL definitions, NickServ mail settings, history settings, and MemoServ quota/retention settings. Listener/TLS and GeoIP path changes require RESTART.
+`DEAF` controls user mode `+D`. `MUTE` controls user mode `+M`; +M affects only ordinary channel members, while +v/+h/+o/+a/+q members are immune in that channel and IRCops/network administrators are globally immune. See `docs/MODERATION_GUIDE.md`.
 
 ## Operator permissions
 
@@ -256,6 +238,7 @@ WHOIS <nickname>
 - `can_kline` — add KLINEs.
 - `can_unkline` — remove KLINEs.
 - `can_zline` — add/remove ZLINEs.
+- `can_geoban` — add/list/remove COUNTRY/REGION/ASN/ORG GeoBAN policies.
 - `get_host` — apply configured operator vhost and grant `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 - `netadmin` — bootstrap network administrator only.
@@ -272,6 +255,9 @@ CHATHISTORY
 CSDROP
 CSINFO
 CSSET
+DEAF
+GEOBAN
+GLOBOPS
 IDENTIFY
 INVITE
 ISON
@@ -279,13 +265,16 @@ JOIN
 KICK
 KILL
 KLINE
+KNOCK
 LIST
+LOCOPS
 LUSERS
 MEMOSERV
 MODE
 MOTD
 MSINFO
 MSPURGE
+MUTE
 NAMES
 NICK
 NICKSERV
@@ -313,14 +302,18 @@ SAPART
 SETHOST
 SETIDENT
 SETNAME
+SILENCE
 TOPIC
+UNGEOBAN
 USER
 USERHOST
 USERIP
 WALLOPS
+WATCH
 WEBIRC
 WHO
 WHOIS
+WHOWAS
 ZLINE
 ```
 
