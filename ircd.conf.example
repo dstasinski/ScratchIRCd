@@ -59,6 +59,15 @@ chanserv_db = data/chanserv.db
 memoserv_db = data/memoserv.db
 history_db = data/history.db
 
+# Nickname shorthand for operator bans. Explicit user@host KLINE and IP-mask
+# ZLINE commands remain permanent. KLINE <nick> resolves to *@real_host (or
+# *@real_ip if FCrDNS is unavailable); ZLINE <nick> resolves to exact real_ip.
+# The shorthand records survive restart but expire at these configured times.
+kline_default_duration_seconds = 3600
+kline_default_reason = Temporary KLINE
+zline_default_duration_seconds = 3600
+zline_default_reason = Temporary ZLINE
+
 # Maximum number of records one CHATHISTORY request may return. The compiled
 # hard ceiling is IRCD_HISTORY_HARD_LIMIT (currently 500).
 history_limit = 100
