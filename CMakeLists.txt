@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.23.0
+    VERSION 0.24.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -31,7 +31,7 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/modes.c src/oper.c src/presence.c
+    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/modes.c src/oper.c src/presence.c src/usermode_policy.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
@@ -175,6 +175,8 @@ add_test(NAME memoserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT
 set_tests_properties(memoserv_integration PROPERTIES TIMEOUT 60)
 add_test(NAME presence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_presence.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(presence_integration PROPERTIES TIMEOUT 60)
+add_test(NAME user_modes_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_user_modes.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(user_modes_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
