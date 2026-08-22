@@ -3,10 +3,11 @@
  * @brief Implementation of IRC PRIVMSG.
  *
  * PRIVMSG supports one target. Channel delivery enforces +n, +m and +M.
- * Direct delivery enforces recipient +R/+T and returns RPL_AWAY when the
- * destination has an active AWAY message. All client-visible source prefixes
- * use display_host. NickServ, ChanServ and MemoServ are virtual targets handled
- * without Client records. Accepted channel messages are persisted to SQLite history.
+ * Direct delivery enforces recipient SILENCE/+R/+T and returns RPL_AWAY when
+ * the destination has an active AWAY message. All client-visible source
+ * prefixes use display_host. NickServ, ChanServ and MemoServ are virtual
+ * targets handled without Client records. Accepted channel messages are
+ * persisted to SQLite history.
  */
 
 #include "commands.h"
@@ -18,6 +19,7 @@
 #include "modes.h"
 #include "nickserv.h"
 #include "numerics.h"
+#include "presence.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -76,7 +78,6 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     }
     if (*text == ':') ++text;
 
-    /* NickServ is virtual: it is addressable but never a real Client. */
     if (strcasecmp(target, "NickServ") == 0) {
         int was_identified = client->account_name[0] != '\0';
         nickserv_handle_message(server, client, text);
@@ -86,14 +87,10 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         }
         return COMMAND_KEEP_CLIENT;
     }
-
-    /* ChanServ has server authority but likewise never occupies a Client slot. */
     if (strcasecmp(target, "ChanServ") == 0) {
         chanserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
-
-    /* MemoServ is a hidden virtual account-to-account message service. */
     if (strcasecmp(target, "MemoServ") == 0) {
         memoserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
@@ -122,7 +119,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         if (channel_mode_has(channel->modes, CHANNEL_MODE_MODERATED) &&
             (member == NULL || !channel_privilege_has(member->privileges,
              CHANNEL_PRIV_VOICE | CHANNEL_PRIV_HALFOP |
-             CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_OWNER))) {
+             CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER))) {
             client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
                          client->nick, channel->name, "moderated channel (+m)");
             return COMMAND_KEEP_CLIENT;
@@ -136,6 +133,8 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                          client->nick, target);
             return COMMAND_KEEP_CLIENT;
         }
+        /* SILENCE is intentionally silent to the sender to avoid leaking ignore state. */
+        if (presence_silence_matches(destination, client)) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
             !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
             client_sendf(client, ERR_NONONREG, server->config.server_name,
