@@ -138,7 +138,11 @@ typedef struct Client {
     ClientChannelLink *channels;
 } Client;
 
+/** Optional single-process callback invoked immediately before a Client is freed. */
+typedef void (*ClientFreeHook)(Client *client);
+
 Client *client_create(int fd, uint64_t id, int address_family, const char *ip);
+void client_set_free_hook(ClientFreeHook hook);
 void client_free(void *ptr);
 int client_send_raw(Client *client, const char *data, size_t length);
 int client_sendf(Client *client, const char *fmt, ...);
