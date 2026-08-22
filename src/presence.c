@@ -13,6 +13,15 @@
 #include <strings.h>
 #include <time.h>
 
+/* ScratchIRCd is deliberately single-server; this points at that live Server. */
+static Server *active_server = NULL;
+
+static void presence_on_client_free(Client *client) {
+    if (active_server == NULL || client == NULL || !client->registered) return;
+    presence_whowas_record(active_server, client, NULL);
+    presence_watch_offline(active_server, client, NULL);
+}
+
 int presence_silence_add(Client *client, const char *mask) {
     ClientSilenceEntry *entry;
     if (client == NULL || mask == NULL || *mask == '\0') return -1;
@@ -94,6 +103,8 @@ int presence_watch_remove(Client *client, const char *nick) {
 void presence_watch_online(Server *server, const Client *subject) {
     size_t i;
     if (server == NULL || subject == NULL || !subject->registered || subject->nick[0] == '\0') return;
+    active_server = server;
+    client_set_free_hook(presence_on_client_free);
     for (i = 0U; i < server->client_count; ++i) {
         Client *watcher = server->clients[i];
         if (watcher == NULL || !watcher->registered || !presence_watch_contains(watcher, subject->nick)) continue;
