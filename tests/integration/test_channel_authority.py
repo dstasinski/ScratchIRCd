@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end channel authority and action-mode regression coverage."""
+"""End-to-end channel authority and action restriction tests."""
 
 import os
 import socket
@@ -67,10 +67,10 @@ class IRCClient:
 
 
 def free_port():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
     return port
 
 
@@ -80,18 +80,18 @@ def wait_listen(port, proc):
         if proc.poll() is not None:
             raise RuntimeError(proc.stderr.read())
         try:
-            sock = socket.create_connection(("127.0.0.1", port), timeout=0.1)
-            sock.close()
+            s = socket.create_connection(("127.0.0.1", port), timeout=0.1)
+            s.close()
             return
         except OSError:
             time.sleep(0.05)
     raise RuntimeError("server did not listen")
 
 
-def register(client, nick):
-    client.send(f"NICK {nick}")
-    client.send(f"USER {nick} 0 * :{nick}")
-    client.expect(f" 001 {nick} ")
+def register(c, nick):
+    c.send(f"NICK {nick}")
+    c.send(f"USER {nick} 0 * :{nick}")
+    c.expect(f" 001 {nick} ")
 
 
 def stop(proc):
@@ -100,8 +100,7 @@ def stop(proc):
         try:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=3)
+            proc.kill(); proc.wait(timeout=3)
 
 
 def main():
@@ -127,21 +126,20 @@ def main():
         try:
             wait_listen(port, proc)
             owner = IRCClient(port); clients.append(owner); register(owner, "Owner")
-            voice = IRCClient(port); clients.append(voice); register(voice, "Voice")
-            half = IRCClient(port); clients.append(half); register(half, "Half")
-            chanop = IRCClient(port); clients.append(chanop); register(chanop, "ChanOp")
             protect = IRCClient(port); clients.append(protect); register(protect, "Protect")
+            oper = IRCClient(port); clients.append(oper); register(oper, "ChanOp")
+            half = IRCClient(port); clients.append(half); register(half, "Half")
+            voice = IRCClient(port); clients.append(voice); register(voice, "Voice")
             outsider = IRCClient(port); clients.append(outsider); register(outsider, "Outside")
 
             owner.send("JOIN #authority"); owner.expect(" 366 Owner #authority ")
-            voice.send("JOIN #authority"); voice.expect(" 366 Voice #authority ")
-            half.send("JOIN #authority"); half.expect(" 366 Half #authority ")
-            chanop.send("JOIN #authority"); chanop.expect(" 366 ChanOp #authority ")
-            protect.send("JOIN #authority"); protect.expect(" 366 Protect #authority ")
+            for c, nick in [(protect, "Protect"), (oper, "ChanOp"),
+                            (half, "Half"), (voice, "Voice")]:
+                c.send("JOIN #authority"); c.expect(f" 366 {nick} #authority ")
 
             owner.send("MODE #authority +v Voice"); voice.expect(" MODE #authority +v Voice")
             owner.send("MODE #authority +h Half"); half.expect(" MODE #authority +h Half")
-            owner.send("MODE #authority +o ChanOp"); chanop.expect(" MODE #authority +o ChanOp")
+            owner.send("MODE #authority +o ChanOp"); oper.expect(" MODE #authority +o ChanOp")
             owner.send("MODE #authority +a Protect"); protect.expect(" MODE #authority +a Protect")
 
             # Voice is below INVITE authority; halfop and every higher rank may invite.
@@ -154,10 +152,11 @@ def main():
             protect.expect(" 341 Protect Outside #authority")
             outsider.expect(" INVITE Outside :#authority")
 
-            # +V blocks INVITE even for channel owner/protected authority.
+            # +V blocks INVITE even for protected/owner authority. ERR_518's
+            # numerics.h format places the channel in the trailing text.
             owner.send("MODE #authority +V"); protect.expect(" MODE #authority +V")
             protect.send("INVITE Outside #authority")
-            protect.expect(" 518 Protect #authority ")
+            protect.expect(" 518 Protect :Cannot invite (+V) at channel #authority")
             outsider.expect_not(" INVITE Outside :#authority")
             owner.send("MODE #authority -V"); protect.expect(" MODE #authority -V")
 
@@ -168,16 +167,16 @@ def main():
             half.send("TOPIC #authority :halfop topic")
             owner.expect(" TOPIC #authority :halfop topic")
 
-            # +T blocks channel NOTICE entirely. Removing it restores delivery.
-            owner.send("MODE #authority +T"); voice.expect(" MODE #authority +T")
+            # +T blocks channel NOTICE; removing it restores NOTICE delivery.
+            owner.send("MODE #authority +T"); protect.expect(" MODE #authority +T")
             voice.send("NOTICE #authority :blocked notice")
-            owner.expect_not("NOTICE #authority :blocked notice")
-            owner.send("MODE #authority -T"); voice.expect(" MODE #authority -T")
+            protect.expect_not("NOTICE #authority :blocked notice")
+            owner.send("MODE #authority -T"); protect.expect(" MODE #authority -T")
             voice.send("NOTICE #authority :restored notice")
-            owner.expect("NOTICE #authority :restored notice")
+            protect.expect("NOTICE #authority :restored notice")
+
         finally:
-            for client in clients:
-                client.close()
+            for c in clients: c.close()
             stop(proc)
 
 
