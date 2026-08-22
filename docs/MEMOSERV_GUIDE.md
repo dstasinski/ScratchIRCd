@@ -2,83 +2,60 @@
 
 MemoServ is a virtual server service for persistent account-to-account messages. It is not a `Client`, never joins channels, and never appears in NAMES, WHO, ISON, LIST, or LUSERS. Memo ownership is tied to authenticated NickServ account names rather than current nicknames.
 
-## Database
+## Database and policy
 
-MemoServ stores its data in:
+MemoServ stores data in:
 
 ```text
 memoserv_db = data/memoserv.db
+memoserv_quota = 100
+memoserv_retention_days = 90
 ```
 
-Each memo records a generated numeric id, sender account, recipient account, message text, creation time, and read time. Reading a memo marks it read; memos remain stored until the recipient deletes them.
+Quota is the maximum number of stored inbox memos for one recipient account. Retention is measured from memo creation time; `memoserv_retention_days = 0` disables automatic expiration. Expired memos are purged during normal MemoServ use and may also be purged explicitly by a network administrator.
+
+Each memo records a generated numeric id, sender account, recipient account, message text, creation time, and read time. Reading marks it read; it remains stored until deletion or retention expiry.
 
 ## Authentication
 
-All MemoServ commands require an authenticated NickServ account except HELP. The sender identity written into a memo is the authenticated account name. A user may therefore change nicknames without changing memo ownership.
+All MemoServ commands except HELP require an authenticated NickServ account. The sender identity stored with a memo is the authenticated account name, so nickname changes do not alter memo ownership.
 
-When a user successfully identifies through direct `IDENTIFY`, `NICKSERV IDENTIFY`, or SASL, MemoServ reports the number of unread memos if that count is nonzero. Memo contents are never displayed automatically.
+After successful direct IDENTIFY, NickServ IDENTIFY, or SASL, MemoServ reports the unread count when nonzero. Memo contents are never displayed automatically.
 
-## Sending a memo
+## Commands
 
 ```text
 MEMOSERV SEND <account> :<message>
-PRIVMSG MemoServ :SEND <account> :<message>
-```
-
-The destination must be an existing enabled NickServ account. The message may contain up to `IRCD_MEMOSERV_TEXT_MAX` characters (currently 400). The memo is stored even when the recipient is offline.
-
-If the recipient is currently connected and identified, MemoServ sends a short notice containing the new memo id, but the memo remains persistent until deleted.
-
-## Listing memos
-
-```text
 MEMOSERV LIST
-```
-
-MemoServ lists up to `IRCD_MEMOSERV_LIST_LIMIT` newest memos (currently 50), newest first. Each line contains the memo id, READ/UNREAD status, sender account, and creation timestamp.
-
-## Reading a memo
-
-```text
+MEMOSERV SENT
 MEMOSERV READ <memo-id>
-```
-
-Only the recipient account may read the memo. Reading it sets its read timestamp the first time it is read.
-
-## Status
-
-```text
-MEMOSERV STATUS
-```
-
-Reports the current unread memo count for the authenticated account.
-
-## Deleting memos
-
-```text
+MEMOSERV REPLY <memo-id> :<message>
+MEMOSERV FORWARD <memo-id> <account>
 MEMOSERV DEL <memo-id>
 MEMOSERV DEL ALL
-```
-
-`DELETE` is accepted as an alias for `DEL`. A user can delete only memos addressed to their authenticated account.
-
-## Help
-
-```text
+MEMOSERV STATUS
 MEMOSERV HELP
 ```
 
-The initial 0.21 command set is:
+The traditional `PRIVMSG MemoServ :<command>` form is also supported.
+
+`SEND` requires an existing enabled NickServ destination and enforces the destination mailbox quota. If the recipient is online and identified, a short new-memo notice is delivered immediately while the memo remains persistent.
+
+`LIST` shows the newest received memos with READ/UNREAD state. `SENT` shows the newest memos whose sender is the authenticated account; this is derived from the same database row and does not create a duplicate sent-message copy.
+
+`READ` is restricted to the recipient account and marks the memo read. `REPLY` sends a new memo back to the original sender of a recipient-owned memo. `FORWARD` sends the original memo text to another enabled account and records the forwarding account as the new sender.
+
+`STATUS` reports stored inbox count, configured quota, and unread count. `DEL`/`DELETE` removes recipient-owned memos only.
+
+## Network-administrator commands
 
 ```text
-SEND <account> :<message>
-LIST
-READ <memo-id>
-DEL <memo-id|ALL>
-STATUS
-HELP
+MSINFO <account>
+MSPURGE <account|*>
 ```
 
-## Privacy and service identity
+`MSINFO` reports stored count, unread count, server quota, and retention policy without displaying memo contents. `MSPURGE` deletes expired memos using the configured retention period, either for one account or globally with `*`. These commands require network-administrator mode `+N`.
 
-MemoServ does not use or expose client `real_ip`, `real_host`, or `display_host` in memo records. Persistent identity is strictly NickServ account-to-account. The reserved nickname `MemoServ` cannot be occupied by a normal IRC client.
+## Privacy
+
+MemoServ does not store or expose client `real_ip`, `real_host`, or `display_host` in memo records. Persistent identity is strictly NickServ account-to-account. The reserved nickname `MemoServ` cannot be occupied by a normal IRC client.
