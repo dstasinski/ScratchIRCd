@@ -22,6 +22,7 @@ CommandResult command_csdrop(Server *, Client *, char *);
 CommandResult command_csinfo(Server *, Client *, char *);
 CommandResult command_csset(Server *, Client *, char *);
 CommandResult command_deaf(Server *, Client *, char *);
+CommandResult command_die(Server *, Client *, char *);
 CommandResult command_geoban(Server *, Client *, char *);
 CommandResult command_globops(Server *, Client *, char *);
 CommandResult command_identify(Server *, Client *, char *);
