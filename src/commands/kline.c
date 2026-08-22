@@ -9,6 +9,7 @@
 
 #include "ban_db.h"
 #include "commands.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -40,6 +41,7 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     char *reason;
     BanDb db = {0};
     size_t i = 0U;
+    char notice[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
@@ -72,6 +74,8 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
         ban_db_close(&db);
         client_sendf(client, ":%s NOTICE %s :KLINE removed: %s",
                      server->config.server_name, client->nick, mask);
+        (void)snprintf(notice, sizeof(notice), "%s removed KLINE %s", client->nick, mask);
+        server_notice_broadcast(server, notice);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -110,5 +114,8 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     ban_db_close(&db);
     client_sendf(client, ":%s NOTICE %s :KLINE added: %s",
                  server->config.server_name, client->nick, mask);
+    (void)snprintf(notice, sizeof(notice), "%s added KLINE %s (%s)",
+                   client->nick, mask, reason);
+    server_notice_broadcast(server, notice);
     return COMMAND_KEEP_CLIENT;
 }
