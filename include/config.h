@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.27"
+#define IRCD_VERSION "ScratchIRCd-0.28"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -58,6 +58,13 @@
 
 /* Cloaked hostname format: cloak- plus this many lowercase SHA-256 hex chars. */
 #define IRCD_CLOAK_HEX_LENGTH 24U
+
+/* Nick-target KLINE/ZLINE shorthand defaults. */
+#define IRCD_DEFAULT_KLINE_DURATION_SECONDS 3600U
+#define IRCD_DEFAULT_ZLINE_DURATION_SECONDS 3600U
+#define IRCD_DEFAULT_KLINE_REASON "Temporary KLINE"
+#define IRCD_DEFAULT_ZLINE_REASON "Temporary ZLINE"
+#define IRCD_BAN_DURATION_HARD_MAX_SECONDS 31536000U
 
 /* ChanServ registration limits. */
 #define IRCD_CHANSERV_DESCRIPTION_MAX 255U
