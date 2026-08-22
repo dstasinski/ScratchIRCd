@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.30.0
+    VERSION 0.31.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -199,6 +199,8 @@ add_test(NAME moderation_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(moderation_integration PROPERTIES TIMEOUT 60)
 add_test(NAME geoban_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_geoban.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(geoban_integration PROPERTIES TIMEOUT 60)
+add_test(NAME channel_authority_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_authority.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(channel_authority_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
