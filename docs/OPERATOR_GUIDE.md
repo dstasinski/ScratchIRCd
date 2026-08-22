@@ -10,7 +10,7 @@ ScratchIRCd keeps three host/address values for each client:
 - `real_host` — FCrDNS-verified hostname for the actual IP, when available.
 - `display_host` — the public hostname shown to ordinary IRC users.
 
-WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) changes only `display_host`; future cloaking (`+x`) will do the same. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
+WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) or cloak (`+x`) changes only `display_host`. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
 
 For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
 
@@ -86,12 +86,34 @@ Successful login grants `+o` and loads permissions from the SQLite operator reco
 
 `netadmin` is reserved for the bootstrap network administrator.
 
+## Operator message and notice modes
+
+`+g` and `+s` are operator-only self-toggleable modes:
+
+```text
+MODE <nick> +g
+MODE <nick> +s
+```
+
+`+g` enables receipt and sending of operator-message traffic:
+
+```text
+GLOBOPS :<message>
+LOCOPS :<message>
+```
+
+Sending either command requires both IRC operator status and `+g`. ScratchIRCd is intentionally single-server, so both are local-process broadcasts even though the command names remain distinct.
+
+`+s` enables daemon-generated server notices. Current notices include meaningful security/administrative events such as KILL, KLINE, and ZLINE changes.
+
 ## Implemented operator commands
 
 ```text
+GLOBOPS :<message>
 KILL <nickname> :<reason>
 KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
+LOCOPS :<message>
 ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 WALLOPS :<message>
@@ -144,6 +166,7 @@ AWAY
 CAP
 CHANSERV
 CHATHISTORY
+GLOBOPS
 IDENTIFY
 INVITE
 ISON
@@ -152,6 +175,7 @@ KICK
 KILL
 KLINE
 LIST
+LOCOPS
 LUSERS
 MEMOSERV
 MODE
@@ -176,13 +200,16 @@ SAPART
 SETHOST
 SETIDENT
 SETNAME
+SILENCE
 TOPIC
 USER
 USERHOST
 USERIP
 WALLOPS
+WATCH
 WHO
 WHOIS
+WHOWAS
 ZLINE
 ```
 
@@ -193,14 +220,14 @@ ZLINE
 - `+o` — IRC operator.
 - `+N` — network administrator; bootstrap administrator only.
 - `+h` — HelpOp.
-- `+H` — hide IRCop status; full behavior still planned.
-- `+I` — hide operator idle time from regular users.
-- `+g` — globops/locops capability; full behavior still planned.
+- `+H` — hide IRCop status from regular users; IRCop-self-toggleable.
+- `+I` — hide operator idle time from regular users; IRCop-self-toggleable.
+- `+g` — receive/send GLOBOPS and LOCOPS; IRCop-self-toggleable.
 - `+r` — authenticated NickServ account; service-controlled.
-- `+s` — server-notice reception; full behavior still planned.
+- `+s` — receive daemon-generated server notices; IRCop-self-toggleable.
 - `+w` — receive WALLOPS.
-- `+W` — WHOIS notification for IRCops; full behavior still planned.
+- `+W` — receive WHOIS notifications; IRCop-self-toggleable.
 - `+t` — using an operator/NickServ vhost; changes `display_host` only.
 - `+V` — authenticated WebIRC end user.
-- `+x` — cloaked displayed hostname; cloak generation is still planned.
+- `+x` — cloaked displayed hostname; changes `display_host` only.
 - `+z` — authenticated TLS transport.
