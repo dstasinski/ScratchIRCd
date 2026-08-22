@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.22.0
+    VERSION 0.23.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -31,7 +31,7 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/modes.c src/oper.c
+    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/modes.c src/oper.c src/presence.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
@@ -44,10 +44,10 @@ add_executable(scratchircd
     src/commands/privmsg.c src/commands/quit.c src/commands/rehash.c
     src/commands/restart.c src/commands/rules.c src/commands/sajoin.c
     src/commands/samode.c src/commands/sapart.c src/commands/sethost.c
-    src/commands/setident.c src/commands/setname.c src/commands/topic.c
+    src/commands/setident.c src/commands/setname.c src/commands/silence.c src/commands/topic.c
     src/commands/user.c src/commands/userhost.c src/commands/userip.c
-    src/commands/wallops.c src/commands/webirc.c src/commands/who.c
-    src/commands/whois.c src/commands/zline.c
+    src/commands/wallops.c src/commands/watch.c src/commands/webirc.c src/commands/who.c
+    src/commands/whois.c src/commands/whowas.c src/commands/zline.c
 )
 
 set_source_files_properties(src/commands/mode.c PROPERTIES
@@ -173,6 +173,8 @@ add_test(NAME chanserv_persistence_integration COMMAND ${Python3_EXECUTABLE} ${C
 set_tests_properties(chanserv_persistence_integration PROPERTIES TIMEOUT 60)
 add_test(NAME memoserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(memoserv_integration PROPERTIES TIMEOUT 60)
+add_test(NAME presence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_presence.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(presence_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
