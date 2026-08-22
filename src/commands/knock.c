@@ -4,10 +4,12 @@
  *
  * KNOCK asks channel staff for an invitation. It never creates an invite
  * record itself; a halfop or higher must still issue INVITE explicitly.
- * Channel mode +K disables KNOCK for that channel.
+ * Channel mode +K disables KNOCK for that channel. Banned clients cannot use
+ * KNOCK as a side channel to contact channel staff.
  */
 
 #include "commands.h"
+#include "channel_policy.h"
 #include "modes.h"
 #include "numerics.h"
 
@@ -19,6 +21,7 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
     Channel *channel;
     ChannelMember *member;
     int delivered = 0;
+    int is_full;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
@@ -57,10 +60,19 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* If no obvious access restriction is present, the requester can JOIN. */
+    if (channel_client_is_banned(channel, client)) {
+        client_sendf(client, ERR_CANNOTKNOCK,
+                     server->config.server_name, client->nick,
+                     channel->name, "you are banned");
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    is_full = channel->user_limit != 0U &&
+              channel->member_count >= channel->user_limit;
+
+    /* If no obvious access restriction is active, the requester can JOIN. */
     if (!channel_mode_has(channel->modes, CHANNEL_MODE_INVITE_ONLY) &&
-        channel->key[0] == '\0' &&
-        channel->user_limit == 0U) {
+        channel->key[0] == '\0' && !is_full) {
         client_sendf(client, ERR_CANNOTKNOCK,
                      server->config.server_name, client->nick,
                      channel->name, "channel is open");
