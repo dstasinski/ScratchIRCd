@@ -14,6 +14,7 @@ static const CommandEntry command_table[] = {
     {"JOIN", command_join}, {"KICK", command_kick}, {"KILL", command_kill},
     {"KLINE", command_kline}, {"LIST", command_list}, {"LUSERS", command_lusers},
     {"MEMOSERV", command_memoserv}, {"MODE", command_mode}, {"MOTD", command_motd},
+    {"MSINFO", command_msinfo}, {"MSPURGE", command_mspurge},
     {"NAMES", command_names}, {"NICK", command_nick}, {"NICKSERV", command_nickserv},
     {"NOTICE", command_notice}, {"NSDROP", command_nsdrop}, {"NSINFO", command_nsinfo},
     {"NSSET", command_nsset}, {"OPER", command_oper}, {"OPERADD", command_operadd},
