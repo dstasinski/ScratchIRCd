@@ -35,6 +35,8 @@ typedef uint64_t ClientModeSet;
 #define CLIENT_MODE_WALLOPS          (UINT64_C(1) << 18)
 #define CLIENT_MODE_CLOAKED          (UINT64_C(1) << 19)
 #define CLIENT_MODE_SECURE           (UINT64_C(1) << 20)
+#define CLIENT_MODE_PRIVATE_DEAF     (UINT64_C(1) << 21) /* +D, oper-controlled */
+#define CLIENT_MODE_CHANNEL_MUTE     (UINT64_C(1) << 22) /* +M, oper-controlled */
 
 typedef uint64_t ChannelModeSet;
 
