@@ -109,6 +109,10 @@ def main():
             f.write("admin_email = admin@example.test\n")
             f.write(f"operators_db = {data_dir}/operators.db\n")
             f.write(f"bans_db = {data_dir}/bans.db\n")
+            f.write("kline_default_duration_seconds = 2\n")
+            f.write("kline_default_reason = nickname kline default\n")
+            f.write("zline_default_duration_seconds = 2\n")
+            f.write("zline_default_reason = nickname zline default\n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
@@ -152,6 +156,27 @@ def main():
             zed.expect(" 465 zed ")
             admin.send("ZLINE -127.0.0.1")
             admin.expect("NOTICE alice :ZLINE removed: 127.0.0.1")
+
+            # Nickname shorthand: KLINE resolves to *@real_host (or *@real_ip),
+            # uses configured duration/reason, disconnects matching clients, and expires.
+            nickkline = IRCClient(port); clients.append(nickkline)
+            register(nickkline, "nickkline")
+            admin.send("KLINE nickkline")
+            admin.expect("nickname kline default")
+            nickkline.expect(" 465 nickkline ")
+            time.sleep(2.2)
+            after_kline = IRCClient(port); clients.append(after_kline)
+            register(after_kline, "afterkline")
+
+            # Nickname shorthand: ZLINE resolves to the target's exact real_ip.
+            nickzline = IRCClient(port); clients.append(nickzline)
+            register(nickzline, "nickzline")
+            admin.send("ZLINE nickzline")
+            admin.expect("nickname zline default")
+            nickzline.expect(" 465 nickzline ")
+            time.sleep(2.2)
+            after_zline = IRCClient(port); clients.append(after_zline)
+            register(after_zline, "afterzline")
 
             admin.send("REHASH")
             admin.expect(" 382 alice ")
