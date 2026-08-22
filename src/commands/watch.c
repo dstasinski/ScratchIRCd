@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static void report_current(Server *server, Client *client, const char *nick) {
     Client *subject = hash_get(&server->clients_by_nick, nick);
