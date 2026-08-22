@@ -32,10 +32,23 @@ int main(void) {
     assert(ban_db_match(&db, BAN_TYPE_KLINE,
                         "baduser@example.test", NULL, &match) == 1);
     assert(strcmp(match.reason, "testing kline") == 0);
+    assert(match.expires_at == 0);
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "192.0.2.44", NULL, &match) == 1);
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "198.51.100.9", NULL, &match) == 0);
+
+    /* Timed bans carry a real expiration and disappear once it is in the past. */
+    assert(ban_db_add_timed(&db, BAN_TYPE_ZLINE, "203.0.113.9",
+                            "temporary", "root", 60U) == 0);
+    assert(ban_db_match(&db, BAN_TYPE_ZLINE,
+                        "203.0.113.9", NULL, &match) == 1);
+    assert(match.expires_at > match.created_at);
+    assert(sqlite3_exec(db.handle,
+        "UPDATE bans SET expires_at=unixepoch()-1 WHERE type=2 AND mask='203.0.113.9'",
+        NULL, NULL, NULL) == SQLITE_OK);
+    assert(ban_db_match(&db, BAN_TYPE_ZLINE,
+                        "203.0.113.9", NULL, &match) == 0);
 
     count = 0;
     assert(ban_db_list(&db, BAN_TYPE_KLINE, count_record, NULL) == 0);
