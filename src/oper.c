@@ -24,6 +24,7 @@ static const OperPermissionName permission_names[] = {
     {"can_kline",    OPER_PERMISSION_KLINE},
     {"can_unkline",  OPER_PERMISSION_UNKLINE},
     {"can_zline",    OPER_PERMISSION_ZLINE},
+    {"can_geoban",   OPER_PERMISSION_GEOBAN},
     {"get_host",     OPER_PERMISSION_GETHOST},
     {"can_override", OPER_PERMISSION_OVERRIDE},
     {"netadmin",     OPER_PERMISSION_NETADMIN}
