@@ -28,6 +28,7 @@ void usermode_apply_cloak(const Server *server, Client *client) {
     const char *identity;
     size_t i;
     size_t used;
+    const size_t digest_bytes = IRCD_CLOAK_HEX_LENGTH / 2U;
 
     if (server == NULL || client == NULL) return;
     identity = client->real_host[0] != '\0' ? client->real_host : client->real_ip;
@@ -36,7 +37,8 @@ void usermode_apply_cloak(const Server *server, Client *client) {
     SHA256((const unsigned char *)input, strlen(input), digest);
 
     used = (size_t)snprintf(cloak, sizeof(cloak), "cloak-");
-    for (i = 0U; i < IRCD_CLOAK_HEX_BYTES && used + 2U < sizeof(cloak); ++i) {
+    for (i = 0U; i < digest_bytes && i < sizeof(digest) &&
+         used + 2U < sizeof(cloak); ++i) {
         int written = snprintf(cloak + used, sizeof(cloak) - used,
                                "%02x", digest[i]);
         if (written != 2) break;
