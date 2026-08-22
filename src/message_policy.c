@@ -14,6 +14,11 @@ static int is_hex(unsigned char ch) {
     return isxdigit(ch) != 0;
 }
 
+static int is_oper_client(const Client *client) {
+    return client != NULL &&
+           client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN);
+}
+
 int message_contains_color(const char *text) {
     const unsigned char *p = (const unsigned char *)text;
     if (text == NULL) return 0;
@@ -82,7 +87,7 @@ void server_notice_broadcast(Server *server, const char *text) {
     if (server == NULL || text == NULL) return;
     for (i = 0U; i < server->client_count; ++i) {
         Client *target = server->clients[i];
-        if (target != NULL && target->registered &&
+        if (target != NULL && target->registered && is_oper_client(target) &&
             client_mode_has(target->modes, CLIENT_MODE_SERVER_NOTICES)) {
             client_sendf(target, ":%s NOTICE %s :*** %s",
                          server->config.server_name, target->nick, text);
@@ -96,7 +101,7 @@ void oper_message_broadcast(Server *server, const Client *source,
     if (server == NULL || source == NULL || command == NULL || text == NULL) return;
     for (i = 0U; i < server->client_count; ++i) {
         Client *target = server->clients[i];
-        if (target != NULL && target->registered &&
+        if (target != NULL && target->registered && is_oper_client(target) &&
             client_mode_has(target->modes, CLIENT_MODE_GLOBALS)) {
             client_sendf(target, ":%s!%s@%s %s :%s",
                          source->nick, source->user, source->display_host,
