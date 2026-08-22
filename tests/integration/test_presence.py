@@ -18,18 +18,20 @@ class IRCClient:
     def send(self, line):
         self.sock.sendall((line + "\r\n").encode())
 
-    def _lines(self):
-        out = []
-        while b"\n" in self.buffer:
-            raw, self.buffer = self.buffer.split(b"\n", 1)
-            out.append(raw.rstrip(b"\r").decode(errors="replace"))
-        return out
+    def _next_buffered_line(self):
+        if b"\n" not in self.buffer:
+            return None
+        raw, self.buffer = self.buffer.split(b"\n", 1)
+        return raw.rstrip(b"\r").decode(errors="replace")
 
     def expect(self, needle, duration=5.0):
         deadline = time.monotonic() + duration
         got = []
         while time.monotonic() < deadline:
-            for line in self._lines():
+            while True:
+                line = self._next_buffered_line()
+                if line is None:
+                    break
                 got.append(line)
                 if needle in line:
                     return line
@@ -46,7 +48,10 @@ class IRCClient:
         deadline = time.monotonic() + duration
         got = []
         while time.monotonic() < deadline:
-            for line in self._lines():
+            while True:
+                line = self._next_buffered_line()
+                if line is None:
+                    break
                 got.append(line)
                 if needle in line:
                     raise AssertionError(f"unexpected {needle!r}; got {got!r}")
