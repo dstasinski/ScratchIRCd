@@ -11,7 +11,6 @@
 #include "modes.h"
 #include "numerics.h"
 
-#include <stdio.h>
 #include <string.h>
 
 CommandResult command_knock(Server *server, Client *client, char *params) {
@@ -45,8 +44,9 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
     }
 
     if (channel_has_client(channel, client)) {
-        client_sendf(client, ERR_KNOCKONCHAN,
-                     server->config.server_name, client->nick, channel->name);
+        client_sendf(client, ERR_CANNOTKNOCK,
+                     server->config.server_name, client->nick,
+                     channel->name, "you are already on the channel");
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -57,12 +57,13 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* If no access restriction is present, the requester can simply JOIN. */
+    /* If no obvious access restriction is present, the requester can JOIN. */
     if (!channel_mode_has(channel->modes, CHANNEL_MODE_INVITE_ONLY) &&
         channel->key[0] == '\0' &&
         channel->user_limit == 0U) {
-        client_sendf(client, ERR_CHANOPEN,
-                     server->config.server_name, client->nick, channel->name);
+        client_sendf(client, ERR_CANNOTKNOCK,
+                     server->config.server_name, client->nick,
+                     channel->name, "channel is open");
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -76,15 +77,14 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
                                    CHANNEL_PRIV_OWNER)) {
             continue;
         }
-        client_sendf(member->client, RPL_KNOCK,
-                     server->config.server_name, member->client->nick,
-                     channel->name, client->nick, client->user,
-                     client->display_host, reason);
+        client_sendf(member->client, ":%s!%s@%s KNOCK %s :%s",
+                     client->nick, client->user, client->display_host,
+                     channel->name, reason);
         delivered = 1;
     }
 
     if (delivered) {
-        client_sendf(client, RPL_KNOCKDLVR,
+        client_sendf(client, ":%s NOTICE %s :KNOCK delivered to %s channel staff",
                      server->config.server_name, client->nick, channel->name);
     } else {
         client_sendf(client, ERR_CANNOTKNOCK,
