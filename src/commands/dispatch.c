@@ -10,7 +10,7 @@ static const CommandEntry command_table[] = {
     {"ADMIN", command_admin}, {"AUTHENTICATE", command_authenticate}, {"AWAY", command_away},
     {"CAP", command_cap}, {"CHANSERV", command_chanserv}, {"CHATHISTORY", command_chathistory},
     {"CSDROP", command_csdrop}, {"CSINFO", command_csinfo}, {"CSSET", command_csset},
-    {"DEAF", command_deaf}, {"GLOBOPS", command_globops},
+    {"DEAF", command_deaf}, {"GEOBAN", command_geoban}, {"GLOBOPS", command_globops},
     {"IDENTIFY", command_identify}, {"INVITE", command_invite}, {"ISON", command_ison},
     {"JOIN", command_join}, {"KICK", command_kick}, {"KILL", command_kill},
     {"KLINE", command_kline}, {"KNOCK", command_knock}, {"LIST", command_list},
@@ -26,10 +26,10 @@ static const CommandEntry command_table[] = {
     {"RESTART", command_restart}, {"RULES", command_rules}, {"SAJOIN", command_sajoin},
     {"SAMODE", command_samode}, {"SAPART", command_sapart}, {"SETHOST", command_sethost},
     {"SETIDENT", command_setident}, {"SETNAME", command_setname}, {"SILENCE", command_silence},
-    {"TOPIC", command_topic}, {"USER", command_user}, {"USERHOST", command_userhost},
-    {"USERIP", command_userip}, {"WALLOPS", command_wallops}, {"WATCH", command_watch},
-    {"WEBIRC", command_webirc}, {"WHO", command_who}, {"WHOIS", command_whois},
-    {"WHOWAS", command_whowas}, {"ZLINE", command_zline}
+    {"TOPIC", command_topic}, {"UNGEOBAN", command_ungeoban}, {"USER", command_user},
+    {"USERHOST", command_userhost}, {"USERIP", command_userip}, {"WALLOPS", command_wallops},
+    {"WATCH", command_watch}, {"WEBIRC", command_webirc}, {"WHO", command_who},
+    {"WHOIS", command_whois}, {"WHOWAS", command_whowas}, {"ZLINE", command_zline}
 };
 
 CommandResult command_dispatch(Server *server, Client *client,
