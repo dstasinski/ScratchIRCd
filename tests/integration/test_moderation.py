@@ -133,6 +133,7 @@ def main():
             admin = IRCClient(port); clients.append(admin); register(admin, "Admin")
             bob = IRCClient(port); clients.append(bob); register(bob, "Bob")
             carol = IRCClient(port); clients.append(carol); register(carol, "Carol")
+            dave = IRCClient(port); clients.append(dave); register(dave, "Dave")
             admin.send("OPER root adminpass")
             admin.expect(" 381 Admin :You are now a Network Administrator")
 
@@ -164,9 +165,11 @@ def main():
             carol.send("PRIVMSG Bob :restored")
             bob.expect("PRIVMSG Bob :restored")
 
-            # +M blocks all channel sends, regardless of membership privilege.
+            # +M blocks ordinary channel sends.
             bob.send("JOIN #mute"); bob.expect(" 366 Bob #mute ")
             carol.send("JOIN #mute"); carol.expect(" 366 Carol #mute ")
+            dave.send("JOIN #mute"); dave.expect(" 366 Dave #mute ")
+            admin.send("JOIN #mute"); admin.expect(" 366 Admin #mute ")
             admin.send("MUTE +Bob"); bob.expect(" MODE Bob +M")
             bob.send("MODE Bob"); bob.expect(" 221 Bob +M")
             bob.send("PRIVMSG #mute :blocked channel text")
@@ -175,6 +178,23 @@ def main():
             bob.send("NOTICE #mute :blocked channel notice")
             bob.expect(" 404 Bob #mute ")
             carol.expect_not("blocked channel notice")
+
+            # Protected (+a) and owner (+q) authority make +M ineffective in
+            # that channel. The immunity is channel-specific.
+            admin.send("MODE #mute +a Bob"); bob.expect(" MODE #mute +a Bob")
+            bob.send("PRIVMSG #mute :protected immune")
+            carol.expect("PRIVMSG #mute :protected immune")
+            admin.send("MODE #mute -a+q Bob Bob"); bob.expect(" MODE #mute -a+q Bob Bob")
+            bob.send("PRIVMSG #mute :owner immune")
+            carol.expect("PRIVMSG #mute :owner immune")
+
+            # IRCops/netadmins are globally immune to +M, independent of
+            # channel rank. Remove Admin's owner status before checking it.
+            admin.send("MODE #mute -q Admin")
+            admin.send("MUTE +Admin"); admin.expect(" MODE Admin +M")
+            admin.send("PRIVMSG #mute :oper immune")
+            carol.expect("PRIVMSG #mute :oper immune")
+            admin.send("MUTE -Admin"); admin.expect(" MODE Admin -M")
 
             admin.send("MUTE -Bob"); bob.expect(" MODE Bob -M")
             bob.send("PRIVMSG #mute :channel restored")
