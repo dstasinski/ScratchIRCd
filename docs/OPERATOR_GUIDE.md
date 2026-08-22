@@ -10,7 +10,7 @@ ScratchIRCd keeps three host/address values for each client:
 - `real_host` — FCrDNS-verified hostname for the actual IP, when available.
 - `display_host` — the public hostname shown to ordinary IRC users.
 
-WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) or cloak (`+x`) changes only `display_host`. KLINE, ZLINE, DNSBL, and GeoIP ignore the displayed hostname and use the real security identity.
+WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) or cloak (`+x`) changes only `display_host`. KLINE, ZLINE, DNSBL, GeoIP, and GeoBAN ignore the displayed hostname and use the real security identity or MaxMind metadata.
 
 For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
 
@@ -81,10 +81,26 @@ Successful login grants `+o` and loads permissions from the SQLite operator reco
 - `can_kline` — add KLINEs.
 - `can_unkline` — remove KLINEs.
 - `can_zline` — add/remove ZLINEs, including automatic DNSBL-generated ZLINEs.
+- `can_geoban` — add/list/remove persistent COUNTRY, REGION, ASN, and ORG GeoBAN policies.
 - `get_host` — receive the configured operator vhost and `+t`.
 - `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
 
 `netadmin` is reserved for the bootstrap network administrator.
+
+## Operator-controlled moderation modes
+
+Operators may apply or remove the server moderation modes with:
+
+```text
+DEAF +<nick>
+DEAF -<nick>
+MUTE +<nick>
+MUTE -<nick>
+```
+
+`DEAF +nick` sets user mode `+D`; ordinary clients cannot self-set or self-remove it. A `+D` client cannot exchange direct PRIVMSG/NOTICE with ordinary users, while IRCops and network administrators remain exempt.
+
+`MUTE +nick` sets user mode `+M`; ordinary clients cannot self-set or self-remove it. `+M` blocks channel PRIVMSG/NOTICE only while the client is an ordinary member. Any channel privilege (`+v`, `+h`, `+o`, `+a`, or `+q`) makes the client immune in that channel, and IRCops/network administrators are globally immune. See `docs/MODERATION_GUIDE.md`.
 
 ## Operator message and notice modes
 
@@ -104,17 +120,24 @@ LOCOPS :<message>
 
 Sending either command requires both IRC operator status and `+g`. ScratchIRCd is intentionally single-server, so both are local-process broadcasts even though the command names remain distinct.
 
-`+s` enables daemon-generated server notices. Current notices include meaningful security/administrative events such as KILL, KLINE, and ZLINE changes.
+`+s` enables daemon-generated server notices. Current notices include meaningful security/administrative events such as KILL, KLINE, ZLINE, and GeoBAN changes.
 
 ## Implemented operator commands
 
 ```text
+DEAF +<nick>
+DEAF -<nick>
+GEOBAN <COUNTRY|REGION|ASN|ORG> <value> <duration|0> [:reason]
+GEOBAN LIST
 GLOBOPS :<message>
 KILL <nickname> :<reason>
 KLINE <nickname>
 KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 LOCOPS :<message>
+MUTE +<nick>
+MUTE -<nick>
+UNGEOBAN <COUNTRY|REGION|ASN|ORG> <value>
 ZLINE <nickname>
 ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
@@ -135,6 +158,8 @@ WHOIS <nickname>
 Explicit KLINE matches `user@real_host` and `user@real_ip`; explicit ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
 `KLINE <nickname>` is a shorthand temporary ban. ScratchIRCd resolves the live target to `*@real_host`, falling back to `*@real_ip` when no verified hostname is available. `ZLINE <nickname>` resolves to the target's exact `real_ip`. Both shorthand forms use the configured `*_default_duration_seconds` and `*_default_reason` settings. Explicit mask commands remain permanent. Expired temporary records are ignored and automatically purged from `data/bans.db`.
+
+GeoBAN policies live in a separate `geo_bans` table inside `data/bans.db` and never change KLINE/ZLINE semantics. COUNTRY and REGION values are normalized uppercase, ASN accepts either numeric or `AS`-prefixed input, and ORG supports case-insensitive Tcl-style wildcard matching. See `docs/GEOBAN_GUIDE.md`.
 
 Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. An operator with `can_zline` can remove one with `ZLINE -<ip>`.
 
@@ -170,6 +195,8 @@ AWAY
 CAP
 CHANSERV
 CHATHISTORY
+DEAF
+GEOBAN
 GLOBOPS
 IDENTIFY
 INVITE
@@ -185,6 +212,7 @@ LUSERS
 MEMOSERV
 MODE
 MOTD
+MUTE
 NAMES
 NICK
 NICKSERV
@@ -207,6 +235,7 @@ SETIDENT
 SETNAME
 SILENCE
 TOPIC
+UNGEOBAN
 USER
 USERHOST
 USERIP
@@ -222,6 +251,8 @@ ZLINE
 
 ## Operator-related user modes
 
+- `+D` — private-message isolation, applied/removed only through DEAF by an IRCop or higher.
+- `+M` — ordinary-channel-member mute, applied/removed only through MUTE by an IRCop or higher.
 - `+o` — IRC operator.
 - `+N` — network administrator; bootstrap administrator only.
 - `+h` — HelpOp.
