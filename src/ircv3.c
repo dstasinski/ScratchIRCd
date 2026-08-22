@@ -5,8 +5,10 @@
 
 #include "ircv3.h"
 #include "channel.h"
+#include "usermode_policy.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 /** Return true when recipient already appeared in a channel visited before stop. */
@@ -67,6 +69,10 @@ void ircv3_broadcast_message(Channel *channel, const Client *except,
     if (channel == NULL) return;
     for (member = channel->members; member != NULL; member = member->next) {
         if (member->client == except) continue;
+        /* +d suppresses ordinary channel PRIVMSGs, but command-prefixed text
+         * (currently '!') remains visible so bot/command traffic still works. */
+        if (strcmp(command, "PRIVMSG") == 0 &&
+            !usermode_deaf_allows_text(member->client, text)) continue;
         ircv3_send_message(member->client, source, command, target, text);
     }
 }
