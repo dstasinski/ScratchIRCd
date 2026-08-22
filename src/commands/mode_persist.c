@@ -151,15 +151,21 @@ static int handle_special_user_modes(Server *server, Client *client,
             else usermode_remove_cloak(client);
             continue;
         }
-        if (letter == 'H' || letter == 'I' || letter == 'W') {
-            ClientModeSet bit = letter == 'H' ? CLIENT_MODE_HIDE_OPER :
-                                letter == 'I' ? CLIENT_MODE_HIDE_IDLE :
-                                                CLIENT_MODE_WHOIS_NOTICE;
+        if (letter == 'H' || letter == 'I' || letter == 'W' ||
+            letter == 'g' || letter == 's') {
+            ClientModeSet bit;
             consumed = 1;
             if (!is_oper) {
                 client_sendf(client, ERR_NOPRIVILEGES,
                              server->config.server_name, client->nick);
                 continue;
+            }
+            switch (letter) {
+                case 'H': bit = CLIENT_MODE_HIDE_OPER; break;
+                case 'I': bit = CLIENT_MODE_HIDE_IDLE; break;
+                case 'W': bit = CLIENT_MODE_WHOIS_NOTICE; break;
+                case 'g': bit = CLIENT_MODE_GLOBALS; break;
+                default:  bit = CLIENT_MODE_SERVER_NOTICES; break;
             }
             if (sign == '+') client->modes = client_mode_add(client->modes, bit);
             else client->modes = client_mode_remove(client->modes, bit);
@@ -204,11 +210,10 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         if (handle_special_user_modes(server, client, target, mode_string,
                                       filtered, sizeof(filtered))) {
             char forwarded[IRCD_MESSAGE_BUFFER_SIZE];
-            if (filtered[0] == '\0') {
+            if (filtered[0] == '\0')
                 (void)snprintf(forwarded, sizeof(forwarded), "%s", target);
-            } else {
+            else
                 (void)snprintf(forwarded, sizeof(forwarded), "%s %s", target, filtered);
-            }
             return command_mode_core(server, client, forwarded);
         }
     }
