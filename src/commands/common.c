@@ -9,6 +9,7 @@
 #include "config.h"
 #include "geoip.h"
 #include "numerics.h"
+#include "presence.h"
 
 #include <stdio.h>
 #include <sys/socket.h>
@@ -111,6 +112,7 @@ void command_maybe_register(Server *server, Client *client) {
                    IRCD_ISUPPORT_BASE, server->config.history_limit, pchannels);
     client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick,
                  isupport);
+    presence_watch_online(server, client);
 }
 
 int command_require_registered(Client *client) {
