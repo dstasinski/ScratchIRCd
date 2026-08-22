@@ -130,7 +130,7 @@ Authenticate with:
 OPER root <password>
 ```
 
-A successful bootstrap login receives `+N` and the complete operator permission set, including `can_geoban`. The bootstrap hostmask is evaluated against real identity, never `display_host` or a WebIRC gateway.
+A successful bootstrap login receives `+N` and the complete operator permission set, including `can_die` and `can_geoban`. The bootstrap hostmask is evaluated against real identity, never `display_host` or a WebIRC gateway.
 
 ## Operator database management
 
@@ -227,10 +227,19 @@ MUTE -<nick>
 
 `DEAF` controls user mode `+D`. `MUTE` controls user mode `+M`; +M affects only ordinary channel members, while +v/+h/+o/+a/+q members are immune in that channel and IRCops/network administrators are globally immune. See `docs/MODERATION_GUIDE.md`.
 
+## Graceful shutdown and restart
+
+```text
+DIE
+RESTART
+```
+
+`DIE` requires `can_die` and requests a clean daemon shutdown. It exits the event loop, disconnects remaining clients through the normal server teardown path, closes listeners and worker resources, and then terminates the process. `RESTART` requires `can_restart` and uses the same teardown path before rebuilding the server in the same process.
+
 ## Operator permissions
 
 - `can_rehash` — use REHASH.
-- `can_die` — reserved for DIE; not implemented.
+- `can_die` — use DIE for graceful daemon shutdown.
 - `can_restart` — use RESTART.
 - `helpop` — grants `+h` on OPER login.
 - `can_wallops` — send WALLOPS.
@@ -256,6 +265,7 @@ CSDROP
 CSINFO
 CSSET
 DEAF
+DIE
 GEOBAN
 GLOBOPS
 IDENTIFY
