@@ -24,6 +24,10 @@ int main(void) {
     assert(fputs("memoserv_retention_days = 45\n", file) >= 0);
     assert(fputs("history_db = data/test-history.db\n", file) >= 0);
     assert(fputs("history_limit = 42\n", file) >= 0);
+    assert(fputs("kline_default_duration_seconds = 1800\n", file) >= 0);
+    assert(fputs("kline_default_reason = default kline reason\n", file) >= 0);
+    assert(fputs("zline_default_duration_seconds = 900\n", file) >= 0);
+    assert(fputs("zline_default_reason = default zline reason\n", file) >= 0);
     assert(fputs("sendmail_path = /usr/sbin/sendmail\n", file) >= 0);
     assert(fputs("mail_from = services@example.test\n", file) >= 0);
     assert(fputs("nickserv_reset_seconds = 1200\n", file) >= 0);
@@ -44,6 +48,10 @@ int main(void) {
     assert(config.memoserv_retention_days == 45U);
     assert(strcmp(config.history_db, "data/test-history.db") == 0);
     assert(config.history_limit == 42U);
+    assert(config.kline_default_duration_seconds == 1800U);
+    assert(strcmp(config.kline_default_reason, "default kline reason") == 0);
+    assert(config.zline_default_duration_seconds == 900U);
+    assert(strcmp(config.zline_default_reason, "default zline reason") == 0);
     assert(strcmp(config.sendmail_path, "/usr/sbin/sendmail") == 0);
     assert(strcmp(config.mail_from, "services@example.test") == 0);
     assert(config.nickserv_reset_seconds == 1200U);
