@@ -53,6 +53,7 @@ static void grant_oper(Client *client, const char *name,
     if (oper_permission_has(permissions, OPER_PERMISSION_GETHOST) &&
         vhost != NULL && *vhost != '\0') {
         (void)snprintf(client->display_host, sizeof(client->display_host), "%s", vhost);
+        client->modes = client_mode_remove(client->modes, CLIENT_MODE_CLOAKED);
         client->modes = client_mode_add(client->modes, CLIENT_MODE_VHOST);
     }
 }
