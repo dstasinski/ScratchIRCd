@@ -46,6 +46,8 @@ typedef struct ServerConfig {
     char memoserv_db[IRCD_CONFIG_PATH_MAX + 1U];
     char history_db[IRCD_CONFIG_PATH_MAX + 1U];
     size_t history_limit;
+    size_t memoserv_quota;
+    unsigned int memoserv_retention_days;
 
     /** Optional sendmail-compatible MTA used for NickServ verification/reset. */
     char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
