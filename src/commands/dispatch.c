@@ -23,10 +23,11 @@ static const CommandEntry command_table[] = {
     {"PRIVMSG", command_privmsg}, {"QUIT", command_quit}, {"REHASH", command_rehash},
     {"RESTART", command_restart}, {"RULES", command_rules}, {"SAJOIN", command_sajoin},
     {"SAMODE", command_samode}, {"SAPART", command_sapart}, {"SETHOST", command_sethost},
-    {"SETIDENT", command_setident}, {"SETNAME", command_setname}, {"TOPIC", command_topic},
-    {"USER", command_user}, {"USERHOST", command_userhost}, {"USERIP", command_userip},
-    {"WALLOPS", command_wallops}, {"WEBIRC", command_webirc}, {"WHO", command_who},
-    {"WHOIS", command_whois}, {"ZLINE", command_zline}
+    {"SETIDENT", command_setident}, {"SETNAME", command_setname}, {"SILENCE", command_silence},
+    {"TOPIC", command_topic}, {"USER", command_user}, {"USERHOST", command_userhost},
+    {"USERIP", command_userip}, {"WALLOPS", command_wallops}, {"WATCH", command_watch},
+    {"WEBIRC", command_webirc}, {"WHO", command_who}, {"WHOIS", command_whois},
+    {"WHOWAS", command_whowas}, {"ZLINE", command_zline}
 };
 
 CommandResult command_dispatch(Server *server, Client *client,
