@@ -48,6 +48,15 @@ CommandResult command_whois(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    /* +W is IRCop-only and reports WHOIS activity without exposing real identity. */
+    if (target != client &&
+        client_mode_has(target->modes, CLIENT_MODE_WHOIS_NOTICE) &&
+        client_mode_has(target->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
+        client_sendf(target, ":%s NOTICE %s :*** %s!%s@%s did a /WHOIS on you",
+                     server->config.server_name, target->nick,
+                     client->nick, client->user, client->display_host);
+    }
+
     client_sendf(client, RPL_WHOISUSER, server->config.server_name, client->nick,
                  target->nick, target->user, target->display_host, target->realname);
     client_sendf(client, RPL_WHOISSERVER, server->config.server_name, client->nick,
