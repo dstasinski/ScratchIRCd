@@ -18,6 +18,7 @@ static const char *schema_sql =
     "reason TEXT NOT NULL DEFAULT '',"
     "set_by TEXT NOT NULL DEFAULT '',"
     "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+    "expires_at INTEGER NOT NULL DEFAULT 0,"
     "PRIMARY KEY(type,mask)"
     ");";
 
@@ -69,6 +70,34 @@ static void record_from_stmt(sqlite3_stmt *stmt, BanRecord *record) {
     text = sqlite3_column_text(stmt, 3);
     if (text != NULL) snprintf(record->set_by, sizeof(record->set_by), "%s", (const char *)text);
     record->created_at = sqlite3_column_int64(stmt, 4);
+    record->expires_at = sqlite3_column_int64(stmt, 5);
+}
+
+static int ensure_expires_column(BanDb *db) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    if (sqlite3_prepare_v2(db->handle, "PRAGMA table_info(bans)", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp((const char *)name, "expires_at") == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (found) return 0;
+    return sqlite3_exec(db->handle,
+        "ALTER TABLE bans ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+        NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
+int ban_db_purge_expired(BanDb *db) {
+    if (db == NULL || db->handle == NULL) return -1;
+    return sqlite3_exec(db->handle,
+        "DELETE FROM bans WHERE expires_at > 0 AND expires_at <= unixepoch()",
+        NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
 int ban_db_open(BanDb *db, const char *path) {
@@ -85,6 +114,10 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
+    if (ensure_expires_column(db) != 0 || ban_db_purge_expired(db) != 0) {
+        ban_db_close(db);
+        return -1;
+    }
     return 0;
 }
 
@@ -95,11 +128,12 @@ void ban_db_close(BanDb *db) {
     }
 }
 
-int ban_db_add(BanDb *db, BanType type, const char *mask,
-               const char *reason, const char *set_by) {
+static int ban_db_add_internal(BanDb *db, BanType type, const char *mask,
+                               const char *reason, const char *set_by,
+                               unsigned int duration_seconds) {
     static const char sql[] =
-        "INSERT OR REPLACE INTO bans(type,mask,reason,set_by,created_at) "
-        "VALUES(?1,?2,?3,?4,unixepoch())";
+        "INSERT OR REPLACE INTO bans(type,mask,reason,set_by,created_at,expires_at) "
+        "VALUES(?1,?2,?3,?4,unixepoch(),CASE WHEN ?5=0 THEN 0 ELSE unixepoch()+?5 END)";
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || mask == NULL || *mask == '\0') return -1;
@@ -108,9 +142,22 @@ int ban_db_add(BanDb *db, BanType type, const char *mask,
     sqlite3_bind_text(stmt, 2, mask, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, reason != NULL ? reason : "", -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 4, set_by != NULL ? set_by : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 5, (sqlite3_int64)duration_seconds);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int ban_db_add(BanDb *db, BanType type, const char *mask,
+               const char *reason, const char *set_by) {
+    return ban_db_add_internal(db, type, mask, reason, set_by, 0U);
+}
+
+int ban_db_add_timed(BanDb *db, BanType type, const char *mask,
+                     const char *reason, const char *set_by,
+                     unsigned int duration_seconds) {
+    if (duration_seconds == 0U) return -1;
+    return ban_db_add_internal(db, type, mask, reason, set_by, duration_seconds);
 }
 
 int ban_db_delete(BanDb *db, BanType type, const char *mask) {
@@ -129,11 +176,13 @@ int ban_db_delete(BanDb *db, BanType type, const char *mask) {
 
 int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *context) {
     static const char sql[] =
-        "SELECT type,mask,reason,set_by,created_at FROM bans "
-        "WHERE type=?1 ORDER BY created_at,mask COLLATE NOCASE";
+        "SELECT type,mask,reason,set_by,created_at,expires_at FROM bans "
+        "WHERE type=?1 AND (expires_at=0 OR expires_at>unixepoch()) "
+        "ORDER BY created_at,mask COLLATE NOCASE";
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || callback == NULL) return -1;
+    if (ban_db_purge_expired(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -151,10 +200,12 @@ int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *conte
 int ban_db_match(BanDb *db, BanType type, const char *identity1,
                  const char *identity2, BanRecord *record) {
     static const char sql[] =
-        "SELECT type,mask,reason,set_by,created_at FROM bans WHERE type=?1";
+        "SELECT type,mask,reason,set_by,created_at,expires_at FROM bans "
+        "WHERE type=?1 AND (expires_at=0 OR expires_at>unixepoch())";
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || record == NULL) return -1;
+    if (ban_db_purge_expired(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
