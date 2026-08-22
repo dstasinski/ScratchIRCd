@@ -10,11 +10,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <time.h>
 
 /* ScratchIRCd is deliberately single-server; this points at that live Server. */
 static Server *active_server = NULL;
+
+static unsigned char rfc1459_fold(unsigned char ch) {
+    if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
+    switch (ch) {
+        case '[': return '{';
+        case ']': return '}';
+        case '\\': return '|';
+        case '^': return '~';
+        default: return ch;
+    }
+}
+
+static int rfc1459_equal(const char *left, const char *right) {
+    if (left == NULL || right == NULL) return 0;
+    while (*left != '\0' && *right != '\0') {
+        if (rfc1459_fold((unsigned char)*left) !=
+            rfc1459_fold((unsigned char)*right)) return 0;
+        ++left;
+        ++right;
+    }
+    return *left == '\0' && *right == '\0';
+}
 
 static void presence_on_client_free(Client *client) {
     if (active_server == NULL || client == NULL || !client->registered) return;
@@ -26,7 +47,7 @@ int presence_silence_add(Client *client, const char *mask) {
     ClientSilenceEntry *entry;
     if (client == NULL || mask == NULL || *mask == '\0') return -1;
     for (entry = client->silence_list; entry != NULL; entry = entry->next)
-        if (strcasecmp(entry->mask, mask) == 0) return 0;
+        if (rfc1459_equal(entry->mask, mask)) return 0;
     if (client->silence_count >= IRCD_SILENCE_MAX) return -1;
     entry = calloc(1U, sizeof(*entry));
     if (entry == NULL) return -1;
@@ -41,7 +62,7 @@ int presence_silence_remove(Client *client, const char *mask) {
     ClientSilenceEntry **link;
     if (client == NULL || mask == NULL || *mask == '\0') return -1;
     for (link = &client->silence_list; *link != NULL; link = &(*link)->next) {
-        if (strcasecmp((*link)->mask, mask) == 0) {
+        if (rfc1459_equal((*link)->mask, mask)) {
             ClientSilenceEntry *victim = *link;
             *link = victim->next;
             free(victim);
@@ -67,7 +88,7 @@ int presence_watch_contains(const Client *client, const char *nick) {
     ClientWatchEntry *entry;
     if (client == NULL || nick == NULL) return 0;
     for (entry = client->watch_list; entry != NULL; entry = entry->next)
-        if (strcasecmp(entry->nick, nick) == 0) return 1;
+        if (rfc1459_equal(entry->nick, nick)) return 1;
     return 0;
 }
 
@@ -89,7 +110,7 @@ int presence_watch_remove(Client *client, const char *nick) {
     ClientWatchEntry **link;
     if (client == NULL || nick == NULL || *nick == '\0') return -1;
     for (link = &client->watch_list; *link != NULL; link = &(*link)->next) {
-        if (strcasecmp((*link)->nick, nick) == 0) {
+        if (rfc1459_equal((*link)->nick, nick)) {
             ClientWatchEntry *victim = *link;
             *link = victim->next;
             free(victim);
