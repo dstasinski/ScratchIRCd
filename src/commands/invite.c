@@ -61,9 +61,11 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    /* INVITE authority begins at halfop and includes every higher rank. */
     if (!channel_privilege_has(membership->privileges,
                                CHANNEL_PRIV_HALFOP |
                                CHANNEL_PRIV_OPERATOR |
+                               CHANNEL_PRIV_PROTECTED |
                                CHANNEL_PRIV_OWNER)) {
         client_sendf(client, ERR_CHANOPRIVSNEEDED,
                      server->config.server_name, client->nick, channel->name);
