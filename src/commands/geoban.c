@@ -9,9 +9,9 @@
 #include "numerics.h"
 #include "oper.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 typedef struct GeoBanListContext {
@@ -85,13 +85,9 @@ static int require_geoban(Client *client, Server *server) {
     return 1;
 }
 
-static void disconnect_matches(Server *server, Client *setter,
-                               GeoBanType type, const char *value,
-                               const char *reason) {
+static void disconnect_matches(Server *server, Client *setter, const char *reason) {
     GeoBanDb db = {0};
     size_t i = 0U;
-    (void)type;
-    (void)value;
     if (geoban_db_open(&db, server->config.bans_db) != 0) return;
     while (i < server->client_count) {
         Client *target = server->clients[i];
@@ -182,7 +178,7 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
     (void)snprintf(notice, sizeof(notice), "%s added GEOBAN %s {%s} (%s)",
                    client->nick, geoban_type_name(type), value, reason);
     server_notice_broadcast(server, notice);
-    disconnect_matches(server, client, type, value, reason);
+    disconnect_matches(server, client, reason);
     return COMMAND_KEEP_CLIENT;
 }
 
