@@ -29,6 +29,7 @@ CommandResult command_join(Server *, Client *, char *);
 CommandResult command_kick(Server *, Client *, char *);
 CommandResult command_kill(Server *, Client *, char *);
 CommandResult command_kline(Server *, Client *, char *);
+CommandResult command_knock(Server *, Client *, char *);
 CommandResult command_list(Server *, Client *, char *);
 CommandResult command_locops(Server *, Client *, char *);
 CommandResult command_lusers(Server *, Client *, char *);
