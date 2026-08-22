@@ -49,6 +49,12 @@ typedef struct ServerConfig {
     size_t memoserv_quota;
     unsigned int memoserv_retention_days;
 
+    /** Nick-target temporary KLINE/ZLINE defaults. */
+    unsigned int kline_default_duration_seconds;
+    unsigned int zline_default_duration_seconds;
+    char kline_default_reason[IRC_QUIT_REASON_MAX + 1U];
+    char zline_default_reason[IRC_QUIT_REASON_MAX + 1U];
+
     /** Optional sendmail-compatible MTA used for NickServ verification/reset. */
     char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
     char mail_from[IRCD_EMAIL_MAX + 1U];
