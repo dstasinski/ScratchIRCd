@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.21.0
+    VERSION 0.22.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -32,13 +32,13 @@ enable_testing()
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
     src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/history_db.c src/mail.c src/modes.c src/oper.c
-    src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/visibility.c
+    src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
     src/commands/dispatch.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c
     src/commands/kline.c src/commands/list.c src/commands/lusers.c
-    src/commands/memoserv.c src/commands/mode.c src/commands/mode_persist.c src/commands/motd.c src/commands/names.c
+    src/commands/memoserv.c src/commands/memoserv_admin.c src/commands/mode.c src/commands/mode_persist.c src/commands/motd.c src/commands/names.c
     src/commands/nick.c src/commands/nickserv.c src/commands/nickserv_admin.c src/commands/notice.c src/commands/oper.c
     src/commands/operator_admin.c src/commands/pass.c src/commands/ping.c
     src/commands/privmsg.c src/commands/quit.c src/commands/rehash.c
@@ -50,8 +50,6 @@ add_executable(scratchircd
     src/commands/whois.c src/commands/zline.c
 )
 
-# Keep the existing MODE parser untouched; mode_persist.c provides the public
-# command_mode wrapper and calls this renamed implementation.
 set_source_files_properties(src/commands/mode.c PROPERTIES
     COMPILE_DEFINITIONS "command_mode=command_mode_core")
 
@@ -145,7 +143,7 @@ target_compile_definitions(test_chanserv_persist PRIVATE _POSIX_C_SOURCE=200809L
 target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
 
-add_executable(test_memoserv_db tests/test_memoserv_db.c src/memoserv_db.c)
+add_executable(test_memoserv_db tests/test_memoserv_db.c src/memoserv_db.c src/memoserv_db_extra.c)
 target_include_directories(test_memoserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(test_memoserv_db PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_memoserv_db PRIVATE SQLite::SQLite3)
