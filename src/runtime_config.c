@@ -45,6 +45,8 @@ void runtime_config_defaults(ServerConfig *config) {
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
     config->dnsbl_timeout_seconds = IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS;
     config->history_limit = IRCD_DEFAULT_HISTORY_LIMIT;
+    config->memoserv_quota = IRCD_DEFAULT_MEMOSERV_QUOTA;
+    config->memoserv_retention_days = IRCD_DEFAULT_MEMOSERV_RETENTION_DAYS;
     config->nickserv_reset_seconds = IRCD_DEFAULT_NICKSERV_RESET_SECONDS;
     config->nickserv_verify_seconds = IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS;
 }
@@ -112,6 +114,14 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     if (strcmp(key, "history_limit") == 0) {
         if (number == 0UL || number > IRCD_HISTORY_HARD_LIMIT) return -1;
         config->history_limit = (size_t)number; return 0;
+    }
+    if (strcmp(key, "memoserv_quota") == 0) {
+        if (number == 0UL || number > IRCD_MEMOSERV_QUOTA_HARD_MAX) return -1;
+        config->memoserv_quota = (size_t)number; return 0;
+    }
+    if (strcmp(key, "memoserv_retention_days") == 0) {
+        if (number > IRCD_MEMOSERV_RETENTION_HARD_MAX_DAYS) return -1;
+        config->memoserv_retention_days = (unsigned int)number; return 0;
     }
     if (strcmp(key, "dns_timeout_seconds") == 0) {
         if (number == 0UL || number > 300UL) return -1;
