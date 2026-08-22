@@ -54,6 +54,17 @@ void client_free(void *ptr) {
         link = next;
     }
 
+    while (client->silence_list != NULL) {
+        ClientSilenceEntry *next = client->silence_list->next;
+        free(client->silence_list);
+        client->silence_list = next;
+    }
+    while (client->watch_list != NULL) {
+        ClientWatchEntry *next = client->watch_list->next;
+        free(client->watch_list);
+        client->watch_list = next;
+    }
+
     if (client->ssl != NULL) {
         (void)SSL_shutdown(client->ssl);
         SSL_free(client->ssl);
