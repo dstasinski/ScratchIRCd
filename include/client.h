@@ -17,6 +17,18 @@ typedef struct ClientChannelLink {
     struct ClientChannelLink *next;
 } ClientChannelLink;
 
+/** One client-local SILENCE mask. */
+typedef struct ClientSilenceEntry {
+    char mask[IRC_CHANNEL_MASK_MAX + 1U];
+    struct ClientSilenceEntry *next;
+} ClientSilenceEntry;
+
+/** One nickname on a client-local WATCH list. */
+typedef struct ClientWatchEntry {
+    char nick[IRC_NICK_MAX + 1U];
+    struct ClientWatchEntry *next;
+} ClientWatchEntry;
+
 typedef enum ClientDnsState {
     CLIENT_DNS_NONE = 0,
     CLIENT_DNS_PENDING,
@@ -112,6 +124,12 @@ typedef struct Client {
 
     time_t signon_time;
     time_t last_activity;
+
+    /** Session-local blocking/presence state. */
+    size_t silence_count;
+    ClientSilenceEntry *silence_list;
+    size_t watch_count;
+    ClientWatchEntry *watch_list;
 
     char quit_reason[IRC_QUIT_REASON_MAX + 1U];
     char inbuf[IRC_INPUT_BUFFER_SIZE];
