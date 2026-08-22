@@ -12,6 +12,7 @@
 #include "config.h"
 #include "nickserv.h"
 #include "numerics.h"
+#include "presence.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -50,6 +51,7 @@ static void broadcast_nick_change(Client *client, const char *old_nick) {
 CommandResult command_nick(Server *server, Client *client, char *params) {
     Client *existing;
     char old_nick[IRC_NICK_MAX + 1U];
+    int was_registered;
 
     if (params == NULL || *params == '\0') {
         client_sendf(client, ERR_NONICKNAMEGIVEN,
@@ -77,7 +79,12 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    was_registered = client->registered;
     (void)snprintf(old_nick, sizeof(old_nick), "%s", client->nick);
+    if (was_registered && old_nick[0] != '\0') {
+        presence_whowas_record(server, client, old_nick);
+        presence_watch_offline(server, client, old_nick);
+    }
     if (client->nick[0] != '\0') (void)hash_remove(&server->clients_by_nick, client->nick);
 
     (void)snprintf(client->nick, sizeof(client->nick), "%s", params);
@@ -86,7 +93,10 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (client->registered && old_nick[0] != '\0') broadcast_nick_change(client, old_nick);
+    if (was_registered && old_nick[0] != '\0') {
+        broadcast_nick_change(client, old_nick);
+        presence_watch_online(server, client);
+    }
     command_maybe_register(server, client);
     return COMMAND_KEEP_CLIENT;
 }
