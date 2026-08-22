@@ -20,6 +20,8 @@ int main(void) {
     assert(fputs("dnsbl = Secondary dnsbl2.example.test\n", file) >= 0);
     assert(fputs("chanserv_db = data/test-chanserv.db\n", file) >= 0);
     assert(fputs("memoserv_db = data/test-memoserv.db\n", file) >= 0);
+    assert(fputs("memoserv_quota = 77\n", file) >= 0);
+    assert(fputs("memoserv_retention_days = 45\n", file) >= 0);
     assert(fputs("history_db = data/test-history.db\n", file) >= 0);
     assert(fputs("history_limit = 42\n", file) >= 0);
     assert(fputs("sendmail_path = /usr/sbin/sendmail\n", file) >= 0);
@@ -38,6 +40,8 @@ int main(void) {
     assert(strcmp(config.dnsbls[1].zone, "dnsbl2.example.test") == 0);
     assert(strcmp(config.chanserv_db, "data/test-chanserv.db") == 0);
     assert(strcmp(config.memoserv_db, "data/test-memoserv.db") == 0);
+    assert(config.memoserv_quota == 77U);
+    assert(config.memoserv_retention_days == 45U);
     assert(strcmp(config.history_db, "data/test-history.db") == 0);
     assert(config.history_limit == 42U);
     assert(strcmp(config.sendmail_path, "/usr/sbin/sendmail") == 0);
