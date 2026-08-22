@@ -49,7 +49,9 @@ typedef struct Server {
     size_t whowas_next;
     size_t whowas_count;
 
+    /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
     int restart_requested;
+    int shutdown_requested;
 } Server;
 
 int server_init(Server *server, const ServerConfig *config);
