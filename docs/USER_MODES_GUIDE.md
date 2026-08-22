@@ -2,6 +2,42 @@
 
 ScratchIRCd stores user modes in each connected `Client`. Modes affect presentation and policy only as documented here; security identity remains in `real_ip` and `real_host`, while public IRC output uses `display_host`.
 
+## Operator-controlled moderation modes completed in 0.29
+
+### `+D` — private-message deaf
+
+`+D` is controlled only by IRC operators and network administrators through:
+
+```text
+DEAF +<nick>
+DEAF -<nick>
+```
+
+A `+D` client cannot exchange direct `PRIVMSG` or `NOTICE` traffic with ordinary users. IRC operators and network administrators are exempt, so private communication between a `+D` client and an oper remains possible.
+
+When an ordinary user sends a `PRIVMSG` to a `+D` client, the message is blocked and the sender receives a NOTICE from the recipient identity stating:
+
+```text
+I cannot send or receive private messages.
+```
+
+Ordinary users cannot set or clear `+D` themselves with MODE.
+
+### `+M` — channel mute
+
+`+M` is controlled only by IRC operators and network administrators through:
+
+```text
+MUTE +<nick>
+MUTE -<nick>
+```
+
+A `+M` client cannot send `PRIVMSG` or `NOTICE` traffic to any channel, regardless of voice or higher channel privileges. Attempts receive `ERR_CANNOTSENDTOCHAN` (404). Direct client-to-client messaging is unaffected by `+M`.
+
+Ordinary users cannot set or clear `+M` themselves with MODE.
+
+Upper-case user mode `+M` is separate from channel mode `+M`, which requires a registered nickname to speak in that channel.
+
 ## Behavioral modes completed in 0.24
 
 ### `+d` — deaf to ordinary channel PRIVMSG
@@ -61,6 +97,8 @@ When both `+c` and `+S` are present, `+c` wins: colored input is rejected rather
 ## Other implemented user modes
 
 - `+B` — bot marker; shown in WHOIS.
+- `+D` — oper-controlled private-message deaf mode.
+- `+M` — oper-controlled channel mute mode.
 - `+h` — HelpOp, granted through operator permissions.
 - `+i` — invisible in general WHO results.
 - `+N` — network administrator; server-controlled.
@@ -75,4 +113,4 @@ When both `+c` and `+S` are present, `+c` wins: colored input is rejected rather
 - `+w` — receive WALLOPS.
 - `+z` — secure TLS transport; server-controlled.
 
-Security-derived modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, and `+z` cannot be manufactured through ordinary MODE.
+Security-derived or operator-controlled modes such as `+D`, `+M`, `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, and `+z` cannot be manufactured through ordinary MODE.
