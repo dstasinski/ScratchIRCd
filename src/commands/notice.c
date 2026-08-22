@@ -1,17 +1,17 @@
 /**
  * @file notice.c
- * @brief Implementation of the IRC NOTICE command.
+ * @brief Implementation of IRC NOTICE.
  *
- * NOTICE mirrors PRIVMSG delivery restrictions without emitting automatic
- * error replies for delivery failures. All client-visible source prefixes use
- * display_host; real identity never leaks through NOTICE. Accepted channel
- * notices are persisted to the SQLite history database.
+ * NOTICE mirrors PRIVMSG restrictions without automatic error replies. Channel
+ * +c silently rejects colored notices, while +S strips color before history and
+ * delivery. Public prefixes always use display_host.
  */
 
 #include "commands.h"
 #include "config.h"
 #include "history_db.h"
 #include "ircv3.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "presence.h"
 
@@ -63,10 +63,11 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
         ChannelMember *member;
+        char stripped[IRCD_MESSAGE_BUFFER_SIZE];
+        const char *delivered_text = text;
 
         if (channel == NULL || channel_mode_has(channel->modes, CHANNEL_MODE_NO_NOTICE))
             return COMMAND_KEEP_CLIENT;
-
         member = channel_find_member(channel, client);
         if (member == NULL && channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL))
             return COMMAND_KEEP_CLIENT;
@@ -74,25 +75,25 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
             !client_mode_has(client->modes, CLIENT_MODE_REGISTERED))
             return COMMAND_KEEP_CLIENT;
         if (channel_mode_has(channel->modes, CHANNEL_MODE_MODERATED) &&
-            (member == NULL ||
-             !channel_privilege_has(member->privileges,
-                                    CHANNEL_PRIV_VOICE |
-                                    CHANNEL_PRIV_HALFOP |
-                                    CHANNEL_PRIV_OPERATOR |
-                                    CHANNEL_PRIV_PROTECTED |
-                                    CHANNEL_PRIV_OWNER))) {
-            return COMMAND_KEEP_CLIENT;
+            (member == NULL || !channel_privilege_has(member->privileges,
+                CHANNEL_PRIV_VOICE | CHANNEL_PRIV_HALFOP | CHANNEL_PRIV_OPERATOR |
+                CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER))) return COMMAND_KEEP_CLIENT;
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_NO_COLOR) &&
+            message_contains_color(text)) return COMMAND_KEEP_CLIENT;
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_STRIP_COLOR)) {
+            message_strip_color(text, stripped, sizeof(stripped));
+            delivered_text = stripped;
         }
 
-        store_channel_history(server, client, channel->name, text);
-        ircv3_broadcast_message(channel, client, client, "NOTICE", channel->name, text);
+        store_channel_history(server, client, channel->name, delivered_text);
+        ircv3_broadcast_message(channel, client, client, "NOTICE",
+                                channel->name, delivered_text);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) return COMMAND_KEEP_CLIENT;
         if (presence_silence_matches(destination, client)) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED))
-            return COMMAND_KEEP_CLIENT;
+            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && is_ctcp(text))
             return COMMAND_KEEP_CLIENT;
         ircv3_send_message(destination, client, "NOTICE", destination->nick, text);
