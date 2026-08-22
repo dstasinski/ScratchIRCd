@@ -8,6 +8,12 @@
 #include <sys/socket.h>
 #include <time.h>
 
+static ClientFreeHook client_free_hook = NULL;
+
+void client_set_free_hook(ClientFreeHook hook) {
+    client_free_hook = hook;
+}
+
 Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     Client *client = calloc(1U, sizeof(*client));
     time_t now;
@@ -46,6 +52,8 @@ void client_free(void *ptr) {
     if (client == NULL) {
         return;
     }
+
+    if (client_free_hook != NULL) client_free_hook(client);
 
     link = client->channels;
     while (link != NULL) {
