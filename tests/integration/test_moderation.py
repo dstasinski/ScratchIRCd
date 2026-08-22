@@ -165,13 +165,15 @@ def main():
             carol.send("PRIVMSG Bob :restored")
             bob.expect("PRIVMSG Bob :restored")
 
-            # +M blocks ordinary channel sends.
+            # Admin creates the channel, so Bob joins as an ordinary member.
+            admin.send("JOIN #mute"); admin.expect(" 366 Admin #mute ")
             bob.send("JOIN #mute"); bob.expect(" 366 Bob #mute ")
             carol.send("JOIN #mute"); carol.expect(" 366 Carol #mute ")
             dave.send("JOIN #mute"); dave.expect(" 366 Dave #mute ")
-            admin.send("JOIN #mute"); admin.expect(" 366 Admin #mute ")
             admin.send("MUTE +Bob"); bob.expect(" MODE Bob +M")
             bob.send("MODE Bob"); bob.expect(" 221 Bob +M")
+
+            # +M blocks only an ordinary/unprivileged channel member.
             bob.send("PRIVMSG #mute :blocked channel text")
             bob.expect(" 404 Bob #mute ")
             carol.expect_not("blocked channel text")
@@ -179,17 +181,21 @@ def main():
             bob.expect(" 404 Bob #mute ")
             carol.expect_not("blocked channel notice")
 
-            # Protected (+a) and owner (+q) authority make +M ineffective in
-            # that channel. The immunity is channel-specific.
-            admin.send("MODE #mute +a Bob"); bob.expect(" MODE #mute +a Bob")
-            bob.send("PRIVMSG #mute :protected immune")
-            carol.expect("PRIVMSG #mute :protected immune")
-            admin.send("MODE #mute -a+q Bob Bob"); bob.expect(" MODE #mute -a+q Bob Bob")
-            bob.send("PRIVMSG #mute :owner immune")
-            carol.expect("PRIVMSG #mute :owner immune")
+            # Any membership privilege makes +M ineffective in that channel.
+            for mode, label in (("v", "voice"), ("h", "halfop"), ("o", "op"),
+                                ("a", "protected"), ("q", "owner")):
+                admin.send(f"MODE #mute +{mode} Bob")
+                bob.expect(f" MODE #mute +{mode} Bob")
+                bob.send(f"PRIVMSG #mute :{label} immune")
+                carol.expect(f"PRIVMSG #mute :{label} immune")
+                admin.send(f"MODE #mute -{mode} Bob")
+                bob.expect(f" MODE #mute -{mode} Bob")
+                bob.send(f"PRIVMSG #mute :{label} removed")
+                bob.expect(" 404 Bob #mute ")
+                carol.expect_not(f"{label} removed")
 
-            # IRCops/netadmins are globally immune to +M, independent of
-            # channel rank. Remove Admin's owner status before checking it.
+            # IRCops/netadmins are globally immune to +M even without a
+            # channel membership privilege.
             admin.send("MODE #mute -q Admin")
             admin.send("MUTE +Admin"); admin.expect(" MODE Admin +M")
             admin.send("PRIVMSG #mute :oper immune")
