@@ -13,6 +13,7 @@
 #include "history_db.h"
 #include "ircv3.h"
 #include "modes.h"
+#include "presence.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
                                     CHANNEL_PRIV_VOICE |
                                     CHANNEL_PRIV_HALFOP |
                                     CHANNEL_PRIV_OPERATOR |
+                                    CHANNEL_PRIV_PROTECTED |
                                     CHANNEL_PRIV_OWNER))) {
             return COMMAND_KEEP_CLIENT;
         }
@@ -87,6 +89,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) return COMMAND_KEEP_CLIENT;
+        if (presence_silence_matches(destination, client)) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
             !client_mode_has(client->modes, CLIENT_MODE_REGISTERED))
             return COMMAND_KEEP_CLIENT;
