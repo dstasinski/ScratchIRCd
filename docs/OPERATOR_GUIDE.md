@@ -73,7 +73,7 @@ Successful login grants `+o` and loads permissions from the SQLite operator reco
 ## Permission flags
 
 - `can_rehash` — use REHASH.
-- `can_die` — reserved for DIE; not implemented.
+- `can_die` — use DIE for graceful daemon shutdown.
 - `can_restart` — use RESTART.
 - `helpop` — receive `+h`.
 - `can_wallops` — send WALLOPS.
@@ -127,6 +127,7 @@ Sending either command requires both IRC operator status and `+g`. ScratchIRCd i
 ```text
 DEAF +<nick>
 DEAF -<nick>
+DIE
 GEOBAN <COUNTRY|REGION|ASN|ORG> <value> <duration|0> [:reason]
 GEOBAN LIST
 GLOBOPS :<message>
@@ -154,6 +155,8 @@ SETNAME <nick> :<new real name>
 USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
+
+`DIE` requires `can_die`. It requests an orderly daemon shutdown through the normal event-loop teardown path; it does not call `exit()` from command dispatch. Remaining clients are disconnected during normal server destruction.
 
 Explicit KLINE matches `user@real_host` and `user@real_ip`; explicit ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
@@ -196,6 +199,7 @@ CAP
 CHANSERV
 CHATHISTORY
 DEAF
+DIE
 GEOBAN
 GLOBOPS
 IDENTIFY
