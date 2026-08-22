@@ -56,11 +56,57 @@ static int registration_banned(Server *server, Client *client) {
     return matched;
 }
 
-void command_maybe_register(Server *server, Client *client) {
-    char isupport[IRCD_MESSAGE_BUFFER_SIZE];
+/**
+ * Send the complete RPL_ISUPPORT advertisement.
+ *
+ * IRC permits at most 13 ISUPPORT tokens in one 005 reply, so the server uses
+ * two replies. Only behavior that ScratchIRCd actually implements is
+ * advertised. In particular STATUSMSG and MAXLIST are intentionally absent.
+ */
+static void send_isupport(Server *server, Client *client) {
+    char first[IRCD_MESSAGE_BUFFER_SIZE];
+    char second[IRCD_MESSAGE_BUFFER_SIZE];
     char pchannels[IRCD_MESSAGE_BUFFER_SIZE / 2U];
     ChanServDb csdb = {0};
 
+    pchannels[0] = '\0';
+    if (chanserv_db_open(&csdb, server->config.chanserv_db) == 0) {
+        (void)chanserv_db_list_enabled(&csdb, pchannels, sizeof(pchannels));
+        chanserv_db_close(&csdb);
+    }
+
+    /* Exactly 13 tokens. PREFIX membership modes are excluded from CHANMODES. */
+    (void)snprintf(first, sizeof(first),
+                   "CASEMAPPING=rfc1459 CHANTYPES=#& PREFIX=(qaohv)~&@%%+ "
+                   "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz "
+                   "CHANLIMIT=#&:%u NICKLEN=%u USERLEN=%u HOSTLEN=%u "
+                   "CHANNELLEN=%u TOPICLEN=%u KICKLEN=%u MODES=%u NETWORK=%s",
+                   (unsigned int)IRC_MAX_CHANNELS_PER_CLIENT,
+                   (unsigned int)IRC_NICK_MAX,
+                   (unsigned int)IRC_USER_MAX,
+                   (unsigned int)IRC_HOST_MAX,
+                   (unsigned int)IRC_CHANNEL_NAME_MAX,
+                   (unsigned int)IRC_CHANNEL_TOPIC_MAX,
+                   (unsigned int)IRC_KICK_REASON_MAX,
+                   (unsigned int)IRC_MODE_MAX_PARAMS,
+                   server->config.network_name);
+
+    (void)snprintf(second, sizeof(second),
+                   "EXCEPTS=e INVEX=I WATCH=%u SILENCE=%u "
+                   "TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1 "
+                   "MSGREFTYPES=timestamp CHATHISTORY=%zu PCHANNELS=%s",
+                   (unsigned int)IRCD_WATCH_MAX,
+                   (unsigned int)IRCD_SILENCE_MAX,
+                   server->config.history_limit,
+                   pchannels);
+
+    client_sendf(client, RPL_PROTOCOLS, server->config.server_name,
+                 client->nick, first);
+    client_sendf(client, RPL_PROTOCOLS, server->config.server_name,
+                 client->nick, second);
+}
+
+void command_maybe_register(Server *server, Client *client) {
     if (server == NULL || client == NULL || client->registered ||
         client->nick[0] == '\0' || client->user[0] == '\0' ||
         client->cap_negotiating ||
@@ -103,15 +149,7 @@ void command_maybe_register(Server *server, Client *client) {
                  server->config.server_name, IRCD_VERSION,
                  IRCD_SUPPORTED_USER_MODES, IRCD_SUPPORTED_CHANNEL_MODES);
 
-    pchannels[0] = '\0';
-    if (chanserv_db_open(&csdb, server->config.chanserv_db) == 0) {
-        (void)chanserv_db_list_enabled(&csdb, pchannels, sizeof(pchannels));
-        chanserv_db_close(&csdb);
-    }
-    (void)snprintf(isupport, sizeof(isupport), "%s CHATHISTORY=%zu PCHANNELS=%s",
-                   IRCD_ISUPPORT_BASE, server->config.history_limit, pchannels);
-    client_sendf(client, RPL_PROTOCOLS, server->config.server_name, client->nick,
-                 isupport);
+    send_isupport(server, client);
     presence_watch_online(server, client);
 }
 
