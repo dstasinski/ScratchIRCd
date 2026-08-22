@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "numerics.h"
 #include "oper.h"
@@ -16,6 +17,7 @@ CommandResult command_kill(Server *server, Client *client, char *params) {
     char *reason;
     Client *target;
     char quit_reason[IRC_QUIT_REASON_MAX + 1U];
+    char notice[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_KILL)) {
@@ -50,6 +52,9 @@ CommandResult command_kill(Server *server, Client *client, char *params) {
 
     (void)snprintf(quit_reason, sizeof(quit_reason), "Killed (%s (%s))",
                    client->nick, reason);
+    (void)snprintf(notice, sizeof(notice), "%s KILLed %s (%s)",
+                   client->nick, target->nick, reason);
+    server_notice_broadcast(server, notice);
     client_sendf(target, ":%s KILL %s :%s",
                  server->config.server_name, target->nick, reason);
 
