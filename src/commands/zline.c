@@ -2,15 +2,17 @@
  * @file zline.c
  * @brief Persistent numeric-IP ZLINE management.
  *
- * ZLINE matches only Client.real_ip. For future WebIRC connections that field
- * is the authenticated end-user address, never the gateway socket address.
+ * ZLINE matches only Client.real_ip. For WebIRC connections that field is the
+ * authenticated end-user address, never the gateway socket address.
  */
 
 #include "ban_db.h"
 #include "commands.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
+#include <stdio.h>
 #include <string.h>
 
 CommandResult command_zline(Server *server, Client *client, char *params) {
@@ -18,6 +20,7 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     char *reason;
     BanDb db = {0};
     size_t i = 0U;
+    char notice[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_ZLINE)) {
@@ -50,6 +53,8 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         ban_db_close(&db);
         client_sendf(client, ":%s NOTICE %s :ZLINE removed: %s",
                      server->config.server_name, client->nick, mask);
+        (void)snprintf(notice, sizeof(notice), "%s removed ZLINE %s", client->nick, mask);
+        server_notice_broadcast(server, notice);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -81,5 +86,8 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     ban_db_close(&db);
     client_sendf(client, ":%s NOTICE %s :ZLINE added: %s",
                  server->config.server_name, client->nick, mask);
+    (void)snprintf(notice, sizeof(notice), "%s added ZLINE %s (%s)",
+                   client->nick, mask, reason);
+    server_notice_broadcast(server, notice);
     return COMMAND_KEEP_CLIENT;
 }
