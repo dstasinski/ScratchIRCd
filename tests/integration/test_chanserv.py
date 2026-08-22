@@ -161,9 +161,10 @@ def main():
 
             observer = IRCClient(port)
             register(observer, "Observer")
-            isupport = observer.expect(" 005 Observer ")
-            isupport_line = next(line for line in isupport if " 005 Observer " in line)
-            assert "PCHANNELS=#persist" in isupport_line, isupport
+            # 0.27 legitimately splits ISUPPORT over multiple numeric 005 lines.
+            isupport = observer.expect("PCHANNELS=#persist")
+            assert any(" 005 Observer " in line and "PCHANNELS=#persist" in line
+                       for line in isupport), isupport
 
             traveler = IRCClient(port)
             register(traveler, "Traveler")
@@ -235,9 +236,11 @@ def main():
             fresh = IRCClient(port)
             try:
                 register(fresh, "Fresh")
-                isupport = fresh.expect(" 005 Fresh ")
-                isupport_line = next(line for line in isupport if " 005 Fresh " in line)
-                assert "PCHANNELS=" in isupport_line and "#persist" not in isupport_line, isupport
+                # PCHANNELS is on the second 005 line in 0.27; verify it there.
+                isupport = fresh.expect("PCHANNELS=")
+                pchannel_lines = [line for line in isupport
+                                  if " 005 Fresh " in line and "PCHANNELS=" in line]
+                assert pchannel_lines and all("#persist" not in line for line in pchannel_lines), isupport
             finally:
                 fresh.close()
         finally:
