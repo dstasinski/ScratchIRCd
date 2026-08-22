@@ -3,8 +3,8 @@
  * @brief Gracefully shut down ScratchIRCd.
  *
  * DIE never exits the process directly from command dispatch. It marks the
- * Server for shutdown; the event loop returns to main(), which performs the
- * normal server_destroy() cleanup path before the process exits.
+ * Server for shutdown and also triggers the existing event-loop exit path.
+ * main() distinguishes shutdown from restart and performs normal teardown.
  */
 
 #include "commands.h"
@@ -24,5 +24,6 @@ CommandResult command_die(Server *server, Client *client, char *params) {
     client_sendf(client, ":%s NOTICE %s :Shutting down ScratchIRCd",
                  server->config.server_name, client->nick);
     server->shutdown_requested = 1;
+    server->restart_requested = 1;
     return COMMAND_KEEP_CLIENT;
 }
