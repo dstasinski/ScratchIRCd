@@ -26,10 +26,41 @@ Any registered user may self-toggle `+x`. Enabling it replaces only `display_hos
 
 `+x` and `+t` are alternate sources for `display_host`. Enabling `+x` clears `+t`; applying a NickServ/operator/SETHOST vhost clears `+x`. Removing `+x` restores `display_host` from `real_host` when FCrDNS succeeded, otherwise from `real_ip`.
 
+## Operator listener modes completed in 0.25
+
+### `+g` — GLOBOPS/LOCOPS
+
+Only IRC operators may self-toggle `+g`. A client with `+g` receives `GLOBOPS` and `LOCOPS` messages. Sending either command also requires IRC operator status and `+g`.
+
+ScratchIRCd is intentionally single-server, so both commands are local-process broadcasts. They remain separate command names for client compatibility and clear policy semantics.
+
+```text
+MODE <nick> +g
+GLOBOPS :message for +g operators
+LOCOPS :local operator message
+```
+
+### `+s` — server notices
+
+Only IRC operators may self-toggle `+s`. A `+s` operator receives daemon-generated notices for meaningful administrative/security events such as KILL, KLINE, and ZLINE actions.
+
+```text
+MODE <nick> +s
+```
+
+The notice prefix uses the configured server name and does not expose another client's hidden real identity unless the administrative command itself already contains that security value.
+
+## Channel color modes completed in 0.25
+
+Channel mode `+c` rejects channel text containing IRC color controls or ANSI escape color sequences. For `PRIVMSG`, the sender receives the normal cannot-send numeric; `NOTICE` rejection remains silent in accordance with NOTICE semantics.
+
+Channel mode `+S` strips IRC color codes and ANSI SGR color sequences before delivery. Persistent history stores the stripped text, so replay matches what channel members originally saw.
+
+When both `+c` and `+S` are present, `+c` wins: colored input is rejected rather than transformed.
+
 ## Other implemented user modes
 
 - `+B` — bot marker; shown in WHOIS.
-- `+g` — global/local operator-message capability bit; message-family behavior is reserved for a later milestone.
 - `+h` — HelpOp, granted through operator permissions.
 - `+i` — invisible in general WHO results.
 - `+N` — network administrator; server-controlled.
@@ -38,7 +69,6 @@ Any registered user may self-toggle `+x`. Enabling it replaces only `display_hos
 - `+R` — accept direct PRIVMSG/NOTICE only from registered (`+r`) users.
 - `+r` — authenticated NickServ account; service-controlled.
 - `+S` — services marker; server/service-controlled.
-- `+s` — server-notice subscription bit; notice-family routing is reserved for a later milestone.
 - `+T` — reject direct CTCPs.
 - `+t` — vhost is active; changes only `display_host`.
 - `+V` — authenticated WebIRC client; server-controlled.
