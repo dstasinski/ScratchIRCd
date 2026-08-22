@@ -10,6 +10,7 @@
  */
 
 #include <sqlite3.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "config.h"
