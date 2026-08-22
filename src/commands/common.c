@@ -7,6 +7,7 @@
 #include "ban_db.h"
 #include "chanserv_db.h"
 #include "config.h"
+#include "geoban_db.h"
 #include "geoip.h"
 #include "numerics.h"
 #include "presence.h"
@@ -18,6 +19,25 @@
 const char *command_reply_nick(const Client *client) {
     if (client == NULL || client->nick[0] == '\0') return "*";
     return client->nick;
+}
+
+static int registration_geo_banned(Server *server, Client *client) {
+    GeoBanDb db = {0};
+    GeoBanRecord record;
+    int matched;
+
+    if (geoban_db_open(&db, server->config.bans_db) != 0) return 0;
+    matched = geoban_db_match(&db, &client->geoip, &record);
+    if (matched == 1) {
+        client_sendf(client, ERR_YOUREBANNEDCREEP,
+                     server->config.server_name, command_reply_nick(client),
+                     server->config.admin_email);
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s",
+                       record.reason[0] != '\0' ? record.reason : "GeoIP policy ban");
+        (void)shutdown(client->fd, SHUT_RDWR);
+    }
+    geoban_db_close(&db);
+    return matched == 1;
 }
 
 static int registration_banned(Server *server, Client *client) {
@@ -75,7 +95,6 @@ static void send_isupport(Server *server, Client *client) {
         chanserv_db_close(&csdb);
     }
 
-    /* Exactly 13 tokens. PREFIX membership modes are excluded from CHANMODES. */
     (void)snprintf(first, sizeof(first),
                    "CASEMAPPING=rfc1459 CHANTYPES=#& PREFIX=(qaohv)~&@%%+ "
                    "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz "
@@ -117,6 +136,8 @@ void command_maybe_register(Server *server, Client *client) {
         geoip_lookup(&server->geoip, client->real_ip, &client->geoip);
         client->geoip_complete = 1;
     }
+
+    if (registration_geo_banned(server, client)) return;
 
     if (client->dnsbl_state == CLIENT_DNSBL_NONE) {
         if (server->config.dnsbl_count == 0U) {
