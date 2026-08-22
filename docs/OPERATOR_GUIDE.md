@@ -111,9 +111,11 @@ Sending either command requires both IRC operator status and `+g`. ScratchIRCd i
 ```text
 GLOBOPS :<message>
 KILL <nickname> :<reason>
+KLINE <nickname>
 KLINE <user@host-mask> :<reason>
 KLINE -<user@host-mask>
 LOCOPS :<message>
+ZLINE <nickname>
 ZLINE <ip-mask> :<reason>
 ZLINE -<ip-mask>
 WALLOPS :<message>
@@ -130,11 +132,13 @@ USERIP <nick1> [nick2 ...]
 WHOIS <nickname>
 ```
 
-KLINE matches `user@real_host` and `user@real_ip`; ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
+Explicit KLINE matches `user@real_host` and `user@real_ip`; explicit ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
+
+`KLINE <nickname>` is a shorthand temporary ban. ScratchIRCd resolves the live target to `*@real_host`, falling back to `*@real_ip` when no verified hostname is available. `ZLINE <nickname>` resolves to the target's exact `real_ip`. Both shorthand forms use the configured `*_default_duration_seconds` and `*_default_reason` settings. Explicit mask commands remain permanent. Expired temporary records are ignored and automatically purged from `data/bans.db`.
 
 Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. An operator with `can_zline` can remove one with `ZLINE -<ip>`.
 
-REHASH reloads safely mutable runtime configuration, including WebIRC gateways, DNSBL definitions/timeouts, database paths, NickServ mail settings, history settings, and MemoServ quota/retention settings. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
+REHASH reloads safely mutable runtime configuration, including WebIRC gateways, DNSBL definitions/timeouts, database paths, NickServ mail settings, history settings, MemoServ quota/retention settings, and nickname KLINE/ZLINE default duration/reason values. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
 
 User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
 
@@ -174,6 +178,7 @@ JOIN
 KICK
 KILL
 KLINE
+KNOCK
 LIST
 LOCOPS
 LUSERS
