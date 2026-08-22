@@ -29,9 +29,27 @@ static char *message_target(char *copy) {
 
 static int muted_channel_send(Server *server, Client *client,
                               const char *target) {
+    Channel *channel;
+    ChannelMember *member;
+
     if (target == NULL || strchr(IRC_CHANNEL_PREFIXES, target[0]) == NULL)
         return 0;
     if (!client_mode_has(client->modes, CLIENT_MODE_CHANNEL_MUTE)) return 0;
+
+    /* IRC operators and network administrators are globally immune to +M. */
+    if (is_oper_or_above(client)) return 0;
+
+    /* Channel owners (+q) and protected users (+a) are immune in channels
+     * where they currently hold that authority. */
+    channel = hash_get(&server->channels_by_name, target);
+    if (channel != NULL) {
+        member = channel_find_member(channel, client);
+        if (member != NULL &&
+            channel_privilege_has(member->privileges,
+                                  CHANNEL_PRIV_OWNER | CHANNEL_PRIV_PROTECTED))
+            return 0;
+    }
+
     client_sendf(client, ERR_CANNOTSENDTOCHAN,
                  server->config.server_name, client->nick, target,
                  "channel messaging disabled by user mode +M");
