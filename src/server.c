@@ -320,9 +320,16 @@ static void drain_dnsbl_results(Server *server) {
 
 static void expire_connection_lookups(Server *server) {
     time_t now = time(NULL);
-    size_t index;
-    for (index = 0U; index < server->client_count; ++index) {
+    size_t index = 0U;
+    while (index < server->client_count) {
         Client *client = server->clients[index];
+        if (server->config.nospoof_enabled && client->nospoof_started &&
+            !client->nospoof_verified && client->nospoof_deadline <= now) {
+            client_sendf(client, ":%s ERROR :No-spoof PING timeout",
+                         server->config.server_name);
+            server_disconnect(server, client, "No-spoof PING timeout");
+            continue;
+        }
         if (client->dns_state == CLIENT_DNS_PENDING && client->dns_deadline <= now) {
             client->dns_state = CLIENT_DNS_TIMEOUT;
             client->real_host[0] = '\0';
@@ -335,6 +342,7 @@ static void expire_connection_lookups(Server *server) {
             client->dnsbl_state = CLIENT_DNSBL_TIMEOUT;
             command_maybe_register(server, client);
         }
+        ++index;
     }
 }
 
