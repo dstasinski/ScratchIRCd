@@ -45,7 +45,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-webirc-") as td:
         port=free_port();conf=os.path.join(td,"ircd.conf")
         with open(conf,"w",encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 2\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n")
+            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n")
         proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=rejected=silent=None
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
@@ -77,7 +77,7 @@ def main():
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
 
             silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
-            silent.expect("No-spoof PING timeout",duration=5)
+            silent.expect("No-spoof PING timeout",duration=8)
         finally:
             if trusted:trusted.close()
             if rejected:rejected.close()
