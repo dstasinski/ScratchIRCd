@@ -20,7 +20,7 @@ static int stats_kline_row(const BanRecord *record, void *context) {
     StatsKlineContext *stats = context;
     if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
         return -1;
-    client_sendf(stats->client, RPL_STATSKLINE,
+    client_sendf(stats->client, ":%s 216 %s %s %s :%s",
                  stats->server->config.server_name, stats->client->nick,
                  record->mask, record->set_by, record->reason);
     return 0;
