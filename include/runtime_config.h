@@ -22,6 +22,11 @@ typedef struct ServerConfig {
     char tls_cert_file[IRCD_CONFIG_PATH_MAX + 1U];
     char tls_key_file[IRCD_CONFIG_PATH_MAX + 1U];
 
+    /* PING-cookie anti-spoofing. Disabled by default for legacy configs; the
+     * shipped example enables it. */
+    int nospoof_enabled;
+    unsigned int nospoof_timeout_seconds;
+
     WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
     size_t webirc_gateway_count;
 
@@ -49,13 +54,11 @@ typedef struct ServerConfig {
     size_t memoserv_quota;
     unsigned int memoserv_retention_days;
 
-    /** Nick-target temporary KLINE/ZLINE defaults. */
     unsigned int kline_default_duration_seconds;
     unsigned int zline_default_duration_seconds;
     char kline_default_reason[IRC_QUIT_REASON_MAX + 1U];
     char zline_default_reason[IRC_QUIT_REASON_MAX + 1U];
 
-    /** Optional sendmail-compatible MTA used for NickServ verification/reset. */
     char sendmail_path[IRCD_CONFIG_PATH_MAX + 1U];
     char mail_from[IRCD_EMAIL_MAX + 1U];
     unsigned int nickserv_reset_seconds;
