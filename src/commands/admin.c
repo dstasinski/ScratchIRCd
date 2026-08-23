@@ -38,6 +38,30 @@ CommandResult command_admin(Server *server, Client *client, char *params) {
     return COMMAND_KEEP_CLIENT;
 }
 
+CommandResult command_info(Server *server, Client *client, char *params) {
+    char version_line[128];
+    (void)params;
+
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+
+    client_sendf(client, RPL_INFOSTART,
+                 server->config.server_name, client->nick);
+    (void)snprintf(version_line, sizeof(version_line),
+                   "ScratchIRCd %s on %s", IRCD_VERSION,
+                   server->config.server_name);
+    client_sendf(client, RPL_INFO,
+                 server->config.server_name, client->nick, version_line);
+    client_sendf(client, RPL_INFO,
+                 server->config.server_name, client->nick,
+                 "Single-server IRC daemon written in C for Linux");
+    client_sendf(client, RPL_INFO,
+                 server->config.server_name, client->nick,
+                 "NickServ, ChanServ, and MemoServ are virtual services");
+    client_sendf(client, RPL_ENDOFINFO,
+                 server->config.server_name, client->nick);
+    return COMMAND_KEEP_CLIENT;
+}
+
 CommandResult command_time(Server *server, Client *client, char *params) {
     time_t now;
     struct tm local;
