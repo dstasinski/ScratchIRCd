@@ -9,10 +9,6 @@
 #include <string.h>
 #include <time.h>
 
-/* Keep the connection-policy implementation in its own source file while the
- * current build graph compiles it as part of the IRC translation unit. */
-#include "nospoof.c"
-
 int irc_handle_line(Server *server, Client *client, char *line) {
     char *command;
     char *params;
