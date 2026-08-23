@@ -11,26 +11,31 @@ The shipped example enables the feature. Legacy configuration files that do not 
 
 ## Handshake
 
-Once a valid NICK is known, ScratchIRCd generates a 128-bit random OpenSSL cookie and sends:
+Once a valid NICK is known, ScratchIRCd generates a 128-bit random OpenSSL cookie and sends only:
 
 ```text
 PING :<random-cookie>
-:<server> PRIVMSG <nick> :\x01VERSION\x01
 ```
 
 A matching PONG is required before IRC registration can complete. A stale challenge is rejected when the client next sends protocol traffic after the configured timeout.
+
+Only after the correct PONG is received does ScratchIRCd send:
+
+```text
+:<server> PRIVMSG <nick> :\x01VERSION\x01
+```
 
 The CTCP VERSION reply is optional for registration, but until a VERSION reply is received the client cannot JOIN channels and cannot PRIVMSG ordinary clients. PRIVMSG to IRC operators and network administrators remains available.
 
 ## WebIRC
 
-After an authorized WEBIRC command, ScratchIRCd additionally sends:
+An authenticated WebIRC connection is queried with CTCP WEBSITE only after the no-spoof PING cookie has been verified:
 
 ```text
 :<server> PRIVMSG <nick> :\x01WEBSITE\x01
 ```
 
-If WEBIRC was accepted before NICK, the WEBSITE request is sent immediately after the NICK is established, following the PING and VERSION requests.
+If WEBIRC authentication occurs before the PONG, WEBSITE is deferred until the PONG succeeds. If WEBIRC authentication occurs after a successful PONG, WEBSITE is sent immediately after WEBIRC is accepted. Thus VERSION and WEBSITE are never sent to a connection that has not passed the no-spoof check.
 
 ## Stored metadata
 
