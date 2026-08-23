@@ -74,6 +74,10 @@ def main():
             trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
 
+            trusted.send("VERSION")
+            server_version=trusted.expect(" 351 webuser ")
+            assert any("ScratchIRCd-0.33" in line and "test.local" in line for line in server_version),server_version
+
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
 
             silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
