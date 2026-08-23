@@ -84,7 +84,7 @@ def main():
 
             trusted.send("INFO")
             server_info=trusted.expect(" 374 webuser :End of /INFO list.")
-            assert any(" 373 webuser :- test.local Server INFO" in line for line in server_info),server_info
+            assert any(" 373 webuser :Server INFO" in line for line in server_info),server_info
             assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.33 on test.local" in line for line in server_info),server_info
             assert any("virtual services" in line for line in server_info),server_info
 
