@@ -45,29 +45,43 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-webirc-") as td:
         port=free_port();conf=os.path.join(td,"ircd.conf")
         with open(conf,"w",encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 30\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n")
-        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=rejected=None
+            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 2\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n")
+        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=rejected=silent=None
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
-            trusted.send("WEBIRC gateway-secret web.example supplied.example 203.0.113.9");trusted.send("NICK webuser")
+            trusted.send("WEBIRC gateway-secret web.example supplied.example 203.0.113.9");trusted.send("NICK webuser");trusted.send("USER webuser 0 * :Web User")
             lines=trusted.expect("PING :")
             ping=next(line for line in lines if line.startswith("PING :"));cookie=ping.split(":",1)[1]
             before_pong=trusted.collect()
             assert not any("\x01VERSION\x01" in line or "\x01WEBSITE\x01" in line for line in before_pong),before_pong
+            assert not any(" 001 webuser " in line for line in before_pong),before_pong
+
+            trusted.send("PONG :definitely-wrong")
+            after_wrong=trusted.collect()
+            assert not any("\x01VERSION\x01" in line or "\x01WEBSITE\x01" in line for line in after_wrong),after_wrong
+            assert not any(" 001 webuser " in line for line in after_wrong),after_wrong
+
             trusted.send(f"PONG :{cookie}")
             version_lines=trusted.expect("\x01VERSION\x01")
             website_lines=trusted.expect("\x01WEBSITE\x01")
             assert any("\x01VERSION\x01" in line for line in version_lines),version_lines
             assert any("\x01WEBSITE\x01" in line for line in website_lines),website_lines
-            trusted.send("USER webuser 0 * :Web User");trusted.expect(" 001 webuser ",duration=5)
+            trusted.expect(" 001 webuser ",duration=5)
+
             trusted.send("JOIN #blocked");trusted.expect("respond to the CTCP VERSION")
-            trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01");trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
+            trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01")
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
+            trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
+
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
+
+            silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
+            silent.expect("No-spoof PING timeout",duration=5)
         finally:
             if trusted:trusted.close()
             if rejected:rejected.close()
+            if silent:silent.close()
             if proc.poll() is None:
                 proc.terminate()
                 try:proc.wait(timeout=2)
