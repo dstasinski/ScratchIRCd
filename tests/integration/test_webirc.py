@@ -88,6 +88,12 @@ def main():
             assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.33 on test.local" in line for line in server_info),server_info
             assert any("virtual services" in line for line in server_info),server_info
 
+            trusted.send("LINKS")
+            links=trusted.expect(" 365 webuser * :End of /LINKS list.")
+            link_lines=[line for line in links if " 364 webuser " in line]
+            assert len(link_lines)==1,links
+            assert " 364 webuser test.local test.local :0 ScratchIRCd single-server daemon" in link_lines[0],links
+
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
 
             silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
