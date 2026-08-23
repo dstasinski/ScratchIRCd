@@ -7,6 +7,8 @@
 #include "config.h"
 #include "numerics.h"
 
+#include <time.h>
+
 CommandResult command_admin(Server *server, Client *client, char *params) {
     (void)params;
 
@@ -33,6 +35,26 @@ CommandResult command_admin(Server *server, Client *client, char *params) {
     client_sendf(client, RPL_ADMINEMAIL,
                  server->config.server_name, client->nick,
                  server->config.admin_email);
+    return COMMAND_KEEP_CLIENT;
+}
+
+CommandResult command_time(Server *server, Client *client, char *params) {
+    time_t now;
+    struct tm local;
+    char text[128];
+    (void)params;
+
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+
+    now = time(NULL);
+    if (localtime_r(&now, &local) == NULL ||
+        strftime(text, sizeof(text), "%a %b %d %Y -- %H:%M:%S %Z", &local) == 0U) {
+        text[0] = '\0';
+    }
+    client_sendf(client, RPL_TIME,
+                 server->config.server_name, client->nick,
+                 server->config.server_name,
+                 text[0] != '\0' ? text : "Unknown server time");
     return COMMAND_KEEP_CLIENT;
 }
 
