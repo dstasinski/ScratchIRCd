@@ -82,6 +82,12 @@ def main():
             server_time=trusted.expect(" 391 webuser test.local :")
             assert any("Unknown server time" not in line for line in server_time if " 391 webuser test.local :" in line),server_time
 
+            trusted.send("INFO")
+            server_info=trusted.expect(" 374 webuser :End of /INFO list.")
+            assert any(" 373 webuser :- test.local Server INFO" in line for line in server_info),server_info
+            assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.33 on test.local" in line for line in server_info),server_info
+            assert any("virtual services" in line for line in server_info),server_info
+
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
 
             silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
