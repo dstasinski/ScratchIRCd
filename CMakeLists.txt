@@ -31,7 +31,7 @@ enable_testing()
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c
-    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/oper.c src/presence.c src/usermode_policy.c
+    src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/nospoof.c src/oper.c src/presence.c src/usermode_policy.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
