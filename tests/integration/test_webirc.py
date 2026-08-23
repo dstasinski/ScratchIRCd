@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end WebIRC plus no-spoof/CTCP probe coverage."""
-import os,re,socket,subprocess,sys,tempfile,time
+import os,socket,subprocess,sys,tempfile,time
 class IRCClient:
     def __init__(self,sock): self.sock=sock;self.sock.settimeout(.25);self.buffer=b""
     def send(self,line): self.sock.sendall((line+"\r\n").encode())
@@ -16,6 +16,17 @@ class IRCClient:
                 self.buffer+=data
             except socket.timeout:pass
         raise AssertionError(f"expected {needle!r}; got {got!r}")
+    def collect(self,duration=.35):
+        deadline=time.monotonic()+duration;got=[]
+        while time.monotonic()<deadline:
+            while b"\n" in self.buffer:
+                raw,self.buffer=self.buffer.split(b"\n",1);got.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                data=self.sock.recv(4096)
+                if not data:break
+                self.buffer+=data
+            except socket.timeout:pass
+        return got
     def close(self):
         try:self.sock.close()
         except OSError:pass
@@ -39,14 +50,18 @@ def main():
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             trusted.send("WEBIRC gateway-secret web.example supplied.example 203.0.113.9");trusted.send("NICK webuser")
-            lines=trusted.expect("\x01WEBSITE\x01")
+            lines=trusted.expect("PING :")
             ping=next(line for line in lines if line.startswith("PING :"));cookie=ping.split(":",1)[1]
-            assert any("\x01VERSION\x01" in line for line in lines),lines
-            trusted.send(f"PONG :{cookie}");trusted.send("USER webuser 0 * :Web User")
-            trusted.expect(" 001 webuser ",duration=5)
+            before_pong=trusted.collect()
+            assert not any("\x01VERSION\x01" in line or "\x01WEBSITE\x01" in line for line in before_pong),before_pong
+            trusted.send(f"PONG :{cookie}")
+            version_lines=trusted.expect("\x01VERSION\x01")
+            website_lines=trusted.expect("\x01WEBSITE\x01")
+            assert any("\x01VERSION\x01" in line for line in version_lines),version_lines
+            assert any("\x01WEBSITE\x01" in line for line in website_lines),website_lines
+            trusted.send("USER webuser 0 * :Web User");trusted.expect(" 001 webuser ",duration=5)
             trusted.send("JOIN #blocked");trusted.expect("respond to the CTCP VERSION")
-            trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01")
-            trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
+            trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01");trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
