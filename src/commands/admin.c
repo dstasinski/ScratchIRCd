@@ -3,12 +3,28 @@
  * @brief Implementation of IRC server-information commands.
  */
 
+#include "ban_db.h"
 #include "commands.h"
 #include "config.h"
 #include "numerics.h"
 
 #include <stdio.h>
 #include <time.h>
+
+typedef struct StatsKlineContext {
+    Server *server;
+    Client *client;
+} StatsKlineContext;
+
+static int stats_kline_row(const BanRecord *record, void *context) {
+    StatsKlineContext *stats = context;
+    if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
+        return -1;
+    client_sendf(stats->client, RPL_STATSKLINE,
+                 stats->server->config.server_name, stats->client->nick,
+                 record->mask, record->set_by, record->reason);
+    return 0;
+}
 
 CommandResult command_admin(Server *server, Client *client, char *params) {
     (void)params;
@@ -93,6 +109,19 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
         client_sendf(client, RPL_STATSUPTIME,
                      server->config.server_name, client->nick,
                      days, hours, minutes, seconds);
+    } else if (selector == 'k' || selector == 'K') {
+        BanDb db = {0};
+        StatsKlineContext context = {server, client};
+        if (client->oper_permissions == 0U) {
+            client_sendf(client, ERR_NOPRIVILEGES,
+                         server->config.server_name, client->nick);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_db_purge_expired(&db);
+            (void)ban_db_list(&db, BAN_TYPE_KLINE, stats_kline_row, &context);
+            ban_db_close(&db);
+        }
     }
 
     client_sendf(client, RPL_ENDOFSTATS,
