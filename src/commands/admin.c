@@ -77,6 +77,29 @@ CommandResult command_links(Server *server, Client *client, char *params) {
     return COMMAND_KEEP_CLIENT;
 }
 
+CommandResult command_stats(Server *server, Client *client, char *params) {
+    char selector = params != NULL && params[0] != '\0' ? params[0] : '*';
+
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+
+    if (selector == 'u' || selector == 'U') {
+        time_t now = time(NULL);
+        long uptime = server->started_at > 0 && now > server->started_at
+                          ? (long)(now - server->started_at) : 0L;
+        long days = uptime / 86400L;
+        long hours = (uptime % 86400L) / 3600L;
+        long minutes = (uptime % 3600L) / 60L;
+        long seconds = uptime % 60L;
+        client_sendf(client, RPL_STATSUPTIME,
+                     server->config.server_name, client->nick,
+                     days, hours, minutes, seconds);
+    }
+
+    client_sendf(client, RPL_ENDOFSTATS,
+                 server->config.server_name, client->nick, selector);
+    return COMMAND_KEEP_CLIENT;
+}
+
 CommandResult command_time(Server *server, Client *client, char *params) {
     time_t now;
     struct tm local;
