@@ -63,6 +63,20 @@ CommandResult command_info(Server *server, Client *client, char *params) {
     return COMMAND_KEEP_CLIENT;
 }
 
+CommandResult command_links(Server *server, Client *client, char *params) {
+    const char *mask = params != NULL && params[0] != '\0' ? params : "*";
+
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+
+    client_sendf(client, RPL_LINKS,
+                 server->config.server_name, client->nick,
+                 server->config.server_name, server->config.server_name,
+                 0, "ScratchIRCd single-server daemon");
+    client_sendf(client, RPL_ENDOFLINKS,
+                 server->config.server_name, client->nick, mask);
+    return COMMAND_KEEP_CLIENT;
+}
+
 CommandResult command_time(Server *server, Client *client, char *params) {
     time_t now;
     struct tm local;
