@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <time.h>
 
 static int ensure_databases(const ServerConfig *config) {
     OperatorDb operators;
@@ -75,6 +76,7 @@ int main(int argc, char **argv) {
                     config.server_name, config.port);
             return 1;
         }
+        server.started_at = time(NULL);
 
         /* GeoLite2 files are optional. Missing files leave Client.geoip unavailable. */
         if (geoip_init(&server.geoip, config.geoip_city_db, config.geoip_asn_db) != 0) {
