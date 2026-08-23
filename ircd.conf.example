@@ -13,11 +13,12 @@ tls_key_file =
 max_clients = 1024
 dns_timeout_seconds = 5
 
-# PING-cookie anti-spoofing. After NICK establishes a usable CTCP target the
-# server sends the random PING cookie followed immediately by CTCP VERSION.
+# PING-cookie anti-spoofing. After NICK establishes a usable target the server
+# sends only the random PING cookie. CTCP VERSION is sent only after the client
+# returns the correct PONG. Authenticated WebIRC clients are additionally sent
+# CTCP WEBSITE, also only after the PING-cookie check has succeeded.
 # Registration waits for the matching PONG. Clients that do not answer VERSION
-# cannot JOIN or privately message non-operators. Authenticated WebIRC clients
-# are additionally queried with CTCP WEBSITE.
+# cannot JOIN or privately message non-operators.
 nospoof = yes
 nospoof_timeout_seconds = 30
 
