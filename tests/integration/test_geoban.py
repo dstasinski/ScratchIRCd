@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end GEOBAN/UNGEOBAN permission, syntax, and restart persistence tests."""
+"""End-to-end GEOBAN/UNGEOBAN permission, syntax, restart, and STATS tests."""
 
 import os
 import socket
@@ -26,7 +26,7 @@ class IRCClient:
                 line = raw.rstrip(b"\r").decode(errors="replace")
                 got.append(line)
                 if needle in line:
-                    return line
+                    return got
             try:
                 data = self.sock.recv(4096)
                 if not data:
@@ -107,6 +107,8 @@ def main():
             user = IRCClient(port); register(user, "User")
             user.send("GEOBAN COUNTRY RU 0 :denied")
             user.expect(" 481 User ")
+            user.send("STATS g")
+            user.expect(" 481 User ")
 
             admin.send("OPER root adminpass")
             admin.expect(" 381 Admin :You are now a Network Administrator")
@@ -120,6 +122,15 @@ def main():
             admin.expect("GEOBAN COUNTRY {RU}")
             admin.send("GEOBAN LIST")
             admin.expect("GEOBAN ORG {*Example Network*}")
+
+            admin.send("STATS g")
+            stats_g = admin.expect(" 219 Admin g :End of /STATS report")
+            assert any(" 210 Admin :GEOBAN COUNTRY {RU} set-by=root" in line and
+                       "reason=country reason" in line for line in stats_g), stats_g
+            assert any("GEOBAN ASN {22773}" in line and "reason=asn reason" in line
+                       for line in stats_g), stats_g
+            assert any("GEOBAN ORG {*Example Network*}" in line and
+                       "reason=org reason" in line for line in stats_g), stats_g
         finally:
             if admin: admin.close()
             if user: user.close()
@@ -132,6 +143,9 @@ def main():
             admin = IRCClient(port); register(admin, "Admin2")
             admin.send("OPER root adminpass")
             admin.expect(" 381 Admin2 :You are now a Network Administrator")
+            admin.send("STATS g")
+            restarted_stats = admin.expect(" 219 Admin2 g :End of /STATS report")
+            assert any("GEOBAN ASN {22773}" in line for line in restarted_stats), restarted_stats
             admin.send("GEOBAN LIST")
             admin.expect("GEOBAN ASN {22773}")
             admin.send("UNGEOBAN COUNTRY ru")
