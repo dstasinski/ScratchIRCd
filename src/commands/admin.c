@@ -6,23 +6,59 @@
 #include "ban_db.h"
 #include "commands.h"
 #include "config.h"
+#include "geoban_db.h"
 #include "numerics.h"
 
 #include <stdio.h>
 #include <time.h>
 
-typedef struct StatsKlineContext {
+typedef struct StatsBanContext {
     Server *server;
     Client *client;
-} StatsKlineContext;
+    char selector;
+} StatsBanContext;
 
-static int stats_kline_row(const BanRecord *record, void *context) {
-    StatsKlineContext *stats = context;
+typedef struct StatsGeoBanContext {
+    Server *server;
+    Client *client;
+} StatsGeoBanContext;
+
+static int stats_ban_row(const BanRecord *record, void *context) {
+    StatsBanContext *stats = context;
     if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
         return -1;
-    client_sendf(stats->client, ":%s 216 %s %s %s :%s",
+
+    if (stats->selector == 'k') {
+        client_sendf(stats->client, ":%s 216 %s %s %s :%s",
+                     stats->server->config.server_name, stats->client->nick,
+                     record->mask, record->set_by, record->reason);
+    } else {
+        client_sendf(stats->client,
+                     ":%s 210 %s :ZLINE %s set-by=%s expires=%lld reason=%s",
+                     stats->server->config.server_name, stats->client->nick,
+                     record->mask, record->set_by, record->expires_at,
+                     record->reason);
+    }
+    return 0;
+}
+
+static int stats_geoban_row(const GeoBanRecord *record, void *context) {
+    StatsGeoBanContext *stats = context;
+    if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
+        return -1;
+
+    client_sendf(stats->client,
+                 ":%s 210 %s :GEOBAN %s {%s} set-by=%s expires=%lld reason=%s",
                  stats->server->config.server_name, stats->client->nick,
-                 record->mask, record->set_by, record->reason);
+                 geoban_type_name(record->type), record->value,
+                 record->set_by, record->expires_at, record->reason);
+    return 0;
+}
+
+static int stats_require_oper(Server *server, Client *client) {
+    if (client->oper_permissions != 0U) return 1;
+    client_sendf(client, ERR_NOPRIVILEGES,
+                 server->config.server_name, client->nick);
     return 0;
 }
 
@@ -94,7 +130,7 @@ CommandResult command_links(Server *server, Client *client, char *params) {
 }
 
 CommandResult command_stats(Server *server, Client *client, char *params) {
-    char selector = params != NULL && params[0] != '\0' ? params[0] : '*';
+    char selector = params != NULL && params[0] != '\0' ? params[0] : '?';
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
@@ -111,17 +147,47 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
                      days, hours, minutes, seconds);
     } else if (selector == 'k' || selector == 'K') {
         BanDb db = {0};
-        StatsKlineContext context = {server, client};
-        if (client->oper_permissions == 0U) {
-            client_sendf(client, ERR_NOPRIVILEGES,
-                         server->config.server_name, client->nick);
-            return COMMAND_KEEP_CLIENT;
-        }
+        StatsBanContext context = {server, client, 'k'};
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
         if (ban_db_open(&db, server->config.bans_db) == 0) {
             (void)ban_db_purge_expired(&db);
-            (void)ban_db_list(&db, BAN_TYPE_KLINE, stats_kline_row, &context);
+            (void)ban_db_list(&db, BAN_TYPE_KLINE, stats_ban_row, &context);
             ban_db_close(&db);
         }
+        selector = 'k';
+    } else if (selector == 'z' || selector == 'Z') {
+        BanDb db = {0};
+        StatsBanContext context = {server, client, 'z'};
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_db_purge_expired(&db);
+            (void)ban_db_list(&db, BAN_TYPE_ZLINE, stats_ban_row, &context);
+            ban_db_close(&db);
+        }
+        selector = 'z';
+    } else if (selector == 'g' || selector == 'G') {
+        GeoBanDb db = {0};
+        StatsGeoBanContext context = {server, client};
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        if (geoban_db_open(&db, server->config.bans_db) == 0) {
+            (void)geoban_db_list(&db, stats_geoban_row, &context);
+            geoban_db_close(&db);
+        }
+        selector = 'g';
+    } else if (selector == '?' || selector == 'h' || selector == 'H') {
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS u - server uptime");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS k - persistent KLINEs (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS z - persistent ZLINEs (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS g - persistent GeoBAN policies (IRCops only)");
+        selector = '?';
     }
 
     client_sendf(client, RPL_ENDOFSTATS,
