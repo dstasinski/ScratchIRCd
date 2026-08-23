@@ -3,14 +3,9 @@
 
 server_name = scratch.local
 network_name = ScratchNet
-
-# Empty means listen on all available IPv4 and IPv6 addresses.
 bind_address =
 port = 6667
 
-# Optional OpenSSL TLS listener. TLS is enabled only when both certificate and
-# private-key paths are configured. The normal plaintext listener remains
-# available on port above.
 tls_port = 6697
 tls_cert_file =
 tls_key_file =
@@ -18,40 +13,32 @@ tls_key_file =
 max_clients = 1024
 dns_timeout_seconds = 5
 
-# Authorized WebIRC gateways. Repeat this option for multiple gateways.
-# The first field must be the gateway's numeric IPv4/IPv6 peer address; the
-# second field is the WEBIRC password. Gateway DNS names are not trusted for
-# authorization.
+# PING-cookie anti-spoofing. After NICK establishes a usable CTCP target the
+# server sends the random PING cookie followed immediately by CTCP VERSION.
+# Registration waits for the matching PONG. Clients that do not answer VERSION
+# cannot JOIN or privately message non-operators. Authenticated WebIRC clients
+# are additionally queried with CTCP WEBSITE.
+nospoof = yes
+nospoof_timeout_seconds = 30
+
+# Authorized WebIRC gateways.
 # webirc_gateway = 127.0.0.1 change-me
 # webirc_gateway = 2001:db8::10 another-secret
 
-# DNS blacklists. Repeat for multiple lists. Each positive result automatically
-# creates an exact-IP persistent ZLINE in data/bans.db and rejects the client.
-# Lookups run asynchronously against finalized real_ip values. Timeout/failure
-# fails open so a resolver outage does not indefinitely block registration.
 dnsbl_timeout_seconds = 5
 # dnsbl = Spamhaus zen.spamhaus.org
 # dnsbl = DroneBL dnsbl.dronebl.org
 
-# Optional MaxMind GeoLite2 enrichment databases. ScratchIRCd continues to run
-# if either file is missing. Both lookups use the finalized real client IP,
-# including the end-user IP supplied by an authenticated WebIRC gateway.
 geoip_city_db = data/GeoLite2-City.mmdb
 geoip_asn_db = data/GeoLite2-ASN.mmdb
 
-# Optional connection password. Leave empty to disable PASS enforcement.
 server_password =
-
-# Server information files.
 motd_file = motd.txt
 rules_file = rules.txt
-
-# ADMIN command information.
 admin_location1 =
 admin_location2 =
 admin_email =
 
-# All ScratchIRCd SQLite databases live under data/.
 operators_db = data/operators.db
 bans_db = data/bans.db
 nickserv_db = data/nickserv.db
@@ -59,47 +46,21 @@ chanserv_db = data/chanserv.db
 memoserv_db = data/memoserv.db
 history_db = data/history.db
 
-# Nickname shorthand for operator bans. Explicit user@host KLINE and IP-mask
-# ZLINE commands remain permanent. KLINE <nick> resolves to *@real_host (or
-# *@real_ip if FCrDNS is unavailable); ZLINE <nick> resolves to exact real_ip.
-# The shorthand records survive restart but expire at these configured times.
 kline_default_duration_seconds = 3600
 kline_default_reason = Temporary KLINE
 zline_default_duration_seconds = 3600
 zline_default_reason = Temporary ZLINE
 
-# Maximum number of records one CHATHISTORY request may return. The compiled
-# hard ceiling is IRCD_HISTORY_HARD_LIMIT (currently 500).
 history_limit = 100
-
-# MemoServ mailbox policy. Quota counts stored inbox memos per NickServ account.
-# Retention is based on memo creation time; 0 disables automatic expiration.
 memoserv_quota = 100
 memoserv_retention_days = 90
 
-# NickServ email verification/password recovery. ScratchIRCd invokes this
-# sendmail-compatible binary directly (never through a shell). Leave either
-# sendmail_path or mail_from empty to disable email delivery. Postfix, Exim,
-# Sendmail, and msmtp's sendmail-compatible wrapper are suitable examples.
 sendmail_path =
 mail_from =
 nickserv_reset_seconds = 1800
 nickserv_verify_seconds = 86400
 
-# Ordinary IRC operators are NOT configured in this file. They are managed by
-# the network administrator through OPERADD / OPERDEL / OPERSET / OPERLIST.
-# Registered nicknames/accounts are managed by the virtual NickServ service and
-# stored in nickserv_db. Registered channels are managed by the virtual
-# ChanServ service and stored in chanserv_db. Offline account-to-account memos
-# are managed by virtual MemoServ and stored in memoserv_db.
-
-# Bootstrap network administrator only.
-# Generate netadmin_password_hash with:
-#   ./build/scratchircd-mkpasswd 'your password'
-#
-# The host mask is checked against the real client hostname/IP, not display_host
-# and not the WebIRC gateway identity. Leave name/hash empty to disable
-# bootstrap netadmin authentication.
+# Bootstrap network administrator only. Ordinary operators live in operators_db.
 netadmin_name =
 netadmin_password_hash =
 netadmin_hostmask = *!*@*
