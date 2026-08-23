@@ -7,6 +7,7 @@
 #include "config.h"
 #include "numerics.h"
 
+#include <stdio.h>
 #include <time.h>
 
 CommandResult command_admin(Server *server, Client *client, char *params) {
