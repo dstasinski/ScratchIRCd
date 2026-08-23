@@ -1,12 +1,6 @@
 /**
  * @file irc.c
  * @brief Minimal IRC line parser connecting the network layer to commands.
- *
- * This file intentionally contains no IRC command implementations. It splits
- * one CRLF-stripped protocol line into a command token and the untouched
- * parameter remainder, then delegates command selection and behavior to the
- * command subsystem in src/commands/.  A parsed command also refreshes the
- * client's last-activity timestamp for WHOIS idle reporting.
  */
 
 #include "irc.h"
@@ -15,21 +9,19 @@
 #include <string.h>
 #include <time.h>
 
+/* Keep the connection-policy implementation in its own source file while the
+ * current build graph compiles it as part of the IRC translation unit. */
+#include "nospoof.c"
+
 int irc_handle_line(Server *server, Client *client, char *line) {
     char *command;
     char *params;
     CommandResult result;
 
-    if (server == NULL || client == NULL || line == NULL) {
-        return 0;
-    }
-
+    if (server == NULL || client == NULL || line == NULL) return 0;
     command = strtok(line, " ");
     params = strtok(NULL, "");
-    if (command == NULL) {
-        return 0;
-    }
-
+    if (command == NULL) return 0;
     client->last_activity = time(NULL);
     result = command_dispatch(server, client, command, params);
     return result == COMMAND_DISCONNECT_CLIENT ? 1 : 0;
