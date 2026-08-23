@@ -129,7 +129,16 @@ def main():
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
 
+            receiver.send("STATS")
+            stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
+            assert any("STATS u - server uptime" in line for line in stats_help), stats_help
+            assert any("STATS g - persistent GeoBAN policies" in line for line in stats_help), stats_help
+
             receiver.send("STATS k")
+            receiver.expect(" 481 bob ")
+            receiver.send("STATS z")
+            receiver.expect(" 481 bob ")
+            receiver.send("STATS g")
             receiver.expect(" 481 bob ")
 
             receiver.send("MODE bob +w")
@@ -157,6 +166,10 @@ def main():
 
             admin.send("ZLINE 127.0.0.1 :zline test")
             admin.expect("NOTICE alice :ZLINE added: 127.0.0.1")
+            admin.send("STATS z")
+            stats_z = admin.expect(" 219 alice z :End of /STATS report")
+            assert any(" 210 alice :ZLINE 127.0.0.1 set-by=root" in line and
+                       "reason=zline test" in line for line in stats_z), stats_z
             zed = IRCClient(port); clients.append(zed)
             zed.send("NICK zed")
             zed.send("USER zed 0 * :Zed User")
