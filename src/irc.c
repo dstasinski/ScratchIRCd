@@ -7,7 +7,6 @@
 #include "commands.h"
 
 #include <string.h>
-#include <time.h>
 
 int irc_handle_line(Server *server, Client *client, char *line) {
     char *command;
@@ -18,7 +17,6 @@ int irc_handle_line(Server *server, Client *client, char *line) {
     command = strtok(line, " ");
     params = strtok(NULL, "");
     if (command == NULL) return 0;
-    client->last_activity = time(NULL);
     result = command_dispatch(server, client, command, params);
     return result == COMMAND_DISCONNECT_CLIENT ? 1 : 0;
 }
