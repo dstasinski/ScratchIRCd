@@ -9,7 +9,6 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,93 +39,25 @@ static ChannelLogState *state_for(const char *channel_name, int create) {
     return state;
 }
 
-static int logging_column_exists(sqlite3 *db) {
-    sqlite3_stmt *stmt = NULL;
-    int found = 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)", -1, &stmt, NULL) != SQLITE_OK)
-        return 0;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const char *name = (const char *)sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp(name, "logging_enabled") == 0) {
-            found = 1;
-            break;
-        }
-    }
-    sqlite3_finalize(stmt);
-    return found;
-}
-
-static int ensure_logging_column(sqlite3 *db) {
-    char *error = NULL;
-    int rc;
-    if (logging_column_exists(db)) return 0;
-    rc = sqlite3_exec(db,
-        "ALTER TABLE channels ADD COLUMN logging_enabled INTEGER NOT NULL DEFAULT 0",
-        NULL, NULL, &error);
-    if (rc != SQLITE_OK) {
-        if (error != NULL) fprintf(stderr, "ChanServ logging schema: %s\n", error);
-        sqlite3_free(error);
-        return -1;
-    }
-    return 0;
-}
-
 static int db_get_enabled(Server *server, const char *channel_name,
                           int *registered, int *enabled) {
     ChanServDb db = {0};
-    sqlite3_stmt *stmt = NULL;
     int rc;
-    if (registered != NULL) *registered = 0;
-    if (enabled != NULL) *enabled = 0;
     if (server == NULL || channel_name == NULL) return -1;
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    if (ensure_logging_column(db.db) != 0 ||
-        sqlite3_prepare_v2(db.db,
-            "SELECT enabled,logging_enabled FROM channels WHERE name=?1",
-            -1, &stmt, NULL) != SQLITE_OK) {
-        chanserv_db_close(&db);
-        return -1;
-    }
-    sqlite3_bind_text(stmt, 1, channel_name, -1, SQLITE_TRANSIENT);
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-        int channel_enabled = sqlite3_column_int(stmt, 0) != 0;
-        if (registered != NULL) *registered = channel_enabled;
-        if (enabled != NULL)
-            *enabled = channel_enabled && sqlite3_column_int(stmt, 1) != 0;
-        sqlite3_finalize(stmt);
-        chanserv_db_close(&db);
-        return 0;
-    }
-    sqlite3_finalize(stmt);
+    rc = chanserv_db_logging_get(&db, channel_name, registered, enabled);
     chanserv_db_close(&db);
-    return rc == SQLITE_DONE ? 0 : -1;
+    return rc;
 }
 
 static int db_set_enabled(Server *server, const char *channel_name, int enabled) {
     ChanServDb db = {0};
-    sqlite3_stmt *stmt = NULL;
     int rc;
     if (server == NULL || channel_name == NULL) return -1;
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    if (ensure_logging_column(db.db) != 0 ||
-        sqlite3_prepare_v2(db.db,
-            "UPDATE channels SET logging_enabled=?1,updated_at=unixepoch() "
-            "WHERE name=?2 AND enabled=1",
-            -1, &stmt, NULL) != SQLITE_OK) {
-        chanserv_db_close(&db);
-        return -1;
-    }
-    sqlite3_bind_int(stmt, 1, enabled ? 1 : 0);
-    sqlite3_bind_text(stmt, 2, channel_name, -1, SQLITE_TRANSIENT);
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE || sqlite3_changes(db.db) == 0) {
-        chanserv_db_close(&db);
-        return -1;
-    }
+    rc = chanserv_db_logging_set(&db, channel_name, enabled);
     chanserv_db_close(&db);
-    return 0;
+    return rc;
 }
 
 static int state_enabled(Server *server, const char *channel_name) {
@@ -156,11 +87,10 @@ static void safe_channel_component(const char *channel_name,
         unsigned char ch = *p++;
         if (isalnum(ch) || ch == '.' || ch == '-' || ch == '_' ||
             ch == '[' || ch == ']' || ch == '{' || ch == '}' ||
-            ch == '^' || ch == '~') {
+            ch == '^' || ch == '~')
             out[used++] = (char)ch;
-        } else {
+        else
             out[used++] = '_';
-        }
     }
     if (used == 0U && out_size > 1U) out[used++] = '_';
     out[used] = '\0';
@@ -331,8 +261,7 @@ int channel_log_handle_chanserv(Server *server, Client *client,
 
     if (value == NULL ||
         (strcasecmp(value, "ON") != 0 && strcasecmp(value, "OFF") != 0)) {
-        chanserv_notice(server, client,
-                        "Syntax: SET <#channel> LOGGING ON|OFF");
+        chanserv_notice(server, client, "Syntax: SET <#channel> LOGGING ON|OFF");
         return 1;
     }
     if (!client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
@@ -355,9 +284,8 @@ int channel_log_handle_chanserv(Server *server, Client *client,
     if (state != NULL) {
         state->known = 1;
         if (!enable && state->enabled && state->date_suffix[0] != '\0' &&
-            localtime_r(&(time_t){time(NULL)}, &local) != NULL) {
+            localtime_r(&(time_t){time(NULL)}, &local) != NULL)
             append_boundary(state->channel, state->date_suffix, &local, 0);
-        }
         state->enabled = enable;
         if (enable) {
             now = time(NULL);
