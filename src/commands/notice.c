@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "channel_log.h"
 #include "config.h"
 #include "history_db.h"
 #include "ircv3.h"
@@ -86,6 +87,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         }
 
         store_channel_history(server, client, channel->name, delivered_text);
+        channel_log_message(server, channel, client, delivered_text, 1);
         ircv3_broadcast_message(channel, client, client, "NOTICE",
                                 channel->name, delivered_text);
         client->last_activity = time(NULL);
