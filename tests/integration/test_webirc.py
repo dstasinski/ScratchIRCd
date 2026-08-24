@@ -51,6 +51,10 @@ def whois_idle(lines,requester,target):
     marker=f" 317 {requester} {target} "
     line=next(line for line in lines if marker in line)
     return int(line.split(marker,1)[1].split(" ",1)[0])
+def mode_token(lines,nick):
+    marker=f" 221 {nick} "
+    line=next(line for line in lines if marker in line)
+    return line.rsplit(" ",1)[-1]
 def main():
     if len(sys.argv)!=3:raise SystemExit("usage: test_webirc.py scratchircd scratchircd-mkpasswd")
     binary=os.path.abspath(sys.argv[1]);mkpasswd=os.path.abspath(sys.argv[2])
@@ -114,6 +118,57 @@ def main():
             oper_direct_whois=trusted.expect(" 318 webuser observer ")
             assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
             assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
+
+            # +H/+I/+W are oper self-toggle modes.  Ordinary WHOIS must hide
+            # operator status and idle/signon while +W reports only public identity.
+            trusted.send("MODE webuser +HIW")
+            hidden_modes=trusted.expect(" 221 webuser ")
+            hidden_token=mode_token(hidden_modes,"webuser")
+            assert all(letter in hidden_token for letter in "HIW"),hidden_modes
+
+            observer.send("MODE observer +x")
+            cloak_modes=observer.expect(" 221 observer ")
+            assert "x" in mode_token(cloak_modes,"observer"),cloak_modes
+
+            observer.send("WHOIS webuser")
+            hidden_whois=observer.expect(" 318 observer webuser ")
+            assert not any(" 313 observer webuser " in line for line in hidden_whois),hidden_whois
+            assert not any(" 317 observer webuser " in line for line in hidden_whois),hidden_whois
+            assert not any(" 378 observer webuser " in line for line in hidden_whois),hidden_whois
+            whois_notice=trusted.expect("*** observer!observer@cloak-")
+            assert not any("observer!observer@127.0.0.1" in line for line in whois_notice),whois_notice
+
+            # WHO always exposes display_host, even to operators; real host/IP stays
+            # in the oper-only WHOIS 378 audit numeric.
+            trusted.send("WHO observer")
+            who_lines=trusted.expect(" 315 webuser observer ")
+            who_reply=next(line for line in who_lines if " 352 webuser " in line and " observer " in line)
+            assert " cloak-" in who_reply and " 127.0.0.1 " not in who_reply,who_reply
+            trusted.send("WHOIS observer")
+            cloak_audit=trusted.expect(" 318 webuser observer ")
+            whois_user=next(line for line in cloak_audit if " 311 webuser observer " in line)
+            assert " cloak-" in whois_user and "127.0.0.1" not in whois_user,whois_user
+            assert any(" 378 webuser observer " in line and "127.0.0.1" in line for line in cloak_audit),cloak_audit
+
+            # A second IRC operator remains exempt from +H/+I hiding.
+            trusted.send("OPERADD auditop auditpass - :-")
+            trusted.expect("NOTICE webuser :Operator added")
+            observer.send("OPER auditop auditpass")
+            observer.expect(" 381 observer :You are now an IRC operator")
+            observer.send("WHOIS webuser")
+            oper_exempt=observer.expect(" 318 observer webuser ")
+            assert any(" 313 observer webuser :is an Administrator" in line for line in oper_exempt),oper_exempt
+            assert any(" 317 observer webuser " in line for line in oper_exempt),oper_exempt
+            trusted.expect("*** observer!observer@cloak-")
+
+            # Disabling +W stops WHOIS notifications without changing WHOIS itself.
+            trusted.send("MODE webuser -W")
+            no_w_modes=trusted.expect(" 221 webuser ")
+            assert "W" not in mode_token(no_w_modes,"webuser"),no_w_modes
+            trusted.collect()
+            observer.send("WHOIS webuser")
+            observer.expect(" 318 observer webuser ")
+            assert not any("did a /WHOIS on you" in line for line in trusted.collect(.5))
 
             # Non-message commands do not reset idle time.
             time.sleep(1.2)
