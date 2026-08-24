@@ -30,8 +30,8 @@ void channel_log_flush_due(Server *server, time_t now);
 /** Flush every queued event, used for disable/shutdown/restart boundaries. */
 void channel_log_flush_all(Server *server);
 
-/** Rotate known enabled logs when the local calendar day changes. */
-void channel_log_rotate_all(Server *server, time_t now);
+/** Rotate/flush known logs from the existing server event-loop clock. */
+void channel_log_rotate_all(time_t now);
 
 /**
  * Handle CHANSERV SET <channel> LOGGING ON|OFF.
