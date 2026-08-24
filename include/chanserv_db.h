@@ -35,6 +35,13 @@ typedef struct ChanServAccess {
     ChanServAccessLevel level;
 } ChanServAccess;
 
+typedef struct ChanServLogQueueRecord {
+    long long id;
+    char channel[IRC_CHANNEL_NAME_MAX + 1U];
+    long long event_time;
+    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+} ChanServLogQueueRecord;
+
 typedef struct ChanServDb { sqlite3 *db; } ChanServDb;
 
 int chanserv_db_open(ChanServDb *db, const char *path);
@@ -50,11 +57,21 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
                           const char *setter, long long topic_time);
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size);
 
-/* Optional per-channel logging persistence and schema migration. */
+/* Optional per-channel logging persistence and durable queue. */
 int chanserv_db_logging_ensure_schema(ChanServDb *db);
 int chanserv_db_logging_get(ChanServDb *db, const char *name,
                             int *registered, int *enabled);
 int chanserv_db_logging_set(ChanServDb *db, const char *name, int enabled);
+int chanserv_db_logging_queue_add(ChanServDb *db, const char *channel,
+                                  long long event_time, const char *body);
+int chanserv_db_logging_queue_oldest(ChanServDb *db, long long *event_time);
+int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
+                                    ChanServLogQueueRecord *records,
+                                    size_t capacity, size_t *count);
+int chanserv_db_logging_queue_list_channels(ChanServDb *db, char *buffer,
+                                            size_t size);
+int chanserv_db_logging_queue_delete_through(ChanServDb *db, const char *channel,
+                                             long long id);
 
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccessLevel level);
