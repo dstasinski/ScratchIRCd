@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "channel_log.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -23,6 +24,7 @@ CommandResult command_die(Server *server, Client *client, char *params) {
 
     client_sendf(client, ":%s NOTICE %s :Shutting down ScratchIRCd",
                  server->config.server_name, client->nick);
+    channel_log_flush_all(server);
     server->shutdown_requested = 1;
     server->restart_requested = 1;
     return COMMAND_KEEP_CLIENT;
