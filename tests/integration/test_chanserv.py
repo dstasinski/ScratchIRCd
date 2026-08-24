@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,15 @@ def main():
             alice.expect("Persistent mode lock updated.")
             alice.send("CHANSERV SET #persist TOPIC :Persistent ChanServ topic")
             alice.expect("Persistent topic updated.")
+
+            # Ordinary TOPIC changes are runtime-only.  They may change the
+            # live topic, but must not overwrite ChanServ's persistent topic.
+            alice.send("TOPIC #persist :Runtime topic override")
+            alice.expect(" TOPIC #persist :Runtime topic override")
+            alice.send("TOPIC #persist")
+            live_topic = alice.expect(" 332 Alice #persist :Runtime topic override")
+            assert any(" 333 Alice #persist Alice!Alice@" in line for line in live_topic), live_topic
+
             alice.send("MODE #persist")
             modes = alice.expect(" 324 Alice #persist ")
             assert any("r" in line and "n" in line and "t" in line
@@ -174,6 +184,8 @@ def main():
             join_lines = traveler.expect(" 366 Traveler #persist ")
             assert any("~Traveler" in line for line in join_lines if " 353 Traveler " in line), join_lines
             assert any("Persistent ChanServ topic" in line for line in join_lines if " 332 Traveler " in line), join_lines
+            assert not any("Runtime topic override" in line for line in join_lines), join_lines
+            assert any(" 333 Traveler #persist Alice!Alice@" in line for line in join_lines), join_lines
             traveler.send("MODE #persist")
             modes = traveler.expect(" 324 Traveler #persist ")
             mode_line = next(line for line in modes if " 324 Traveler #persist " in line)
