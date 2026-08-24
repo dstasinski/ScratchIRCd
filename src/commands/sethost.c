@@ -8,8 +8,20 @@
 #include "numerics.h"
 #include "oper.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+
+static int valid_display_host(const char *host) {
+    const unsigned char *p = (const unsigned char *)host;
+
+    if (host == NULL || *host == '\0' || strlen(host) > IRC_HOST_MAX) return 0;
+    for (; *p != '\0'; ++p) {
+        if (isalnum(*p) || *p == '.' || *p == '-' || *p == '_' || *p == ':') continue;
+        return 0;
+    }
+    return 1;
+}
 
 CommandResult command_sethost(Server *server, Client *client, char *params) {
     char *nick;
@@ -22,8 +34,7 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (params == NULL || (nick = strtok(params, " ")) == NULL ||
-        (host = strtok(NULL, " ")) == NULL || *host == '\0' ||
-        strlen(host) > IRC_HOST_MAX) {
+        (host = strtok(NULL, " ")) == NULL || !valid_display_host(host)) {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
                      client->nick, "SETHOST");
         return COMMAND_KEEP_CLIENT;
@@ -35,6 +46,7 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    /* SETHOST changes only the public identity. real_ip/real_host are immutable here. */
     (void)snprintf(target->display_host, sizeof(target->display_host), "%s", host);
     target->modes = client_mode_add(target->modes, CLIENT_MODE_VHOST);
     target->modes = client_mode_remove(target->modes, CLIENT_MODE_CLOAKED);
