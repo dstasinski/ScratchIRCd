@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -59,12 +60,13 @@ def main():
     binary=os.path.abspath(sys.argv[1]); mkpasswd=os.path.abspath(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="scratchircd-channel-logging-") as tmp:
         data=os.path.join(tmp,"data"); os.makedirs(data,exist_ok=True); port=free_port(); conf=os.path.join(tmp,"ircd.conf")
+        db_path=os.path.join(data,"chanserv.db")
         admin_hash=subprocess.check_output([mkpasswd,"adminpass"],text=True).strip()
         with open(conf,"w",encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n"); f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
             f.write(f"operators_db = {data}/operators.db\nbans_db = {data}/bans.db\nnickserv_db = {data}/nickserv.db\n")
-            f.write(f"chanserv_db = {data}/chanserv.db\nmemoserv_db = {data}/memoserv.db\nhistory_db = {data}/history.db\n")
+            f.write(f"chanserv_db = {db_path}\nmemoserv_db = {data}/memoserv.db\nhistory_db = {data}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \nnetadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\nnetadmin_hostmask = *!*@127.0.0.1\n")
 
@@ -79,13 +81,22 @@ def main():
             admin.send("OPER root adminpass"); admin.expect(" 381 Admin :You are now a Network Administrator")
             admin.send("CHANSERV SET #PersistLog LOGGING ON"); admin.expect("Channel logging enabled.")
             founder.send("PRIVMSG #PersistLog :before-restart"); time.sleep(.1)
-            # A five-minute batch should not have been physically written yet.
-            suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
-            if os.path.exists(path):
-                with open(path,"r",encoding="utf-8",errors="replace") as f: assert "before-restart" not in f.read()
+
+            # The event must be durable immediately. The unit test separately
+            # verifies that ordinary runtime delivery waits for the five-minute batch.
+            with sqlite3.connect(db_path) as db:
+                count=db.execute("SELECT COUNT(*) FROM channel_log_queue WHERE body LIKE '%before-restart%'").fetchone()[0]
+            assert count == 1, count
         finally:
             for c in clients:c.close()
             stop_server(proc)
+
+        # Graceful shutdown is a forced-flush boundary, so before-restart should
+        # already be present in the text log when the daemon comes back.
+        suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
+        assert os.path.exists(path),path
+        with open(path,"r",encoding="utf-8",errors="replace") as f:
+            assert "before-restart" in f.read()
 
         proc=start_server(binary,conf,tmp); clients=[]
         try:
@@ -95,7 +106,6 @@ def main():
             admin.send("OPER root adminpass"); admin.expect(" 381 Admin2 :You are now a Network Administrator")
             user.send("JOIN #PersistLog"); user.expect(" 366 AfterRestart #PersistLog ")
             user.send("PRIVMSG #PersistLog :after-restart"); time.sleep(.1)
-            # Disabling forces a durable queue drain; both pre- and post-restart rows must appear.
             admin.send("CHANSERV SET #PersistLog LOGGING OFF"); admin.expect("Channel logging disabled.")
             suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
             assert os.path.exists(path),path
