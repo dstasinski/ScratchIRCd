@@ -146,6 +146,43 @@ def main():
             owner.send("MODE #invex +I RenamedOutside!*@*");owner.expect(" MODE #invex +I RenamedOutside!*@*")
             outsider.send("JOIN #invex");outsider.expect(" 366 RenamedOutside #invex ")
 
+            # Ban redirects re-run destination policy; destination keys are not bypassed or inherited.
+            owner.send("JOIN #redirectkey");owner.expect(" 366 Owner #redirectkey ")
+            owner.send("MODE #redirectkey +k destkey");owner.expect(" MODE #redirectkey +k destkey")
+            owner.send("JOIN #bansource");owner.expect(" 366 Owner #bansource ")
+            owner.send("MODE #bansource +B #redirectkey");owner.expect(" MODE #bansource +B #redirectkey")
+            owner.send("MODE #bansource +b RenamedOutside!*@*");owner.expect(" MODE #bansource +b RenamedOutside!*@*")
+            outsider.send("JOIN #bansource sourcekey");outsider.expect(" 470 RenamedOutside #bansource #redirectkey ")
+            outsider.expect(" 475 RenamedOutside #redirectkey ")
+            outsider.expect_not(" 366 RenamedOutside #redirectkey ")
+
+            # Invite-only policy is also enforced at a redirect destination.
+            owner.send("JOIN #redirectinvite");owner.expect(" 366 Owner #redirectinvite ")
+            owner.send("MODE #redirectinvite +i");owner.expect(" MODE #redirectinvite +i")
+            owner.send("MODE #bansource +B #redirectinvite");owner.expect(" MODE #bansource +B #redirectinvite")
+            outsider.send("JOIN #bansource");outsider.expect(" 470 RenamedOutside #bansource #redirectinvite ")
+            outsider.expect(" 473 RenamedOutside #redirectinvite ")
+
+            # +L redirects a full channel with the same Client identity and normal destination JOIN path.
+            protect.send("JOIN #limitdest");protect.expect(" 366 Protect #limitdest ")
+            owner.send("JOIN #limitsource");owner.expect(" 366 Owner #limitsource ")
+            owner.send("MODE #limitsource +lL 1 #limitdest");owner.expect(" MODE #limitsource +lL 1 #limitdest")
+            outsider.send("JOIN #limitsource");outsider.expect(" 470 RenamedOutside #limitsource #limitdest ")
+            joined=protect.expect(" JOIN #limitdest")
+            assert joined.startswith(":RenamedOutside!RenamedOutside@"),joined
+            outsider.expect(" 366 RenamedOutside #limitdest ")
+
+            # Cross-channel redirect loops are bounded by IRC_JOIN_REDIRECT_MAX and never force a JOIN.
+            owner.send("JOIN #loopa");owner.expect(" 366 Owner #loopa ")
+            owner.send("JOIN #loopb");owner.expect(" 366 Owner #loopb ")
+            owner.send("MODE #loopa +B #loopb");owner.expect(" MODE #loopa +B #loopb")
+            owner.send("MODE #loopb +B #loopa");owner.expect(" MODE #loopb +B #loopa")
+            owner.send("MODE #loopa +b RenamedOutside!*@*");owner.expect(" MODE #loopa +b RenamedOutside!*@*")
+            owner.send("MODE #loopb +b RenamedOutside!*@*");owner.expect(" MODE #loopb +b RenamedOutside!*@*")
+            outsider.send("JOIN #loopa");outsider.expect(" 474 RenamedOutside #loopa ")
+            outsider.expect_not(" 366 RenamedOutside #loopa ")
+            outsider.expect_not(" 366 RenamedOutside #loopb ")
+
             owner.send("MODE #authority +s");protect.expect(" MODE #authority +s")
             outsider.send("LIST");outsider.expect_not(" 322 RenamedOutside #authority ");outsider.expect(" 323 RenamedOutside :End of /LIST")
             outsider.send("JOIN #ephemeral");outsider.expect(" 366 RenamedOutside #ephemeral ")
