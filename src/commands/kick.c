@@ -6,6 +6,8 @@
  * checks. Halfops may kick lower-ranked members, operators may kick halfops or
  * lower, protected members may kick protected members or lower, and owners may
  * kick protected members or lower. Owners remain protected from ordinary KICK.
+ * A member with KICK authority may kick themself as a voluntary departure;
+ * hierarchy checks apply only when targeting another member.
  * Future service/oper override commands (such as SAPART) deliberately bypass
  * this normal channel hierarchy.
  */
@@ -87,11 +89,14 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     target_rank = channel_privilege_rank(target_member->privileges);
 
     /*
-     * +a is deliberately special: another +a member may kick a +a target,
-     * despite equal rank. Owners may also kick protected members. Operators
-     * and halfops may not. Owner targets continue to use the normal hierarchy.
+     * Self-KICK is a voluntary departure once the actor has KICK authority.
+     * For other targets, +a is deliberately special: another +a member may
+     * kick a +a target despite equal rank. Owners may also kick protected
+     * members. Operators and halfops may not. Owner targets continue to use
+     * the normal hierarchy.
      */
-    if (channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED) &&
+    if (target != client &&
+        channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED) &&
         !channel_privilege_has(target_member->privileges, CHANNEL_PRIV_OWNER)) {
         if (!channel_privilege_has(actor_member->privileges,
                                    CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER)) {
@@ -100,7 +105,7 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
                          channel->name, target->nick);
             return COMMAND_KEEP_CLIENT;
         }
-    } else if (target_rank >= actor_rank) {
+    } else if (target != client && target_rank >= actor_rank) {
         client_sendf(client, ERR_ATTACKDENY,
                      server->config.server_name, client->nick,
                      channel->name, target->nick);
