@@ -1,4 +1,5 @@
 #include "ban_db.h"
+#include "channel_log.h"
 #include "chanserv_db.h"
 #include "config.h"
 #include "geoip.h"
@@ -9,8 +10,29 @@
 #include "server.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <time.h>
+
+static Server *active_server = NULL;
+
+static void handle_shutdown_signal(int signo) {
+    (void)signo;
+    if (active_server != NULL) {
+        active_server->shutdown_requested = 1;
+        active_server->restart_requested = 1;
+    }
+}
+
+static int install_shutdown_handlers(void) {
+    struct sigaction action;
+    action.sa_handler = handle_shutdown_signal;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    if (sigaction(SIGTERM, &action, NULL) != 0) return -1;
+    if (sigaction(SIGINT, &action, NULL) != 0) return -1;
+    return 0;
+}
 
 static int ensure_databases(const ServerConfig *config) {
     OperatorDb operators;
@@ -55,6 +77,11 @@ static int ensure_databases(const ServerConfig *config) {
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : IRCD_DEFAULT_CONFIG_FILE;
 
+    if (install_shutdown_handlers() != 0) {
+        perror("sigaction");
+        return 1;
+    }
+
     for (;;) {
         ServerConfig config;
         Server server;
@@ -88,8 +115,11 @@ int main(int argc, char **argv) {
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
+        active_server = &server;
         server_run(&server);
+        active_server = NULL;
         restart = server.restart_requested && !server.shutdown_requested;
+        channel_log_flush_all(&server);
         geoip_destroy(&server.geoip);
         server_destroy(&server);
 
