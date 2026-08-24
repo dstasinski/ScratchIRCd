@@ -50,6 +50,12 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
                           const char *setter, long long topic_time);
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size);
 
+/* Optional per-channel logging persistence and schema migration. */
+int chanserv_db_logging_ensure_schema(ChanServDb *db);
+int chanserv_db_logging_get(ChanServDb *db, const char *name,
+                            int *registered, int *enabled);
+int chanserv_db_logging_set(ChanServDb *db, const char *name, int enabled);
+
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccessLevel level);
 int chanserv_db_access_delete(ChanServDb *db, const char *channel, const char *account);
