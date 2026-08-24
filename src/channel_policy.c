@@ -156,62 +156,43 @@ void channel_invite_clear(Channel *channel) {
     channel->invites = NULL;
 }
 
-static ChannelJoinCounter *join_counter(Channel *channel, uint64_t client_id,
-                                        int create) {
-    ChannelJoinCounter *counter;
-    for (counter = channel->join_counters; counter != NULL; counter = counter->next)
-        if (counter->client_id == client_id) return counter;
-    if (!create) return NULL;
-    counter = calloc(1U, sizeof(*counter));
-    if (counter == NULL) return NULL;
-    counter->client_id = client_id;
-    counter->next = channel->join_counters;
-    channel->join_counters = counter;
-    return counter;
-}
-
 int channel_join_throttle_allows(Channel *channel, uint64_t client_id) {
-    ChannelJoinCounter *counter;
     time_t now;
-    if (channel == NULL || client_id == 0U ||
+    (void)client_id;
+    if (channel == NULL ||
         channel->join_throttle_count == 0U ||
         channel->join_throttle_seconds == 0U) return 1;
-    counter = join_counter(channel, client_id, 0);
-    if (counter == NULL || counter->count == 0U) return 1;
+
     now = time(NULL);
-    if (counter->count == 0U || now < counter->window_start ||
-        (unsigned long)(now - counter->window_start) >=
+    if (channel->join_throttle_window_count == 0U ||
+        now < channel->join_throttle_window_start ||
+        (unsigned long)(now - channel->join_throttle_window_start) >=
             (unsigned long)channel->join_throttle_seconds) return 1;
-    return counter->count < channel->join_throttle_count;
+
+    return channel->join_throttle_window_count < channel->join_throttle_count;
 }
 
 void channel_join_throttle_record(Channel *channel, uint64_t client_id) {
-    ChannelJoinCounter *counter;
     time_t now;
-    if (channel == NULL || client_id == 0U ||
+    (void)client_id;
+    if (channel == NULL ||
         channel->join_throttle_count == 0U ||
         channel->join_throttle_seconds == 0U) return;
-    counter = join_counter(channel, client_id, 1);
-    if (counter == NULL) return;
+
     now = time(NULL);
-    if (counter->count == 0U || now < counter->window_start ||
-        (unsigned long)(now - counter->window_start) >=
+    if (channel->join_throttle_window_count == 0U ||
+        now < channel->join_throttle_window_start ||
+        (unsigned long)(now - channel->join_throttle_window_start) >=
             (unsigned long)channel->join_throttle_seconds) {
-        counter->window_start = now;
-        counter->count = 1U;
+        channel->join_throttle_window_start = now;
+        channel->join_throttle_window_count = 1U;
         return;
     }
-    ++counter->count;
+    ++channel->join_throttle_window_count;
 }
 
 void channel_join_throttle_clear(Channel *channel) {
-    ChannelJoinCounter *counter;
     if (channel == NULL) return;
-    counter = channel->join_counters;
-    while (counter != NULL) {
-        ChannelJoinCounter *next = counter->next;
-        free(counter);
-        counter = next;
-    }
-    channel->join_counters = NULL;
+    channel->join_throttle_window_count = 0U;
+    channel->join_throttle_window_start = 0;
 }
