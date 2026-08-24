@@ -9,6 +9,9 @@
 #endif
 #define IRCD_CHANNEL_LOG_BATCH_SECONDS 300
 
+/** Initialize/migrate the durable channel-log queue at server startup. */
+int channel_log_init(Server *server);
+
 /**
  * Optional ChanServ-controlled per-channel text logging.
  *
