@@ -182,7 +182,8 @@ static int flush_channel(Server *server, const char *name) {
             last_id = rows[i].id;
         }
         if (chanserv_db_logging_queue_delete_through(&db, name, last_id) != 0) {
-            chanserv_db_close(&db); return -1;
+            chanserv_db_close(&db);
+            return -1;
         }
     }
     chanserv_db_close(&db);
@@ -222,25 +223,25 @@ static void flush_queued(Server *server, int due_only, time_t now) {
 }
 
 void channel_log_join(Server *server, Channel *channel, Client *client) {
-    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
     if (!channel || !client) return;
     (void)snprintf(body, sizeof(body), "%s (%s@%s) joined %s.", client->nick, client->user, client->display_host, channel->name);
     (void)enqueue(server, channel, time(NULL), body);
 }
 void channel_log_part(Server *server, Channel *channel, Client *client, const char *reason) {
-    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
     if (!channel || !client) return;
     (void)snprintf(body, sizeof(body), "%s (%s@%s) left %s: %s", client->nick, client->user, client->display_host, channel->name, reason && *reason ? reason : "Leaving");
     (void)enqueue(server, channel, time(NULL), body);
 }
 void channel_log_quit(Server *server, Channel *channel, Client *client, const char *reason) {
-    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
     if (!channel || !client) return;
     (void)snprintf(body, sizeof(body), "%s (%s@%s) left irc: Quit:  %s", client->nick, client->user, client->display_host, reason && *reason ? reason : "Client Quit");
     (void)enqueue(server, channel, time(NULL), body);
 }
 void channel_log_message(Server *server, Channel *channel, Client *client, const char *text, int notice) {
-    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
     if (!channel || !client || !text) return;
     if (notice) (void)snprintf(body, sizeof(body), "-%s- %s", client->nick, text);
     else (void)snprintf(body, sizeof(body), "<%s> %s", client->nick, text);
@@ -270,7 +271,7 @@ static void cs_notice(Server *server, Client *client, const char *text) {
 }
 
 int channel_log_handle_chanserv(Server *server, Client *client, const char *text) {
-    char copy[IRC_MESSAGE_BUFFER_SIZE], *command, *channel, *field, *value;
+    char copy[IRCD_MESSAGE_BUFFER_SIZE], *command, *channel, *field, *value;
     int enable, registered = 0, current = 0;
     ChannelLogState *state;
     struct tm local;
