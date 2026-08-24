@@ -22,27 +22,31 @@ static int read_file(const char *path, char *buffer, size_t size) {
     return 0;
 }
 
+static long long queue_count(ChanServDb *db) {
+    sqlite3_stmt *stmt = NULL;
+    long long count = -1;
+    assert(sqlite3_prepare_v2(db->db, "SELECT COUNT(*) FROM channel_log_queue",
+                              -1, &stmt, NULL) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    count = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 int main(void) {
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
     char original[1024];
     char db_path[1200];
-    char old_suffix[32];
-    char new_suffix[32];
-    char old_path[128];
-    char new_path[128];
-    char old_text[4096];
-    char new_text[4096];
-    char expected_boundary[128];
+    char old_suffix[32], new_suffix[32];
+    char old_path[128], new_path[128];
+    char old_text[4096], new_text[4096], expected_boundary[128];
     Server server;
     Channel channel;
     Client client;
     ChanServDb db = {0};
-    struct tm now_tm;
-    struct tm next_tm;
-    time_t now;
-    time_t next_midnight;
-    char *error = NULL;
+    struct tm now_tm, next_tm;
+    time_t now, next_midnight;
 
     assert(tmp != NULL);
     assert(getcwd(original, sizeof(original)) != NULL);
@@ -60,18 +64,21 @@ int main(void) {
 
     assert(chanserv_db_open(&db, db_path) == 0);
     assert(chanserv_db_create(&db, channel.name, "Alice", "rotation test") == 0);
-    assert(sqlite3_exec(db.db,
-        "ALTER TABLE channels ADD COLUMN logging_enabled INTEGER NOT NULL DEFAULT 0;"
-        "UPDATE channels SET logging_enabled=1 WHERE name='#Rotate';",
-        NULL, NULL, &error) == SQLITE_OK);
-    sqlite3_free(error);
+    assert(chanserv_db_logging_set(&db, channel.name, 1) == 0);
     chanserv_db_close(&db);
 
     now = time(NULL);
     assert(localtime_r(&now, &now_tm) != NULL);
     (void)strftime(old_suffix, sizeof(old_suffix), "%d%b%Y", &now_tm);
+    (void)snprintf(old_path, sizeof(old_path), "logs/Rotate.log.%s", old_suffix);
 
     channel_log_message(&server, &channel, &client, "before midnight", 0);
+
+    /* The event is durable immediately but not appended to the text log yet. */
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1);
+    chanserv_db_close(&db);
+    assert(access(old_path, F_OK) != 0);
 
     next_tm = now_tm;
     next_tm.tm_mday += 1;
@@ -86,17 +93,19 @@ int main(void) {
 
     channel_log_rotate_all(next_midnight);
 
-    (void)snprintf(old_path, sizeof(old_path), "logs/Rotate.log.%s", old_suffix);
     (void)snprintf(new_path, sizeof(new_path), "logs/Rotate.log.%s", new_suffix);
     assert(read_file(old_path, old_text, sizeof(old_text)) == 0);
     assert(read_file(new_path, new_text, sizeof(new_text)) == 0);
-
     assert(strstr(old_text, "<Alice> before midnight") != NULL);
     assert(strstr(old_text, "[00:00:00] --- ") != NULL);
     (void)strftime(expected_boundary, sizeof(expected_boundary),
                    "[00:00:00] --- %B %d %Y 00:00:00.", &next_tm);
     assert(strstr(old_text, expected_boundary) != NULL);
     assert(strncmp(new_text, expected_boundary, strlen(expected_boundary)) == 0);
+
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 0);
+    chanserv_db_close(&db);
 
     assert(chdir(original) == 0);
     return 0;
