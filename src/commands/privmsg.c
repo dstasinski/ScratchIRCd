@@ -9,6 +9,7 @@
 
 #include "commands.h"
 #include "channel_log.h"
+#include "channel_policy.h"
 #include "chanserv.h"
 #include "config.h"
 #include "history_db.h"
@@ -93,6 +94,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
         ChannelMember *member;
+        int banned;
         char stripped[IRCD_MESSAGE_BUFFER_SIZE];
         const char *delivered_text = text;
 
@@ -102,6 +104,17 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         }
         member = channel_find_member(channel, client);
+        if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_OWNER))
+            banned = 0;
+        else if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_PROTECTED))
+            banned = channel_client_is_banned_protected(channel, client);
+        else
+            banned = channel_client_is_banned(channel, client);
+        if (banned) {
+            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
+                         client->nick, channel->name, "banned from channel (+b)");
+            return COMMAND_KEEP_CLIENT;
+        }
         if (channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL) && member == NULL) {
             client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
                          client->nick, channel->name, "no external messages (+n)");
