@@ -41,7 +41,7 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
     }
 
     target = hash_get(&server->clients_by_nick, nick);
-    if (target == NULL) {
+    if (target == NULL || !target->registered) {
         client_sendf(client, ERR_NOSUCHNICK,
                      server->config.server_name, client->nick, nick);
         return COMMAND_KEEP_CLIENT;
