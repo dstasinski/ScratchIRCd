@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "channel_log.h"
 #include "config.h"
 #include "numerics.h"
 #include "oper.h"
@@ -38,12 +39,15 @@ CommandResult command_sapart(Server *server, Client *client, char *params) {
     for (name = strtok(channels, ", "); name != NULL; name = strtok(NULL, ", ")) {
         Channel *channel = hash_get(&server->channels_by_name, name);
         char message[IRCD_MESSAGE_BUFFER_SIZE];
+        char reason[IRCD_MESSAGE_BUFFER_SIZE];
         if (channel == NULL || !channel_has_client(channel, target)) continue;
+        (void)snprintf(reason, sizeof(reason), "Forced part by %s", client->nick);
         (void)snprintf(message, sizeof(message),
-                       ":%s!%s@%s PART %s :Forced part by %s\r\n",
+                       ":%s!%s@%s PART %s :%s\r\n",
                        target->nick, target->user, target->display_host,
-                       channel->name, client->nick);
+                       channel->name, reason);
         channel_broadcast(channel, NULL, message);
+        channel_log_part(server, channel, target, reason);
         channel_remove_client(channel, target);
         server_remove_channel_if_empty(server, channel);
     }
