@@ -1,5 +1,6 @@
 /** @file chanserv.c @brief Direct /CHANSERV command alias. */
 #include "commands.h"
+#include "channel_log.h"
 #include "chanserv.h"
 #include "numerics.h"
 
@@ -10,6 +11,7 @@ CommandResult command_chanserv(Server *server, Client *client, char *params) {
                      client->nick, "CHANSERV");
         return COMMAND_KEEP_CLIENT;
     }
-    chanserv_handle_message(server, client, params);
+    if (!channel_log_handle_chanserv(server, client, params))
+        chanserv_handle_message(server, client, params);
     return COMMAND_KEEP_CLIENT;
 }
