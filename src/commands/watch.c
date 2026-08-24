@@ -67,10 +67,11 @@ CommandResult command_watch(Server *server, Client *client, char *params) {
             report_current(server, client, nick);
         } else if (presence_watch_remove(client, nick) >= 0) {
             Client *subject = hash_get(&server->clients_by_nick, nick);
+            int online = subject != NULL && subject->registered;
             client_sendf(client, RPL_WATCHOFF, server->config.server_name,
                          client->nick, nick,
-                         subject != NULL ? subject->user : "*",
-                         subject != NULL ? subject->display_host : "*",
+                         online ? subject->user : "*",
+                         online ? subject->display_host : "*",
                          (int)time(NULL));
         }
     }
