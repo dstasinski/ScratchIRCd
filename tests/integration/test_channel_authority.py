@@ -159,12 +159,37 @@ def main():
             half.expect(" 401 Half Pending :No such nick/channel")
             pending.expect_not(" INVITE Pending :#authority")
 
+            # Explicit invitations bind to Client.id, not nickname.  An invite
+            # survives a nickname change on the same connection, is consumed by
+            # the successful JOIN, and cannot be inherited by a reconnect.
+            owner.send("JOIN #invitebound"); owner.expect(" 366 Owner #invitebound ")
+            owner.send("MODE #invitebound +i"); owner.expect(" MODE #invitebound +i")
+            owner.send("INVITE Outside #invitebound")
+            owner.expect(" 341 Owner Outside #invitebound")
+            outsider.expect(" INVITE Outside :#invitebound")
+            outsider.send("NICK RenamedOutside")
+            outsider.expect(" NICK :RenamedOutside")
+            outsider.send("JOIN #invitebound")
+            outsider.expect(" 366 RenamedOutside #invitebound ")
+            outsider.send("PART #invitebound :consume invite")
+            outsider.expect(" PART #invitebound :consume invite")
+            outsider.send("JOIN #invitebound")
+            outsider.expect(" 473 RenamedOutside #invitebound ")
+
+            owner.send("INVITE RenamedOutside #invitebound")
+            owner.expect(" 341 Owner RenamedOutside #invitebound")
+            outsider.expect(" INVITE RenamedOutside :#invitebound")
+            outsider.close(); clients.remove(outsider)
+            outsider = IRCClient(port); clients.append(outsider); register(outsider, "RenamedOutside")
+            outsider.send("JOIN #invitebound")
+            outsider.expect(" 473 RenamedOutside #invitebound ")
+
             # +V blocks INVITE even for protected/owner authority. ERR_518's
             # numerics.h format places the channel in the trailing text.
             owner.send("MODE #authority +V"); protect.expect(" MODE #authority +V")
-            protect.send("INVITE Outside #authority")
+            protect.send("INVITE RenamedOutside #authority")
             protect.expect(" 518 Protect :Cannot invite (+V) at channel #authority")
-            outsider.expect_not(" INVITE Outside :#authority")
+            outsider.expect_not(" INVITE RenamedOutside :#authority")
             owner.send("MODE #authority -V"); protect.expect(" MODE #authority -V")
 
             # +t requires halfop or higher. Voice cannot set the topic; halfop can.
@@ -185,15 +210,15 @@ def main():
             # A secret channel is not disclosed to an outsider by LIST.
             owner.send("MODE #authority +s"); protect.expect(" MODE #authority +s")
             outsider.send("LIST")
-            outsider.expect_not(" 322 Outside #authority ")
-            outsider.expect(" 323 Outside :End of /LIST")
+            outsider.expect_not(" 322 RenamedOutside #authority ")
+            outsider.expect(" 323 RenamedOutside :End of /LIST")
 
             # Last-member PART removes an ephemeral channel from runtime state.
-            outsider.send("JOIN #ephemeral"); outsider.expect(" 366 Outside #ephemeral ")
+            outsider.send("JOIN #ephemeral"); outsider.expect(" 366 RenamedOutside #ephemeral ")
             outsider.send("PART #ephemeral :gone"); outsider.expect(" PART #ephemeral :gone")
             outsider.send("LIST")
-            outsider.expect_not(" 322 Outside #ephemeral ")
-            outsider.expect(" 323 Outside :End of /LIST")
+            outsider.expect_not(" 322 RenamedOutside #ephemeral ")
+            outsider.expect(" 323 RenamedOutside :End of /LIST")
 
         finally:
             for c in clients: c.close()
