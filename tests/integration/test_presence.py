@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end coverage for SILENCE, WATCH, and WHOWAS runtime state."""
+"""End-to-end coverage for SILENCE, WATCH, WHOWAS, and public identity visibility."""
 
 import os
 import socket
@@ -146,13 +146,42 @@ def main():
             register(subject, "Subject")
             watcher.expect(" 600 Watcher Subject ")
 
+            # Public identity commands must use display_host.  Cloaking never
+            # changes the real connection identity used by server policy.
+            subject.send("MODE Subject +x")
+            subject.expect(" 221 Subject ")
+            watcher.send("USERHOST Subject")
+            userhost = watcher.expect(" 302 Watcher :Subject=+subject@cloak-")
+            assert "127.0.0.1" not in userhost, userhost
+
+            # USERIP is privileged real-IP data and must not be available to an
+            # ordinary registered user.
+            watcher.send("USERIP Subject")
+            watcher.expect(" 481 Watcher ")
+
+            # Virtual services are not Client objects and therefore must not be
+            # synthesized into online-client enumeration commands.
+            watcher.send("ISON Subject NickServ ChanServ MemoServ")
+            ison = watcher.expect(" 303 Watcher :Subject")
+            assert "NickServ" not in ison and "ChanServ" not in ison and "MemoServ" not in ison, ison
+
+            subject.send("JOIN #presence")
+            subject.expect(" JOIN #presence")
+            watcher.send("NAMES #presence")
+            names = watcher.expect(" 353 Watcher ")
+            assert "Subject" in names, names
+            assert "NickServ" not in names and "ChanServ" not in names and "MemoServ" not in names, names
+            watcher.expect(" 366 Watcher #presence :End of /NAMES list.")
+
             # Nick change produces an offline event for the old watched nick,
             # an online event for the new watched nick, and a WHOWAS record.
+            # WHOWAS must retain the public display_host, never real_ip/real_host.
             subject.send("NICK Renamed")
             watcher.expect(" 601 Watcher Subject ")
             watcher.expect(" 600 Watcher Renamed ")
             watcher.send("WHOWAS Subject")
-            watcher.expect(" 314 Watcher Subject subject ")
+            historical = watcher.expect(" 314 Watcher Subject subject ")
+            assert "cloak-" in historical and "127.0.0.1" not in historical, historical
             watcher.expect(" 369 Watcher Subject :End of WHOWAS")
 
             # SILENCE uses the sender's public nick!user@display_host identity.
