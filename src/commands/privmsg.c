@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "channel_log.h"
 #include "chanserv.h"
 #include "config.h"
 #include "history_db.h"
@@ -80,7 +81,8 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "ChanServ") == 0) {
-        chanserv_handle_message(server, client, text);
+        if (!channel_log_handle_chanserv(server, client, text))
+            chanserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "MemoServ") == 0) {
@@ -131,6 +133,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         }
 
         store_channel_history(server, client, channel->name, "PRIVMSG", delivered_text);
+        channel_log_message(server, channel, client, delivered_text, 0);
         ircv3_broadcast_message(channel, client, client, "PRIVMSG",
                                 channel->name, delivered_text);
         client->last_activity = time(NULL);
