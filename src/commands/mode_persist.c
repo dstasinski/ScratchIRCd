@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "channel_policy.h"
 #include "chanserv.h"
 #include "modes.h"
 #include "numerics.h"
@@ -15,6 +16,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 CommandResult command_mode_core(Server *server, Client *client, char *params);
 
@@ -117,6 +119,55 @@ static int check_mlock(Server *server, Client *client, Channel *channel,
 }
 
 /**
+ * Validate +B/+L destinations before the mature MODE parser stores them.
+ * This prevents silent truncation and pointless self-redirects.
+ */
+static int validate_redirect_modes(Server *server, Client *client,
+                                   Channel *channel, const char *params) {
+    char copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char *target, *modes, *argv[IRC_MODE_MAX_PARAMS], *token;
+    size_t argc = 0U, argi = 0U, i;
+    char sign = '+';
+
+    if (server == NULL || client == NULL || channel == NULL || params == NULL) return 1;
+    (void)snprintf(copy, sizeof(copy), "%s", params);
+    target = strtok(copy, " ");
+    modes = strtok(NULL, " ");
+    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL)
+        argv[argc++] = token;
+    (void)target;
+    if (modes == NULL) return 1;
+
+    for (i = 0U; modes[i] != '\0'; ++i) {
+        char letter = modes[i];
+        const char *param = argi < argc ? argv[argi] : NULL;
+        int consumes = 0;
+        if (letter == '+' || letter == '-') { sign = letter; continue; }
+
+        if (letter == 'q' || letter == 'a' || letter == 'o' ||
+            letter == 'h' || letter == 'v') consumes = param != NULL;
+        else if (letter == 'k') consumes = sign == '+' ? param != NULL : param != NULL;
+        else if ((letter == 'l' || letter == 'j' || letter == 'L' || letter == 'B') && sign == '+')
+            consumes = param != NULL;
+        else if ((letter == 'b' || letter == 'e' || letter == 'I') && param != NULL)
+            consumes = 1;
+
+        if ((letter == 'L' || letter == 'B') && sign == '+') {
+            if (param == NULL || strchr(IRC_CHANNEL_PREFIXES, param[0]) == NULL ||
+                strlen(param) > IRC_CHANNEL_NAME_MAX ||
+                strcasecmp(param, channel->name) == 0) {
+                client_sendf(client, ERR_NOSUCHCHANNEL,
+                             server->config.server_name, client->nick,
+                             param != NULL ? param : "*");
+                return 0;
+            }
+        }
+        if (consumes) ++argi;
+    }
+    return 1;
+}
+
+/**
  * Handle user modes whose policy cannot be represented by mode.c's simple
  * self-settable table. Returns 1 when at least one special mode was consumed.
  */
@@ -188,6 +239,8 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
     char *mode_string;
     char channel_name[IRC_CHANNEL_NAME_MAX + 1U] = "";
     Channel *channel = NULL;
+    unsigned int old_join_count = 0U;
+    unsigned int old_join_seconds = 0U;
     CommandResult result;
 
     if (params == NULL) return command_mode_core(server, client, params);
@@ -205,6 +258,12 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         }
         if (!check_mlock(server, client, channel, mode_string))
             return COMMAND_KEEP_CLIENT;
+        if (!validate_redirect_modes(server, client, channel, params))
+            return COMMAND_KEEP_CLIENT;
+        if (channel != NULL) {
+            old_join_count = channel->join_throttle_count;
+            old_join_seconds = channel->join_throttle_seconds;
+        }
     } else if (target != NULL && mode_string != NULL) {
         char filtered[128];
         if (handle_special_user_modes(server, client, target, mode_string,
@@ -222,7 +281,12 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
 
     if (channel_name[0] != '\0') {
         channel = hash_get(&server->channels_by_name, channel_name);
-        if (channel != NULL) chanserv_persist_channel(server, channel);
+        if (channel != NULL) {
+            if (old_join_count != channel->join_throttle_count ||
+                old_join_seconds != channel->join_throttle_seconds)
+                channel_join_throttle_clear(channel);
+            chanserv_persist_channel(server, channel);
+        }
     }
     return result;
 }
