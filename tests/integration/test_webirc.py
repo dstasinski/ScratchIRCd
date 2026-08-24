@@ -47,6 +47,10 @@ def complete_nospoof(client,nick,version="DirectClient 1.0"):
     client.send(f"NOTICE test.local :\x01VERSION {version}\x01")
     client.expect(f" 001 {nick} ",duration=5)
     return cookie
+def whois_idle(lines,requester,target):
+    marker=f" 317 {requester} {target} "
+    line=next(line for line in lines if marker in line)
+    return int(line.split(marker,1)[1].split(" ",1)[0])
 def main():
     if len(sys.argv)!=3:raise SystemExit("usage: test_webirc.py scratchircd scratchircd-mkpasswd")
     binary=os.path.abspath(sys.argv[1]);mkpasswd=os.path.abspath(sys.argv[2])
@@ -82,11 +86,16 @@ def main():
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
             # WEBSITE is informational only: JOIN succeeds before WEBSITE is answered.
             trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
+            # First valid metadata response is authoritative for the connection.
+            trusted.send("NOTICE test.local :\x01VERSION EvilOverwrite 9.9\x01")
+            trusted.send("NOTICE test.local :\x01WEBSITE https://evil.example/overwrite\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
 
             observer=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             observer.send("NICK observer");observer.send("USER observer 0 * :Observer User")
             complete_nospoof(observer,"observer","DirectClient 2.0")
+            # Direct clients were never asked for WEBSITE; unsolicited replies are ignored.
+            observer.send("NOTICE test.local :\x01WEBSITE https://unsolicited.example/\x01")
 
             observer.send("WHOIS webuser")
             ordinary_whois=observer.expect(" 318 observer webuser ")
@@ -99,11 +108,37 @@ def main():
             oper_web_whois=trusted.expect(" 318 webuser webuser ")
             assert any(" 672 webuser webuser :TestClient 1.0" in line for line in oper_web_whois),oper_web_whois
             assert any(" 673 webuser webuser :https://example.test/client" in line for line in oper_web_whois),oper_web_whois
+            assert not any("EvilOverwrite" in line or "evil.example" in line for line in oper_web_whois),oper_web_whois
 
             trusted.send("WHOIS observer")
             oper_direct_whois=trusted.expect(" 318 webuser observer ")
             assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
             assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
+
+            # Non-message commands do not reset idle time.
+            time.sleep(1.2)
+            observer.send("PING :idle-check")
+            observer.expect("PONG :idle-check")
+            observer.send("WHOIS webuser")
+            observer.expect(" 318 observer webuser ")
+            trusted.send("WHOIS observer")
+            idle_before=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
+            assert idle_before>=1,idle_before
+
+            # A delivered PRIVMSG resets idle time.
+            observer.send("PRIVMSG webuser :idle reset by privmsg")
+            trusted.expect(" PRIVMSG webuser :idle reset by privmsg")
+            trusted.send("WHOIS observer")
+            idle_after_privmsg=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
+            assert idle_after_privmsg<=1,idle_after_privmsg
+
+            # A delivered NOTICE also resets idle time.
+            time.sleep(1.2)
+            observer.send("NOTICE webuser :idle reset by notice")
+            trusted.expect(" NOTICE webuser :idle reset by notice")
+            trusted.send("WHOIS observer")
+            idle_after_notice=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
+            assert idle_after_notice<=1,idle_after_notice
 
             # A client that passes the PING cookie may register without answering
             # VERSION, but remains restricted until the VERSION reply arrives.
@@ -125,11 +160,17 @@ def main():
             limited.send("PRIVMSG webuser :operator exemption works")
             trusted.expect(" PRIVMSG webuser :operator exemption works")
 
-            limited.send("NOTICE test.local :\x01VERSION LimitedClient 3.0\x01")
+            long_version="L"*400
+            limited.send(f"NOTICE test.local :\x01VERSION {long_version}\x01")
             limited.send("PRIVMSG observer :version now accepted")
             observer.expect(" PRIVMSG observer :version now accepted")
             limited.send("JOIN #nowallowed")
             limited.expect(" JOIN #nowallowed")
+            trusted.send("WHOIS limited")
+            limited_whois=trusted.expect(" 318 webuser limited ")
+            version_line=next(line for line in limited_whois if " 672 webuser limited :" in line)
+            stored_version=version_line.split(" 672 webuser limited :",1)[1]
+            assert stored_version=="L"*255,(len(stored_version),stored_version)
 
             trusted.send("VERSION")
             server_version=trusted.expect(" 351 webuser ")
