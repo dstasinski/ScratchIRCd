@@ -361,7 +361,8 @@ int server_init(Server *server, const ServerConfig *config) {
         server_destroy(server);
         return -1;
     }
-    if (init_tls(server) != 0 ||
+    if (channel_log_init(server) != 0 ||
+        init_tls(server) != 0 ||
         dns_resolver_init(&server->dns) != 0 ||
         dnsbl_resolver_init(&server->dnsbl) != 0 ||
         geoip_init(&server->geoip, server->config.geoip_city_db,
