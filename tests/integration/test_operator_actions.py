@@ -155,7 +155,10 @@ def main():
             receiver.send("NOTICE #OpsLog :logged notice")
             admin.expect("NOTICE #OpsLog :logged notice")
             receiver.send("MODE #OpsLog +s")
-            admin.expect(" MODE #OpsLog +s")
+            receiver.send("MODE #OpsLog")
+            mode_lines = receiver.expect(" 324 bob #OpsLog ")
+            assert any("s" in line.split(" 324 bob #OpsLog ", 1)[1].split()[0]
+                       for line in mode_lines if " 324 bob #OpsLog " in line), mode_lines
 
             quitter = IRCClient(port); clients.append(quitter)
             register(quitter, "quitter")
