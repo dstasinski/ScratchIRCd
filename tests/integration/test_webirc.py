@@ -72,19 +72,16 @@ def main():
             before_pong=trusted.collect()
             assert not any("\x01VERSION\x01" in line or "\x01WEBSITE\x01" in line for line in before_pong),before_pong
             assert not any(" 001 webuser " in line for line in before_pong),before_pong
-
             trusted.send("PONG :definitely-wrong")
             after_wrong=trusted.collect()
             assert not any("\x01VERSION\x01" in line or "\x01WEBSITE\x01" in line for line in after_wrong),after_wrong
             assert not any(" 001 webuser " in line for line in after_wrong),after_wrong
-
             trusted.send(f"PONG :{cookie}")
             version_lines=trusted.expect("\x01VERSION\x01")
             website_lines=trusted.expect("\x01WEBSITE\x01")
             assert any("\x01VERSION\x01" in line for line in version_lines),version_lines
             assert any("\x01WEBSITE\x01" in line for line in website_lines),website_lines
             trusted.expect(" 001 webuser ",duration=5)
-
             trusted.send("JOIN #blocked");trusted.expect("respond to the CTCP VERSION")
             trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01")
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
@@ -92,17 +89,14 @@ def main():
             trusted.send("NOTICE test.local :\x01VERSION EvilOverwrite 9.9\x01")
             trusted.send("NOTICE test.local :\x01WEBSITE https://evil.example/overwrite\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
-
             observer=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             observer.send("NICK observer");observer.send("USER observer 0 * :Observer User")
             complete_nospoof(observer,"observer","DirectClient 2.0")
             observer.send("NOTICE test.local :\x01WEBSITE https://unsolicited.example/\x01")
-
             observer.send("WHOIS webuser")
             ordinary_whois=observer.expect(" 318 observer webuser ")
             assert not any(" 672 observer webuser " in line for line in ordinary_whois),ordinary_whois
             assert not any(" 673 observer webuser " in line for line in ordinary_whois),ordinary_whois
-
             trusted.send("OPER root adminpass")
             trusted.expect(" 381 webuser :You are now a Network Administrator")
             trusted.send("WHOIS webuser")
@@ -110,21 +104,19 @@ def main():
             assert any(" 672 webuser webuser :TestClient 1.0" in line for line in oper_web_whois),oper_web_whois
             assert any(" 673 webuser webuser :https://example.test/client" in line for line in oper_web_whois),oper_web_whois
             assert not any("EvilOverwrite" in line or "evil.example" in line for line in oper_web_whois),oper_web_whois
-
             trusted.send("WHOIS observer")
             oper_direct_whois=trusted.expect(" 318 webuser observer ")
             assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
             assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
-
             trusted.send("MODE webuser +HIW")
+            trusted.expect(" 221 webuser ")
+            trusted.send("MODE webuser")
             hidden_modes=trusted.expect(" 221 webuser ")
             hidden_token=mode_token(hidden_modes,"webuser")
             assert all(letter in hidden_token for letter in "HIW"),hidden_modes
-
             observer.send("MODE observer +x")
             cloak_modes=observer.expect(" 221 observer ")
             assert "x" in mode_token(cloak_modes,"observer"),cloak_modes
-
             observer.send("WHOIS webuser")
             hidden_whois=observer.expect(" 318 observer webuser ")
             assert not any(" 313 observer webuser " in line for line in hidden_whois),hidden_whois
@@ -132,7 +124,6 @@ def main():
             assert not any(" 378 observer webuser " in line for line in hidden_whois),hidden_whois
             whois_notice=trusted.expect("*** observer!observer@cloak-")
             assert not any("observer!observer@127.0.0.1" in line for line in whois_notice),whois_notice
-
             trusted.send("WHO observer")
             who_lines=trusted.expect(" 315 webuser observer ")
             who_reply=next(line for line in who_lines if " 352 webuser " in line and " observer " in line)
@@ -142,21 +133,19 @@ def main():
             whois_user=next(line for line in cloak_audit if " 311 webuser observer " in line)
             assert " cloak-" in whois_user and "127.0.0.1" not in whois_user,whois_user
             assert any(" 378 webuser observer " in line and "127.0.0.1" in line for line in cloak_audit),cloak_audit
-
-            # The operator themself remains exempt from +H/+I hiding.
             trusted.send("WHOIS webuser")
             self_exempt=trusted.expect(" 318 webuser webuser ")
             assert any(" 313 webuser webuser :is an Administrator" in line for line in self_exempt),self_exempt
             assert any(" 317 webuser webuser " in line for line in self_exempt),self_exempt
-
             trusted.send("MODE webuser -W")
+            trusted.expect(" 221 webuser ")
+            trusted.send("MODE webuser")
             no_w_modes=trusted.expect(" 221 webuser ")
             assert "W" not in mode_token(no_w_modes,"webuser"),no_w_modes
             trusted.collect()
             observer.send("WHOIS webuser")
             observer.expect(" 318 observer webuser ")
             assert not any("did a /WHOIS on you" in line for line in trusted.collect(.5))
-
             time.sleep(1.2)
             observer.send("PING :idle-check")
             observer.expect(" PONG test.local ::idle-check")
@@ -165,20 +154,17 @@ def main():
             trusted.send("WHOIS observer")
             idle_before=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_before>=1,idle_before
-
             observer.send("PRIVMSG webuser :idle reset by privmsg")
             trusted.expect(" PRIVMSG webuser :idle reset by privmsg")
             trusted.send("WHOIS observer")
             idle_after_privmsg=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_privmsg<=1,idle_after_privmsg
-
             time.sleep(1.2)
             observer.send("NOTICE webuser :idle reset by notice")
             trusted.expect(" NOTICE webuser :idle reset by notice")
             trusted.send("WHOIS observer")
             idle_after_notice=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_notice<=1,idle_after_notice
-
             limited=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             limited.send("NICK limited");limited.send("USER limited 0 * :Limited User")
             limited_lines=limited.expect("PING :")
@@ -186,17 +172,13 @@ def main():
             limited.send(f"PONG :{limited_cookie}")
             limited.expect("\x01VERSION\x01")
             limited.expect(" 001 limited ",duration=5)
-
             limited.send("JOIN #stillblocked")
             limited.expect("respond to the CTCP VERSION")
-
             limited.send("PRIVMSG observer :blocked message")
             limited.expect("respond to the CTCP VERSION request before sending private messages")
             assert not any("blocked message" in line for line in observer.collect()),"restricted PRIVMSG reached ordinary user"
-
             limited.send("PRIVMSG webuser :operator exemption works")
             trusted.expect(" PRIVMSG webuser :operator exemption works")
-
             long_version="L"*400
             limited.send(f"NOTICE test.local :\x01VERSION {long_version}\x01")
             limited.send("PRIVMSG observer :version now accepted")
@@ -208,33 +190,26 @@ def main():
             version_line=next(line for line in limited_whois if " 672 webuser limited :" in line)
             stored_version=version_line.split(" 672 webuser limited :",1)[1]
             assert stored_version=="L"*255,(len(stored_version),stored_version)
-
             trusted.send("VERSION")
             server_version=trusted.expect(" 351 webuser ")
             assert any("ScratchIRCd-0.33" in line and "test.local" in line for line in server_version),server_version
-
             trusted.send("TIME")
             server_time=trusted.expect(" 391 webuser test.local :")
             assert any("Unknown server time" not in line for line in server_time if " 391 webuser test.local :" in line),server_time
-
             trusted.send("INFO")
             server_info=trusted.expect(" 374 webuser :End of /INFO list.")
             assert any(" 373 webuser :Server INFO" in line for line in server_info),server_info
             assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.33 on test.local" in line for line in server_info),server_info
             assert any("virtual services" in line for line in server_info),server_info
-
             trusted.send("LINKS")
             links=trusted.expect(" 365 webuser * :End of /LINKS list.")
             link_lines=[line for line in links if " 364 webuser " in line]
             assert len(link_lines)==1,links
             assert " 364 webuser test.local test.local :0 ScratchIRCd single-server daemon" in link_lines[0],links
-
             trusted.send("STATS u")
             stats=trusted.expect(" 219 webuser u :End of /STATS report")
             assert any(" 242 webuser :Server Up " in line for line in stats),stats
-
             rejected=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));rejected.send("WEBIRC wrong-password web.example supplied.example 198.51.100.5");rejected.expect("Unauthorized WEBIRC gateway")
-
             silent=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3));silent.send("NICK silentuser");silent.expect("PING :")
             silent.expect("No-spoof PING timeout",duration=8)
         finally:
