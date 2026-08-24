@@ -205,8 +205,8 @@ def main():
             watcher.expect(" 369 Watcher Alice :End of WHOWAS")
 
             squatter.send("MODE #recover +m")
-            squatter.expect(f":{guest_nick}!Alice@")
-            squatter.expect(" MODE #recover +m")
+            mode_lines = squatter.expect(f":{guest_nick}!Alice@")
+            assert any(" MODE #recover +m" in line for line in mode_lines), mode_lines
 
             alice.send("NICK Alice")
             assert_current_nick(alice, "Alice")
