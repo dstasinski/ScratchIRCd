@@ -119,7 +119,7 @@ def main():
             limited.expect("respond to the CTCP VERSION")
 
             limited.send("PRIVMSG observer :blocked message")
-            limited.expect("respond to the CTCP VERSION request before messaging ordinary users")
+            limited.expect("respond to the CTCP VERSION request before sending private messages")
             assert not any("blocked message" in line for line in observer.collect()),"restricted PRIVMSG reached ordinary user"
 
             limited.send("PRIVMSG webuser :operator exemption works")
