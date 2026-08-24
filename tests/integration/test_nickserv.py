@@ -293,6 +293,15 @@ def main():
             assert any(line.startswith(":Traveler!Traveler@registered.example.test ")
                        for line in prefixed if "PRIVMSG #vhost :vhost-prefix" in line), prefixed
 
+            # The vhost affects only display_host.  Operator WHOIS must still
+            # expose the unchanged end-user connection identity in numeric 378.
+            admin.send("WHOIS Traveler")
+            oper_whois = admin.expect(" 318 Admin Traveler ")
+            assert any(" 311 Admin Traveler " in line and
+                       " registered.example.test " in line for line in oper_whois), oper_whois
+            assert any(" 378 Admin Traveler " in line and "127.0.0.1" in line
+                       for line in oper_whois), oper_whois
+
             admin.send("NSSET Alice ENABLED 0")
             admin.expect("NickServ account updated.")
             fresh = IRCClient(port); clients.append(fresh)
