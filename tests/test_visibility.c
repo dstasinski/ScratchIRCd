@@ -12,6 +12,7 @@ int main(void) {
     Client requester = {0};
     Client subject = {0};
     Channel public_channel = {0};
+    Channel private_channel = {0};
     Channel secret_channel = {0};
     Channel local_channel = {0};
     ChannelMember public_member = {0};
@@ -20,21 +21,32 @@ int main(void) {
     requester.registered = 1;
     subject.registered = 1;
     strcpy(public_channel.name, "#public");
+    strcpy(private_channel.name, "#private");
     strcpy(secret_channel.name, "#secret");
     strcpy(local_channel.name, "&local");
 
+    private_channel.modes = CHANNEL_MODE_PRIVATE;
     secret_channel.modes = CHANNEL_MODE_SECRET;
 
     assert(visibility_list_channel(&requester, &public_channel));
+    assert(!visibility_list_channel(&requester, &private_channel));
     assert(!visibility_list_channel(&requester, &secret_channel));
     assert(!visibility_list_channel(&requester, &local_channel));
 
-    subject.modes = CLIENT_MODE_INVISIBLE;
-    assert(!visibility_who_user(&requester, &subject));
+    assert(visibility_names_channel(&requester, &public_channel));
+    assert(!visibility_names_channel(&requester, &private_channel));
+    assert(!visibility_names_channel(&requester, &secret_channel));
+    assert(!visibility_names_channel(&requester, &local_channel));
 
+    /* A public channel may be enumerable while an invisible member remains
+     * hidden from WHO until the requester shares a channel with that user. */
+    subject.modes = CLIENT_MODE_INVISIBLE;
     public_member.client = &subject;
     public_channel.members = &public_member;
     public_channel.member_count = 1U;
+    assert(visibility_names_channel(&requester, &public_channel));
+    assert(!visibility_who_user(&requester, &subject));
+
     requester_link.channel = &public_channel;
     requester.channels = &requester_link;
     requester.channel_count = 1U;
@@ -49,6 +61,9 @@ int main(void) {
     requester.modes = CLIENT_MODE_OPER;
     assert(visibility_is_oper(&requester));
     assert(visibility_list_channel(&requester, &secret_channel));
+    assert(!visibility_list_channel(&requester, &local_channel));
+    assert(visibility_names_channel(&requester, &secret_channel));
+    assert(visibility_names_channel(&requester, &local_channel));
     assert(visibility_who_user(&requester, &subject));
 
     return 0;
