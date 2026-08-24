@@ -77,7 +77,7 @@ def wait_listen(port, proc):
             return
         except OSError:
             time.sleep(0.05)
-    raise RuntimeError("listener did not start")
+    raise RuntimeError("server did not listen")
 
 
 def register(client, nick):
@@ -171,14 +171,43 @@ def main():
             alice.send(f"NICKSERV VERIFY {verify_token}")
             alice.expect("Email address verified.")
 
-            # Default RECOVER safely renames the squatter rather than disconnecting it.
+            # Account identity follows the connection, not the current nickname.
             alice.send("NICK Owner")
             assert_current_nick(alice, "Owner")
+            alice.send("WHOIS Owner")
+            owner_whois = alice.expect(" 318 Owner Owner ")
+            assert any("is logged in as Alice" in line for line in owner_whois), owner_whois
+
+            # Default RECOVER safely renames the squatter rather than disconnecting it.
+            # WATCH/WHOWAS must follow the same lifecycle as an ordinary NICK, and
+            # channel membership/authority must stay with the existing connection.
+            watcher = IRCClient(port); clients.append(watcher)
+            register(watcher, "Watcher")
+            watcher.send("WATCH +Alice")
+            watcher.expect(" 605 Watcher Alice ")
+
             squatter = IRCClient(port); clients.append(squatter)
             register(squatter, "Alice")
-            alice.send("NICKSERV RECOVER Alice")
+            watcher.expect(" 600 Watcher Alice ")
+            squatter.send("JOIN #recover")
+            squatter.expect(" 366 Alice #recover ")
+
+            alice.send("PRIVMSG NickServ :RECOVER Alice")
             alice.expect("previous user was safely renamed")
-            squatter.expect("Your nickname was recovered")
+            recovered_notice = squatter.expect("Your nickname was recovered")
+            notice_line = next(line for line in recovered_notice if "Your nickname was recovered" in line)
+            match = re.search(r"you are now (Guest[0-9]+)\.", notice_line)
+            assert match, notice_line
+            guest_nick = match.group(1)
+            watcher.expect(" 601 Watcher Alice ")
+            watcher.send("WHOWAS Alice")
+            watcher.expect(" 314 Watcher Alice Alice ")
+            watcher.expect(" 369 Watcher Alice :End of WHOWAS")
+
+            squatter.send("MODE #recover +m")
+            squatter.expect(f":{guest_nick}!Alice@")
+            squatter.expect(" MODE #recover +m")
+
             alice.send("NICK Alice")
             assert_current_nick(alice, "Alice")
 
