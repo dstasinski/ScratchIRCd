@@ -131,7 +131,7 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        watcher = subject = temp = None
+        watcher = subject = temp = pending = None
         try:
             wait_listen(port, proc)
             watcher = IRCClient(port)
@@ -145,6 +145,19 @@ def main():
             subject = IRCClient(port)
             register(subject, "Subject")
             watcher.expect(" 600 Watcher Subject ")
+
+            # LUSERS counts only fully registered clients.  A connection that
+            # has claimed a NICK but has not completed USER remains unknown.
+            pending = IRCClient(port)
+            pending.send("NICK Pending")
+            watcher.send("WATCH +Pending")
+            watcher.expect(" 605 Watcher Pending * * ")
+            watcher.send("WATCH -Pending")
+            watcher.expect(" 602 Watcher Pending * * ")
+            watcher.send("LUSERS")
+            watcher.expect(" 253 Watcher 1 :unknown connection(s)")
+            pending.close()
+            pending = None
 
             # Public identity commands must use display_host.  Cloaking never
             # changes the real connection identity used by server policy.
@@ -204,14 +217,23 @@ def main():
             watcher.send("PRIVMSG Renamed :delivery restored")
             subject.expect("PRIVMSG Renamed :delivery restored")
 
-            # Abrupt socket loss must still drive WATCH and WHOWAS through the
-            # client destruction hook, not only through a clean QUIT command.
+            # Establish a three-user high-water mark, then ensure LUSERS keeps
+            # Max: 3 after the third registered user disconnects.
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 2  Max: 2")
             temp = IRCClient(port)
             register(temp, "Temp")
             watcher.expect(" 600 Watcher Temp ")
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 3  Max: 3")
+
+            # Abrupt socket loss must still drive WATCH and WHOWAS through the
+            # client destruction hook, not only through a clean QUIT command.
             temp.close()
             temp = None
             watcher.expect(" 601 Watcher Temp ")
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 2  Max: 3")
             watcher.send("WHOWAS Temp")
             watcher.expect(" 314 Watcher Temp temp ")
 
@@ -225,6 +247,8 @@ def main():
                 subject.close()
             if temp is not None:
                 temp.close()
+            if pending is not None:
+                pending.close()
             stop(proc)
 
 
