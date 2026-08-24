@@ -144,8 +144,8 @@ def main():
             alice.send("TOPIC #persist :Runtime topic override")
             alice.expect(" TOPIC #persist :Runtime topic override")
             alice.send("TOPIC #persist")
-            live_topic = alice.expect(" 332 Alice #persist :Runtime topic override")
-            assert any(" 333 Alice #persist Alice!Alice@" in line for line in live_topic), live_topic
+            alice.expect(" 332 Alice #persist :Runtime topic override")
+            alice.expect(" 333 Alice #persist Alice!Alice@")
 
             alice.send("MODE #persist")
             modes = alice.expect(" 324 Alice #persist ")
