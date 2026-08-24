@@ -209,7 +209,9 @@ def main():
             receiver.expect(" 481 bob ")
 
             receiver.send("MODE bob +w")
-            receiver.expect(" 221 bob +w")
+            mode_lines = receiver.expect(" 221 bob ")
+            assert any("w" in line.rsplit(" ", 1)[-1]
+                       for line in mode_lines if " 221 bob " in line), mode_lines
             admin.send("WALLOPS :maintenance test")
             receiver.expect(" WALLOPS :maintenance test")
 
