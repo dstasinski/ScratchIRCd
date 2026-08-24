@@ -22,6 +22,17 @@ typedef struct ChannelLogState {
 static ChannelLogState *states;
 static Server *active_server;
 
+int channel_log_init(Server *server) {
+    ChanServDb db = {0};
+    int rc;
+    if (server == NULL) return -1;
+    active_server = server;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+    rc = chanserv_db_logging_ensure_schema(&db);
+    chanserv_db_close(&db);
+    return rc;
+}
+
 static ChannelLogState *state_for(const char *name, int create) {
     ChannelLogState *state;
     for (state = states; state != NULL; state = state->next)
