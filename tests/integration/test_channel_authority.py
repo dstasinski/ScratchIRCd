@@ -131,6 +131,7 @@ def main():
             half = IRCClient(port); clients.append(half); register(half, "Half")
             voice = IRCClient(port); clients.append(voice); register(voice, "Voice")
             outsider = IRCClient(port); clients.append(outsider); register(outsider, "Outside")
+            pending = IRCClient(port); clients.append(pending); pending.send("NICK Pending")
 
             owner.send("JOIN #authority"); owner.expect(" 366 Owner #authority ")
             for c, nick in [(protect, "Protect"), (oper, "ChanOp"),
@@ -151,6 +152,12 @@ def main():
             protect.send("INVITE Outside #authority")
             protect.expect(" 341 Protect Outside #authority")
             outsider.expect(" INVITE Outside :#authority")
+
+            # A connection that has only claimed a nickname is not a visible
+            # invite target and must not learn a channel name before registration.
+            half.send("INVITE Pending #authority")
+            half.expect(" 401 Half Pending :No such nick/channel")
+            pending.expect_not(" INVITE Pending :#authority")
 
             # +V blocks INVITE even for protected/owner authority. ERR_518's
             # numerics.h format places the channel in the trailing text.
@@ -174,6 +181,13 @@ def main():
             owner.send("MODE #authority -T"); protect.expect(" MODE #authority -T")
             voice.send("NOTICE #authority :restored notice")
             protect.expect("NOTICE #authority :restored notice")
+
+            # Last-member PART removes an ephemeral channel from runtime state.
+            outsider.send("JOIN #ephemeral"); outsider.expect(" 366 Outside #ephemeral ")
+            outsider.send("PART #ephemeral :gone"); outsider.expect(" PART #ephemeral :gone")
+            outsider.send("LIST")
+            outsider.expect(" 323 Outside :End of /LIST")
+            outsider.expect_not(" 322 Outside #ephemeral ")
 
         finally:
             for c in clients: c.close()
