@@ -3,8 +3,9 @@
  * @brief Implementation of the IRC WHO command.
  *
  * WHO supports a channel target, a nickname target, or a general query. User
- * mode +i is respected for general WHO. The hostname field is always the
- * client's public display_host; real IP/DNS identity is never exposed here.
+ * mode +i is respected for general and channel WHO. The hostname field is
+ * always the client's public display_host; real IP/DNS identity is never
+ * exposed here.
  */
 
 #include "commands.h"
@@ -51,8 +52,10 @@ CommandResult command_who(Server *server, Client *client, char *params) {
         Channel *channel = hash_get(&server->channels_by_name, mask);
         if (channel != NULL && visibility_names_channel(client, channel)) {
             ChannelMember *member;
-            for (member = channel->members; member != NULL; member = member->next)
-                send_who_reply(server, client, member->client, channel);
+            for (member = channel->members; member != NULL; member = member->next) {
+                if (visibility_who_user(client, member->client))
+                    send_who_reply(server, client, member->client, channel);
+            }
         }
         client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
         return COMMAND_KEEP_CLIENT;
