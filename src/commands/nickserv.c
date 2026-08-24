@@ -50,24 +50,29 @@ static void recover_presence_after(Server *server, Client *target,
     presence_watch_online(server, target);
 }
 
-CommandResult command_nickserv(Server *server, Client *client, char *params) {
+void command_nickserv_message(Server *server, Client *client, char *text) {
     int was_identified;
     char old_nick[IRC_NICK_MAX + 1U] = "";
     Client *recover_target;
 
+    if (server == NULL || client == NULL || text == NULL) return;
+    was_identified = client->account_name[0] != '\0';
+    recover_target = recover_target_before(server, text, old_nick, sizeof(old_nick));
+    nickserv_handle_message(server, client, text);
+    recover_presence_after(server, recover_target, old_nick);
+    if (!was_identified && client->account_name[0] != '\0') {
+        ircv3_account_notify(client);
+        memoserv_notify_unread(server, client);
+    }
+}
+
+CommandResult command_nickserv(Server *server, Client *client, char *params) {
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL || *params == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "NICKSERV");
         return COMMAND_KEEP_CLIENT;
     }
-    was_identified = client->account_name[0] != '\0';
-    recover_target = recover_target_before(server, params, old_nick, sizeof(old_nick));
-    nickserv_handle_message(server, client, params);
-    recover_presence_after(server, recover_target, old_nick);
-    if (!was_identified && client->account_name[0] != '\0') {
-        ircv3_account_notify(client);
-        memoserv_notify_unread(server, client);
-    }
+    command_nickserv_message(server, client, params);
     return COMMAND_KEEP_CLIENT;
 }
