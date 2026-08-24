@@ -15,3 +15,10 @@ CommandResult command_chanserv(Server *server, Client *client, char *params) {
         chanserv_handle_message(server, client, params);
     return COMMAND_KEEP_CLIENT;
 }
+
+/*
+ * Keep the optional logger in its own module while preserving the current
+ * explicit CMake source list.  This translation unit is the single owner of
+ * the implementation; channel_log.c must not be compiled separately.
+ */
+#include "../channel_log.c"
