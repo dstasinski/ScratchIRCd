@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -84,6 +85,16 @@ def stop_server(proc):
         proc.wait(timeout=2)
 
 
+def queued_bodies(path, channel):
+    db = sqlite3.connect(path)
+    try:
+        return [row[0] for row in db.execute(
+            "SELECT body FROM channel_log_queue WHERE channel=? ORDER BY id", (channel,)
+        )]
+    finally:
+        db.close()
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_operator_override.py scratchircd scratchircd-mkpasswd")
@@ -98,6 +109,7 @@ def main():
         config = os.path.join(tmp, "ircd.conf")
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
+        chanserv_db = os.path.join(data, "chanserv.db")
         password_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
         open(motd, "w", encoding="utf-8").write("override test\n")
         open(rules, "w", encoding="utf-8").write("rule\n")
@@ -108,6 +120,10 @@ def main():
             f.write(f"motd_file = {motd}\nrules_file = {rules}\n")
             f.write(f"operators_db = {data}/operators.db\n")
             f.write(f"bans_db = {data}/bans.db\n")
+            f.write(f"nickserv_db = {data}/nickserv.db\n")
+            f.write(f"chanserv_db = {chanserv_db}\n")
+            f.write(f"memoserv_db = {data}/memoserv.db\n")
+            f.write(f"history_db = {data}/history.db\n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {password_hash}\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
@@ -123,6 +139,8 @@ def main():
             register(bob, "bob")
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
+            bob.send("NICKSERV REGISTER bobpass")
+            bob.expect("Nickname registered and identified.")
 
             # Forced join/part bypasses ordinary channel policy.
             admin.send("JOIN #forced")
@@ -138,6 +156,45 @@ def main():
             admin.expect("NOTICE alice :SAMODE completed for bob")
             bob.send("MODE bob")
             bob.expect(" 221 bob +i")
+
+            # Build a registered channel with Bob as founder. SAJOIN must
+            # re-derive founder authority from the authenticated account.
+            admin.send("JOIN #registered")
+            admin.expect(" 366 alice #registered ")
+            bob.send("JOIN #registered")
+            bob.expect(" 366 bob #registered ")
+            admin.send("MODE #registered +o bob")
+            bob.expect(" MODE #registered +o bob")
+            bob.send("CHANSERV REGISTER #registered :override persistence")
+            bob.expect("Channel registered successfully.")
+            bob.send("CHANSERV SET #registered MLOCK +n")
+            bob.expect("Persistent mode lock updated.")
+            admin.send("CHANSERV SET #registered LOGGING ON")
+            admin.expect("Channel logging enabled")
+            bob.send("PART #registered :prepare forced join")
+            bob.expect(" PART #registered :prepare forced join")
+
+            admin.send("SAJOIN bob #registered")
+            bob.expect(" JOIN #registered")
+            names = bob.expect(" 366 bob #registered ")
+            assert any("~bob" in line for line in names if " 353 bob " in line), names
+            bodies = queued_bodies(chanserv_db, "#registered")
+            assert any("bob (" in body and " joined #registered." in body for body in bodies), bodies
+
+            # SAMODE is server authority and must bypass ChanServ MLOCK live.
+            admin.send("SAMODE #registered -n")
+            bob.expect(" MODE #registered -n")
+            bob.send("MODE #registered")
+            mode_lines = bob.expect(" 324 bob #registered ")
+            mode_line = next(line for line in mode_lines if " 324 bob #registered " in line)
+            mode_token = mode_line.split(" 324 bob #registered ", 1)[1].split()[0]
+            assert "n" not in mode_token, mode_line
+
+            admin.send("SAPART bob #registered")
+            bob.expect(" PART #registered :Forced part by alice")
+            bodies = queued_bodies(chanserv_db, "#registered")
+            assert any("bob (" in body and " left #registered: Forced part by alice" in body
+                       for body in bodies), bodies
 
             # SET* mutations become the public identity but leave real address intact.
             admin.send("SETHOST bob staff.example.test")
