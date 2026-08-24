@@ -163,12 +163,22 @@ def main():
             mode_lines = receiver.expect(" 324 bob #OpsLog +r")
             assert any(" 324 bob #OpsLog +r" in line for line in mode_lines), mode_lines
 
+            # Explicit QUIT is logged once by the central disconnect path.
             quitter = IRCClient(port); clients.append(quitter)
             register(quitter, "quitter")
             quitter.send("JOIN #OpsLog")
             quitter.expect(" 366 quitter #OpsLog ")
             quitter.send("QUIT :logging quit test")
             quitter.close(); clients.remove(quitter)
+            admin.expect(" QUIT :logging quit test")
+
+            # An abrupt socket loss reaches the same central path and is logged.
+            dropper = IRCClient(port); clients.append(dropper)
+            register(dropper, "dropper")
+            dropper.send("JOIN #OpsLog")
+            dropper.expect(" 366 dropper #OpsLog ")
+            dropper.close(); clients.remove(dropper)
+            admin.expect(" QUIT :Client quit")
 
             admin.send("PART #OpsLog :logging part test")
             admin.expect(" PART #OpsLog :logging part test")
@@ -191,7 +201,8 @@ def main():
             assert "<bob> logged message" in joined, joined
             assert "-bob- logged notice" in joined, joined
             assert "quitter (quitter@" in joined and " joined #OpsLog." in joined, joined
-            assert "left irc: Quit:  logging quit test" in joined, joined
+            assert joined.count("left irc: Quit:  logging quit test") == 1, joined
+            assert "dropper (dropper@" in joined and "left irc: Quit:  Client quit" in joined, joined
             assert "alice (alice@" in joined and "left #OpsLog: logging part test" in joined, joined
             assert "MODE #OpsLog" not in joined, joined
             assert "after-disabled" not in joined, joined
