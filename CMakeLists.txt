@@ -155,6 +155,14 @@ target_compile_definitions(test_chanserv_persist PRIVATE _POSIX_C_SOURCE=200809L
 target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
 
+add_executable(test_channel_log
+    tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/client.c src/modes.c)
+target_include_directories(test_channel_log PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_compile_definitions(test_channel_log PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_channel_log PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
+add_test(NAME channel_log_rotation COMMAND test_channel_log)
+
 add_executable(test_memoserv_db tests/test_memoserv_db.c src/memoserv_db.c src/memoserv_db_extra.c)
 target_include_directories(test_memoserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(test_memoserv_db PRIVATE _POSIX_C_SOURCE=200809L)
@@ -165,6 +173,8 @@ add_test(NAME protocol_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT
 set_tests_properties(protocol_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
+add_test(NAME channel_logging_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_logging.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(channel_logging_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_override_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
 add_test(NAME tls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py $<TARGET_FILE:scratchircd>)
@@ -205,7 +215,7 @@ add_test(NAME die_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOUR
 set_tests_properties(die_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_memoserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
