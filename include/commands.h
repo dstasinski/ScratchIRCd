@@ -11,4 +11,5 @@ const char *command_reply_nick(const Client *client);
 int command_require_registered(Client *client);
 void command_maybe_register(Server *server, Client *client);
 void command_send_names(Channel *channel, Client *client);
+void command_nickserv_message(Server *server, Client *client, char *text);
 #endif
