@@ -39,7 +39,7 @@ typedef struct ChanServLogQueueRecord {
     long long id;
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
     long long event_time;
-    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
 } ChanServLogQueueRecord;
 
 typedef struct ChanServDb { sqlite3 *db; } ChanServDb;
