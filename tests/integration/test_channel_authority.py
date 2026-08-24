@@ -116,25 +116,27 @@ def main():
             owner.send("MODE #authority -T");protect.expect(" MODE #authority -T")
             voice.send("NOTICE #authority :restored notice");protect.expect("NOTICE #authority :restored notice")
 
-            # +b now governs speaking as well as JOIN. +e immediately restores it.
+            # Test +b/+e speaking on an ordinary member, independently of +o authority.
+            owner.send("MODE #authority -o ChanOp");oper.expect(" MODE #authority -o ChanOp")
             owner.send("MODE #authority +b ChanOp!*@*");oper.expect(" MODE #authority +b ChanOp!*@*")
-            oper.send("PRIVMSG #authority :blocked by ban");oper.expect(" 404 ChanOp #authority :Cannot send to channel (banned from channel (+b))")
+            oper.send("PRIVMSG #authority :blocked by ban");oper.expect(" 404 ChanOp #authority ")
             protect.expect_not("PRIVMSG #authority :blocked by ban")
             oper.send("NOTICE #authority :blocked notice by ban");protect.expect_not("NOTICE #authority :blocked notice by ban")
             owner.send("MODE #authority +e ChanOp!*@*");oper.expect(" MODE #authority +e ChanOp!*@*")
             oper.send("PRIVMSG #authority :exception works");protect.expect("PRIVMSG #authority :exception works")
             owner.send("MODE #authority -e ChanOp!*@*");oper.expect(" MODE #authority -e ChanOp!*@*")
             owner.send("MODE #authority -b ChanOp!*@*");oper.expect(" MODE #authority -b ChanOp!*@*")
+            owner.send("MODE #authority +o ChanOp");oper.expect(" MODE #authority +o ChanOp")
 
             # Mask matching is live against nick!user@display_host, not cached identity.
             owner.send("MODE #authority +b NewVoice!*@*");voice.expect(" MODE #authority +b NewVoice!*@*")
             voice.send("PRIVMSG #authority :before rename");protect.expect("PRIVMSG #authority :before rename")
             voice.send("NICK NewVoice");owner.expect(" NICK :NewVoice")
-            voice.send("PRIVMSG #authority :after rename blocked");voice.expect(" 404 NewVoice #authority :Cannot send to channel (banned from channel (+b))")
+            voice.send("PRIVMSG #authority :after rename blocked");voice.expect(" 404 NewVoice #authority ")
             protect.expect_not("PRIVMSG #authority :after rename blocked")
             owner.send("MODE #authority -b NewVoice!*@*");voice.expect(" MODE #authority -b NewVoice!*@*")
 
-            # Protected can set a broad ban matching OWNER, but OWNER remains immune.
+            # Protected may set a mask matching OWNER, but OWNER remains immune.
             protect.send("MODE #authority +b Owner!*@*");owner.expect(" MODE #authority +b Owner!*@*")
             owner.send("PRIVMSG #authority :owner remains authoritative");protect.expect("PRIVMSG #authority :owner remains authoritative")
             owner.send("MODE #authority -b Owner!*@*");protect.expect(" MODE #authority -b Owner!*@*")
