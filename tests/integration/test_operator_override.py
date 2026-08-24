@@ -85,9 +85,21 @@ def stop_server(proc):
         proc.wait(timeout=2)
 
 
+def rfc1459_fold(text):
+    table = str.maketrans({"{": "[", "}": "]", "|": "\\", "~": "^"})
+    return text.lower().translate(table)
+
+
+def rfc1459_collate(left, right):
+    left_folded = rfc1459_fold(left)
+    right_folded = rfc1459_fold(right)
+    return (left_folded > right_folded) - (left_folded < right_folded)
+
+
 def queued_bodies(path, channel):
     db = sqlite3.connect(path)
     try:
+        db.create_collation("IRCNOCASE", rfc1459_collate)
         return [row[0] for row in db.execute(
             "SELECT body FROM channel_log_queue WHERE channel=? ORDER BY id", (channel,)
         )]
@@ -142,7 +154,6 @@ def main():
             bob.send("NICKSERV REGISTER bobpass")
             bob.expect("Nickname registered and identified.")
 
-            # Forced join/part bypasses ordinary channel policy.
             admin.send("JOIN #forced")
             admin.expect(" JOIN #forced")
             admin.send("MODE #forced +ik secret")
@@ -157,8 +168,6 @@ def main():
             bob.send("MODE bob")
             bob.expect(" 221 bob +i")
 
-            # Build a registered channel with Bob as founder. SAJOIN must
-            # re-derive founder authority from the authenticated account.
             admin.send("JOIN #registered")
             admin.expect(" 366 alice #registered ")
             bob.send("JOIN #registered")
@@ -181,7 +190,6 @@ def main():
             bodies = queued_bodies(chanserv_db, "#registered")
             assert any("bob (" in body and " joined #registered." in body for body in bodies), bodies
 
-            # SAMODE is server authority and must bypass ChanServ MLOCK live.
             admin.send("SAMODE #registered -n")
             bob.expect(" MODE #registered -n")
             bob.send("MODE #registered")
@@ -196,7 +204,6 @@ def main():
             assert any("bob (" in body and " left #registered: Forced part by alice" in body
                        for body in bodies), bodies
 
-            # SET* mutations become the public identity but leave real address intact.
             admin.send("SETHOST bob staff.example.test")
             admin.expect("NOTICE alice :SETHOST bob -> staff.example.test")
             admin.send("SETIDENT bob helper")
@@ -214,7 +221,6 @@ def main():
             admin.send("SAPART bob #forced")
             bob.expect(" PART #forced :Forced part by alice")
 
-            # Restart disconnects current users, reloads config, and relistens.
             admin.send("RESTART")
             admin.expect("NOTICE alice :Restarting ScratchIRCd")
             time.sleep(0.4)
