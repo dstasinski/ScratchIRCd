@@ -46,7 +46,7 @@ static ClientModeSet bit_for_letter(char letter) {
 }
 
 static void send_full_user_modes(Server *server, Client *client) {
-    static const char letters[] = "BDMdghHINopRrSsTtVWwxz";
+    static const char letters[] = "BDMdghHiINopRrSsTtVWwxz";
     char modes[64];
     size_t used = 0U;
     size_t i;
