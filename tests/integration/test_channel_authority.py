@@ -111,6 +111,7 @@ def main():
             owner.send("MODE #authority +t");voice.expect(" MODE #authority +t")
             voice.send("TOPIC #authority :voice topic");voice.expect(" 482 Voice #authority ")
             half.send("TOPIC #authority :halfop topic");owner.expect(" TOPIC #authority :halfop topic")
+            outsider.send("TOPIC #authority");outsider.expect(" 332 RenamedOutside #authority :halfop topic")
             owner.send("MODE #authority +T");protect.expect(" MODE #authority +T")
             voice.send("NOTICE #authority :blocked notice");protect.expect_not("NOTICE #authority :blocked notice")
             owner.send("MODE #authority -T");protect.expect(" MODE #authority -T")
@@ -188,6 +189,9 @@ def main():
 
             owner.send("MODE #authority +s");protect.expect(" MODE #authority +s")
             outsider.send("LIST");outsider.expect_not(" 322 RenamedOutside #authority ");outsider.expect(" 323 RenamedOutside :End of /LIST")
+            outsider.send("TOPIC #authority");outsider.expect(" 403 RenamedOutside #authority ")
+            outsider.expect_not("halfop topic")
+            owner.send("TOPIC #authority");owner.expect(" 332 Owner #authority :halfop topic")
             outsider.send("JOIN #ephemeral");outsider.expect(" 366 RenamedOutside #ephemeral ")
             outsider.send("PART #ephemeral :gone");outsider.expect(" PART #ephemeral :gone")
             outsider.send("LIST");outsider.expect_not(" 322 RenamedOutside #ephemeral ");outsider.expect(" 323 RenamedOutside :End of /LIST")
