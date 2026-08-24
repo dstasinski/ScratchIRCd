@@ -1,6 +1,6 @@
 /**
  * @file channel_log.c
- * @brief Optional ChanServ-controlled per-channel text logging.
+ * @brief Optional ChanServ-controlled durable batched per-channel logging.
  */
 
 #include "channel_log.h"
@@ -43,6 +43,8 @@ static int db_get_enabled(Server *server, const char *channel_name,
                           int *registered, int *enabled) {
     ChanServDb db = {0};
     int rc;
+    if (registered != NULL) *registered = 0;
+    if (enabled != NULL) *enabled = 0;
     if (server == NULL || channel_name == NULL) return -1;
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
     rc = chanserv_db_logging_get(&db, channel_name, registered, enabled);
@@ -104,8 +106,7 @@ static void log_path(const char *channel_name, const char *suffix,
 }
 
 static int make_logs_dir(void) {
-    if (mkdir("logs", 0750) == 0 || errno == EEXIST) return 0;
-    return -1;
+    return mkdir("logs", 0750) == 0 || errno == EEXIST ? 0 : -1;
 }
 
 static void format_suffix(const struct tm *local, char *out, size_t out_size) {
@@ -117,6 +118,7 @@ static void append_boundary(const char *channel_name, const char *suffix,
     char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
     char date_text[96];
     FILE *file;
+    if (make_logs_dir() != 0) return;
     log_path(channel_name, suffix, path, sizeof(path));
     file = fopen(path, "a");
     if (file == NULL) return;
@@ -132,12 +134,12 @@ static void append_boundary(const char *channel_name, const char *suffix,
     fclose(file);
 }
 
-static void ensure_current_file(ChannelLogState *state, time_t now) {
+static void ensure_file_for_time(ChannelLogState *state, time_t when) {
     struct tm local;
     char suffix[32];
     char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
     struct stat st;
-    if (state == NULL || !state->enabled || localtime_r(&now, &local) == NULL) return;
+    if (state == NULL || localtime_r(&when, &local) == NULL) return;
     if (make_logs_dir() != 0) return;
     format_suffix(&local, suffix, sizeof(suffix));
     if (state->date_suffix[0] != '\0' && strcmp(state->date_suffix, suffix) != 0)
@@ -149,85 +151,172 @@ static void ensure_current_file(ChannelLogState *state, time_t now) {
         append_boundary(state->channel, suffix, &local, 0);
 }
 
-static FILE *open_log(Server *server, Channel *channel, time_t now,
-                      struct tm *local) {
-    ChannelLogState *state;
-    char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
-    if (server == NULL || channel == NULL || local == NULL ||
-        !state_enabled(server, channel->name)) return NULL;
-    state = state_for(channel->name, 0);
-    if (state == NULL || localtime_r(&now, local) == NULL) return NULL;
-    ensure_current_file(state, now);
-    log_path(channel->name, state->date_suffix, path, sizeof(path));
-    return fopen(path, "a");
+static int queue_event(Server *server, Channel *channel, time_t when,
+                       const char *body) {
+    ChanServDb db = {0};
+    int rc;
+    if (server == NULL || channel == NULL || body == NULL ||
+        !state_enabled(server, channel->name)) return 0;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+    rc = chanserv_db_logging_queue_add(&db, channel->name, (long long)when, body);
+    chanserv_db_close(&db);
+    return rc;
 }
 
-static void timestamp(const struct tm *local, char *out, size_t out_size) {
-    (void)strftime(out, out_size, "%H:%M:%S", local);
+static int flush_channel(Server *server, const char *channel_name) {
+    ChanServDb db = {0};
+    ChanServLogQueueRecord records[128];
+    ChannelLogState *state;
+    size_t count = 0U;
+    int rc = -1;
+    if (server == NULL || channel_name == NULL) return -1;
+    state = state_for(channel_name, 1);
+    if (state == NULL) return -1;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+
+    for (;;) {
+        size_t i;
+        long long last_id = 0;
+        if (chanserv_db_logging_queue_fetch(&db, channel_name, records,
+                                             sizeof(records) / sizeof(records[0]),
+                                             &count) != 0)
+            goto done;
+        if (count == 0U) break;
+        for (i = 0U; i < count; ++i) {
+            time_t when = (time_t)records[i].event_time;
+            struct tm local;
+            char stamp[16];
+            char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
+            FILE *file;
+            if (localtime_r(&when, &local) == NULL) goto done;
+            ensure_file_for_time(state, when);
+            format_suffix(&local, state->date_suffix, sizeof(state->date_suffix));
+            log_path(channel_name, state->date_suffix, path, sizeof(path));
+            file = fopen(path, "a");
+            if (file == NULL) goto done;
+            (void)strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
+            if (fprintf(file, "[%s] %s\n", stamp, records[i].body) < 0) {
+                fclose(file);
+                goto done;
+            }
+            if (fclose(file) != 0) goto done;
+            last_id = records[i].id;
+        }
+        if (last_id != 0 &&
+            chanserv_db_logging_queue_delete_through(&db, channel_name, last_id) != 0)
+            goto done;
+    }
+    rc = 0;
+done:
+    chanserv_db_close(&db);
+    return rc;
+}
+
+static int queue_channels(Server *server, char *buffer, size_t size) {
+    ChanServDb db = {0};
+    int rc;
+    if (server == NULL || buffer == NULL || size == 0U) return -1;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+    rc = chanserv_db_logging_queue_list_channels(&db, buffer, size);
+    chanserv_db_close(&db);
+    return rc;
+}
+
+static int channel_oldest(Server *server, const char *channel_name,
+                          long long *event_time) {
+    ChanServDb db = {0};
+    ChanServLogQueueRecord record;
+    size_t count = 0U;
+    int rc;
+    if (event_time != NULL) *event_time = 0;
+    if (server == NULL || channel_name == NULL || event_time == NULL) return -1;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+    rc = chanserv_db_logging_queue_fetch(&db, channel_name, &record, 1U, &count);
+    if (rc == 0 && count == 1U) *event_time = record.event_time;
+    chanserv_db_close(&db);
+    return rc;
+}
+
+static void for_each_queued_channel(Server *server, int due_only, time_t now) {
+    char channels[8192];
+    char *save = NULL;
+    char *name;
+    if (queue_channels(server, channels, sizeof(channels)) != 0 || channels[0] == '\0') return;
+    name = strtok_r(channels, ",", &save);
+    while (name != NULL) {
+        if (!due_only) {
+            (void)flush_channel(server, name);
+        } else {
+            long long oldest = 0;
+            if (channel_oldest(server, name, &oldest) == 0 && oldest != 0 &&
+                oldest + IRCD_CHANNEL_LOG_BATCH_SECONDS <= (long long)now)
+                (void)flush_channel(server, name);
+        }
+        name = strtok_r(NULL, ",", &save);
+    }
 }
 
 void channel_log_join(Server *server, Channel *channel, Client *client) {
-    time_t now = time(NULL);
-    struct tm local;
-    char stamp[16];
-    FILE *file = open_log(server, channel, now, &local);
-    if (file == NULL || client == NULL) { if (file != NULL) fclose(file); return; }
-    timestamp(&local, stamp, sizeof(stamp));
-    (void)fprintf(file, "[%s] %s (%s@%s) joined %s.\n",
-                  stamp, client->nick, client->user, client->display_host, channel->name);
-    fclose(file);
+    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    if (client == NULL || channel == NULL) return;
+    (void)snprintf(body, sizeof(body), "%s (%s@%s) joined %s.",
+                   client->nick, client->user, client->display_host, channel->name);
+    (void)queue_event(server, channel, time(NULL), body);
 }
 
 void channel_log_part(Server *server, Channel *channel, Client *client,
                       const char *reason) {
-    time_t now = time(NULL);
-    struct tm local;
-    char stamp[16];
-    FILE *file = open_log(server, channel, now, &local);
-    if (file == NULL || client == NULL) { if (file != NULL) fclose(file); return; }
-    timestamp(&local, stamp, sizeof(stamp));
-    (void)fprintf(file, "[%s] %s (%s@%s) left %s: %s\n",
-                  stamp, client->nick, client->user, client->display_host,
-                  channel->name, reason != NULL && *reason != '\0' ? reason : "Leaving");
-    fclose(file);
+    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    if (client == NULL || channel == NULL) return;
+    (void)snprintf(body, sizeof(body), "%s (%s@%s) left %s: %s",
+                   client->nick, client->user, client->display_host, channel->name,
+                   reason != NULL && *reason != '\0' ? reason : "Leaving");
+    (void)queue_event(server, channel, time(NULL), body);
 }
 
 void channel_log_quit(Server *server, Channel *channel, Client *client,
                       const char *reason) {
-    time_t now = time(NULL);
-    struct tm local;
-    char stamp[16];
-    FILE *file = open_log(server, channel, now, &local);
-    if (file == NULL || client == NULL) { if (file != NULL) fclose(file); return; }
-    timestamp(&local, stamp, sizeof(stamp));
-    (void)fprintf(file, "[%s] %s (%s@%s) left irc: Quit:  %s\n",
-                  stamp, client->nick, client->user, client->display_host,
-                  reason != NULL && *reason != '\0' ? reason : "Client Quit");
-    fclose(file);
+    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    if (client == NULL || channel == NULL) return;
+    (void)snprintf(body, sizeof(body), "%s (%s@%s) left irc: Quit:  %s",
+                   client->nick, client->user, client->display_host,
+                   reason != NULL && *reason != '\0' ? reason : "Client Quit");
+    (void)queue_event(server, channel, time(NULL), body);
 }
 
 void channel_log_message(Server *server, Channel *channel, Client *client,
                          const char *text, int is_notice) {
-    time_t now = time(NULL);
-    struct tm local;
-    char stamp[16];
-    FILE *file = open_log(server, channel, now, &local);
-    if (file == NULL || client == NULL || text == NULL) {
-        if (file != NULL) fclose(file);
-        return;
-    }
-    timestamp(&local, stamp, sizeof(stamp));
+    char body[IRC_MESSAGE_BUFFER_SIZE + 256U];
+    if (client == NULL || channel == NULL || text == NULL) return;
     if (is_notice)
-        (void)fprintf(file, "[%s] -%s- %s\n", stamp, client->nick, text);
+        (void)snprintf(body, sizeof(body), "-%s- %s", client->nick, text);
     else
-        (void)fprintf(file, "[%s] <%s> %s\n", stamp, client->nick, text);
-    fclose(file);
+        (void)snprintf(body, sizeof(body), "<%s> %s", client->nick, text);
+    (void)queue_event(server, channel, time(NULL), body);
 }
 
-void channel_log_rotate_all(time_t now) {
+void channel_log_flush_due(Server *server, time_t now) {
+    for_each_queued_channel(server, 1, now);
+}
+
+void channel_log_flush_all(Server *server) {
+    for_each_queued_channel(server, 0, time(NULL));
+}
+
+void channel_log_rotate_all(Server *server, time_t now) {
     ChannelLogState *state;
-    for (state = states; state != NULL; state = state->next)
-        if (state->known && state->enabled) ensure_current_file(state, now);
+    struct tm local;
+    char suffix[32];
+    channel_log_flush_due(server, now);
+    if (localtime_r(&now, &local) == NULL) return;
+    format_suffix(&local, suffix, sizeof(suffix));
+    for (state = states; state != NULL; state = state->next) {
+        if (!state->known || !state->enabled || state->date_suffix[0] == '\0' ||
+            strcmp(state->date_suffix, suffix) == 0)
+            continue;
+        (void)flush_channel(server, state->channel);
+        ensure_file_for_time(state, now);
+    }
 }
 
 static void chanserv_notice(Server *server, Client *client, const char *text) {
@@ -237,7 +326,7 @@ static void chanserv_notice(Server *server, Client *client, const char *text) {
 
 int channel_log_handle_chanserv(Server *server, Client *client,
                                 const char *text) {
-    char copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char copy[IRC_MESSAGE_BUFFER_SIZE];
     char *command;
     char *channel_name;
     char *field;
@@ -275,12 +364,13 @@ int channel_log_handle_chanserv(Server *server, Client *client,
     }
 
     enable = strcasecmp(value, "ON") == 0;
+    state = state_for(channel_name, 1);
+    if (!enable) (void)flush_channel(server, channel_name);
     if (db_set_enabled(server, channel_name, enable) != 0) {
         chanserv_notice(server, client, "Unable to update channel logging.");
         return 1;
     }
 
-    state = state_for(channel_name, 1);
     if (state != NULL) {
         state->known = 1;
         if (!enable && state->enabled && state->date_suffix[0] != '\0' &&
@@ -289,7 +379,7 @@ int channel_log_handle_chanserv(Server *server, Client *client,
         state->enabled = enable;
         if (enable) {
             now = time(NULL);
-            ensure_current_file(state, now);
+            ensure_file_for_time(state, now);
         }
     }
 
