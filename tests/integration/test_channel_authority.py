@@ -182,12 +182,18 @@ def main():
             voice.send("NOTICE #authority :restored notice")
             protect.expect("NOTICE #authority :restored notice")
 
+            # A secret channel is not disclosed to an outsider by LIST.
+            owner.send("MODE #authority +s"); protect.expect(" MODE #authority +s")
+            outsider.send("LIST")
+            outsider.expect_not(" 322 Outside #authority ")
+            outsider.expect(" 323 Outside :End of /LIST")
+
             # Last-member PART removes an ephemeral channel from runtime state.
             outsider.send("JOIN #ephemeral"); outsider.expect(" 366 Outside #ephemeral ")
             outsider.send("PART #ephemeral :gone"); outsider.expect(" PART #ephemeral :gone")
             outsider.send("LIST")
-            outsider.expect(" 323 Outside :End of /LIST")
             outsider.expect_not(" 322 Outside #ephemeral ")
+            outsider.expect(" 323 Outside :End of /LIST")
 
         finally:
             for c in clients: c.close()
