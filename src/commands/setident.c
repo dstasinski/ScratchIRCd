@@ -7,8 +7,20 @@
 #include "numerics.h"
 #include "oper.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+
+static int valid_ident(const char *ident) {
+    const unsigned char *p = (const unsigned char *)ident;
+
+    if (ident == NULL || *ident == '\0' || strlen(ident) > IRC_USER_MAX) return 0;
+    for (; *p != '\0'; ++p) {
+        if (isalnum(*p) || *p == '-' || *p == '_' || *p == '.') continue;
+        return 0;
+    }
+    return 1;
+}
 
 CommandResult command_setident(Server *server, Client *client, char *params) {
     char *nick;
@@ -21,8 +33,7 @@ CommandResult command_setident(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (params == NULL || (nick = strtok(params, " ")) == NULL ||
-        (ident = strtok(NULL, " ")) == NULL || *ident == '\0' ||
-        strlen(ident) > IRC_USER_MAX) {
+        (ident = strtok(NULL, " ")) == NULL || !valid_ident(ident)) {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
                      client->nick, "SETIDENT");
         return COMMAND_KEEP_CLIENT;
