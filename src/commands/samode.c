@@ -2,19 +2,24 @@
  * @file samode.c
  * @brief Server-authority MODE changes for operators with can_override.
  *
- * Channel SAMODE reuses the ordinary MODE parser by temporarily granting the
- * actor owner authority without emitting a JOIN. User SAMODE deliberately
+ * Channel SAMODE reuses the mature MODE parser by temporarily granting the
+ * actor owner authority without emitting a JOIN. It deliberately bypasses
+ * ChanServ MLOCK because SAMODE is a server-authority override, then persists
+ * the resulting registered-channel runtime state. User SAMODE deliberately
  * excludes provenance/security modes (+N/+o/+r/+S/+t/+V/+x/+z); those must be
  * established by OPER, services, SETHOST, WebIRC/TLS, or cloak logic.
  */
 
 #include "commands.h"
+#include "chanserv.h"
 #include "modes.h"
 #include "numerics.h"
 #include "oper.h"
 
 #include <stdio.h>
 #include <string.h>
+
+CommandResult command_mode_core(Server *server, Client *client, char *params);
 
 static ClientModeSet allowed_user_mode(char letter) {
     switch (letter) {
@@ -108,7 +113,8 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
         member->privileges |= CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
 
         (void)snprintf(mode_params, sizeof(mode_params), "%s %s", target_name, rest);
-        (void)command_mode(server, client, mode_params);
+        (void)command_mode_core(server, client, mode_params);
+        chanserv_persist_channel(server, channel);
 
         if (temporary) channel_remove_client(channel, client);
         else member->privileges = saved;
