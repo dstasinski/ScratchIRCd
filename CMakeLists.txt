@@ -32,7 +32,7 @@ enable_testing()
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c src/channel_log.c
     src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/nospoof.c src/oper.c src/presence.c src/usermode_policy.c
-    src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
+    src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_db_logging.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
     src/commands/deafmute.c src/commands/die.c src/commands/dispatch.c src/commands/geoban.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
@@ -156,7 +156,7 @@ target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL
 add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
 
 add_executable(test_channel_log
-    tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/client.c src/modes.c)
+    tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/chanserv_db_logging.c src/client.c src/modes.c)
 target_include_directories(test_channel_log PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(test_channel_log PRIVATE _POSIX_C_SOURCE=200809L)
