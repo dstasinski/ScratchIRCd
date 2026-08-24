@@ -4,6 +4,8 @@
  */
 
 #include "commands.h"
+#include "channel_log.h"
+#include "chanserv.h"
 #include "config.h"
 #include "numerics.h"
 #include "oper.h"
@@ -50,13 +52,20 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
         if (channel == NULL || channel_has_client(channel, target)) continue;
         first = channel->member_count == 0U;
         if (channel_add_client(channel, target) != 0) continue;
-        if (first && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+        if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) {
+            ChannelPrivilegeSet privileges =
+                chanserv_client_privileges(server, target, channel->name);
+            if (privileges != 0U) {
+                (void)channel_add_privileges(channel, target, privileges);
+            }
+        } else if (first) {
             (void)channel_add_privileges(channel, target,
                                          CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
         }
         (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
                        target->nick, target->user, target->display_host, channel->name);
         channel_broadcast(channel, NULL, message);
+        channel_log_join(server, channel, target);
         if (channel->topic[0] != '\0') {
             client_sendf(target, RPL_TOPIC, server->config.server_name,
                          target->nick, channel->name, channel->topic);
