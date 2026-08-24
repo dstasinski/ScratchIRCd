@@ -63,4 +63,8 @@ Channel *server_get_or_create_channel(Server *server, const char *name);
 void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
 
+/** Install/reset SIGTERM/SIGINT handling for orderly event-loop shutdown. */
+int server_install_signal_handlers(void);
+void server_clear_signal_requests(void);
+
 #endif
