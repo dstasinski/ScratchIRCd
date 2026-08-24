@@ -12,6 +12,7 @@
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
+#include "visibility.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +48,14 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
     }
 
     if (topic == NULL) {
+        /* Do not let a direct TOPIC query bypass private/secret/local-channel
+         * visibility.  Members and IRC operators may still inspect it. */
+        if (!visibility_names_channel(client, channel)) {
+            client_sendf(client, ERR_NOSUCHCHANNEL,
+                         server->config.server_name, client->nick,
+                         channel->name);
+            return COMMAND_KEEP_CLIENT;
+        }
         if (channel->topic[0] == '\0') {
             client_sendf(client, RPL_NOTOPIC,
                          server->config.server_name, client->nick,
