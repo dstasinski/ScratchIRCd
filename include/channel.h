@@ -23,17 +23,6 @@ typedef struct ChannelInvite {
     struct ChannelInvite *next;
 } ChannelInvite;
 
-/**
- * Per-client join-window accounting used by channel mode +j.
- * The counter is reset when its configured interval elapses.
- */
-typedef struct ChannelJoinCounter {
-    uint64_t client_id;
-    unsigned int count;
-    time_t window_start;
-    struct ChannelJoinCounter *next;
-} ChannelJoinCounter;
-
 /** One client's membership and privileges in one channel. */
 typedef struct ChannelMember {
     Client *client;
@@ -58,6 +47,9 @@ typedef struct Channel {
     size_t user_limit;
     unsigned int join_throttle_count;
     unsigned int join_throttle_seconds;
+    /** Channel-wide +j join window. */
+    unsigned int join_throttle_window_count;
+    time_t join_throttle_window_start;
     char limit_redirect[IRC_CHANNEL_NAME_MAX + 1U];
     char ban_redirect[IRC_CHANNEL_NAME_MAX + 1U];
 
@@ -65,7 +57,6 @@ typedef struct Channel {
     ChannelMaskEntry *exception_list;
     ChannelMaskEntry *invite_exception_list;
     ChannelInvite *invites;
-    ChannelJoinCounter *join_counters;
 
     ChannelMember *members;
     size_t member_count;
