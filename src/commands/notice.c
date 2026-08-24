@@ -9,6 +9,7 @@
 
 #include "commands.h"
 #include "channel_log.h"
+#include "channel_policy.h"
 #include "config.h"
 #include "history_db.h"
 #include "ircv3.h"
@@ -64,12 +65,20 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);
         ChannelMember *member;
+        int banned;
         char stripped[IRCD_MESSAGE_BUFFER_SIZE];
         const char *delivered_text = text;
 
         if (channel == NULL || channel_mode_has(channel->modes, CHANNEL_MODE_NO_NOTICE))
             return COMMAND_KEEP_CLIENT;
         member = channel_find_member(channel, client);
+        if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_OWNER))
+            banned = 0;
+        else if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_PROTECTED))
+            banned = channel_client_is_banned_protected(channel, client);
+        else
+            banned = channel_client_is_banned(channel, client);
+        if (banned) return COMMAND_KEEP_CLIENT;
         if (member == NULL && channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL))
             return COMMAND_KEEP_CLIENT;
         if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_SPEAK) &&
