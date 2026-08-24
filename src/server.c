@@ -1,5 +1,6 @@
 #include "server.h"
 #include "ban_db.h"
+#include "channel_log.h"
 #include "commands.h"
 #include "irc.h"
 #include "modes.h"
@@ -405,7 +406,10 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
                        client->nick, client->user, client->display_host, quit_reason);
     while (client->channels != NULL) {
         Channel *channel = client->channels->channel;
-        if (client->registered) channel_broadcast(channel, client, quit_message);
+        if (client->registered) {
+            channel_log_quit(server, channel, client, quit_reason);
+            channel_broadcast(channel, client, quit_message);
+        }
         channel_remove_client(channel, client);
         server_remove_channel_if_empty(server, channel);
     }
@@ -482,6 +486,7 @@ void server_run(Server *server) {
             }
         }
         free(snapshot); free(poll_fds);
+        channel_log_rotate_all(time(NULL));
         if (!server->restart_requested) expire_connection_lookups(server);
     }
 }
