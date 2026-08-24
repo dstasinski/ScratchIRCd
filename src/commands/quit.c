@@ -10,25 +10,20 @@
  */
 
 #include "commands.h"
-#include "channel_log.h"
 #include "config.h"
 
 #include <stdio.h>
 
 CommandResult command_quit(Server *server, Client *client, char *params) {
     const char *reason = params;
-    ClientChannelLink *link;
+
+    (void)server;
 
     if (reason != NULL && *reason == ':') {
         ++reason;
     }
     if (reason == NULL || *reason == '\0') {
         reason = IRC_DEFAULT_QUIT_REASON;
-    }
-
-    if (client != NULL && client->registered) {
-        for (link = client->channels; link != NULL; link = link->next)
-            channel_log_quit(server, link->channel, client, reason);
     }
 
     snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", reason);
