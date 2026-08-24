@@ -55,7 +55,7 @@ def main():
         admin_hash=subprocess.check_output([mkpasswd,"adminpass"],text=True).strip()
         with open(conf,"w",encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n");f.write("netadmin_name = root\n");f.write(f"netadmin_password_hash = {admin_hash}\n");f.write("netadmin_hostmask = *!*@203.0.113.9\n")
-        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=observer=rejected=silent=None
+        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=observer=limited=rejected=silent=None
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             trusted.send("WEBIRC gateway-secret web.example supplied.example 203.0.113.9");trusted.send("NICK webuser");trusted.send("USER webuser 0 * :Web User")
@@ -80,6 +80,7 @@ def main():
             trusted.send("JOIN #blocked");trusted.expect("respond to the CTCP VERSION")
             trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01")
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
+            # WEBSITE is informational only: JOIN succeeds before WEBSITE is answered.
             trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
 
@@ -103,6 +104,32 @@ def main():
             oper_direct_whois=trusted.expect(" 318 webuser observer ")
             assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
             assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
+
+            # A client that passes the PING cookie may register without answering
+            # VERSION, but remains restricted until the VERSION reply arrives.
+            limited=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
+            limited.send("NICK limited");limited.send("USER limited 0 * :Limited User")
+            limited_lines=limited.expect("PING :")
+            limited_ping=next(line for line in limited_lines if line.startswith("PING :"));limited_cookie=limited_ping.split(":",1)[1]
+            limited.send(f"PONG :{limited_cookie}")
+            limited.expect("\x01VERSION\x01")
+            limited.expect(" 001 limited ",duration=5)
+
+            limited.send("JOIN #stillblocked")
+            limited.expect("respond to the CTCP VERSION")
+
+            limited.send("PRIVMSG observer :blocked message")
+            limited.expect("respond to the CTCP VERSION request before messaging ordinary users")
+            assert not any("blocked message" in line for line in observer.collect()),"restricted PRIVMSG reached ordinary user"
+
+            limited.send("PRIVMSG webuser :operator exemption works")
+            trusted.expect(" PRIVMSG webuser :operator exemption works")
+
+            limited.send("NOTICE test.local :\x01VERSION LimitedClient 3.0\x01")
+            limited.send("PRIVMSG observer :version now accepted")
+            observer.expect(" PRIVMSG observer :version now accepted")
+            limited.send("JOIN #nowallowed")
+            limited.expect(" JOIN #nowallowed")
 
             trusted.send("VERSION")
             server_version=trusted.expect(" 351 webuser ")
@@ -135,6 +162,7 @@ def main():
         finally:
             if trusted:trusted.close()
             if observer:observer.close()
+            if limited:limited.close()
             if rejected:rejected.close()
             if silent:silent.close()
             if proc.poll() is None:
