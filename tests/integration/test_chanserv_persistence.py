@@ -109,6 +109,17 @@ def mask_rows(path):
         con.close()
 
 
+def assert_parameter_modes(client, nick):
+    client.send("MODE #persist")
+    lines = client.expect(f" 324 {nick} #persist ")
+    mode_line = next(line for line in lines if f" 324 {nick} #persist " in line)
+    for letter in ("n", "t", "r", "k", "l", "j", "L", "B"):
+        assert letter in mode_line, mode_line
+    assert "secret" in mode_line and "5" in mode_line and "2:60" in mode_line, mode_line
+    assert "#overflow" in mode_line and "#banned" in mode_line, mode_line
+    return mode_line
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv_persistence.py scratchircd")
@@ -142,13 +153,6 @@ def main():
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistence test")
             alice.expect("Channel registered successfully.")
-            alice.send("CHANSERV SET #persist MLOCK +nt")
-            alice.expect("Persistent mode lock updated.")
-
-            alice.send("MODE #persist +m")
-            alice.expect(" 974 Alice m :Mode is locked by ChanServ")
-            alice.send("MODE #persist -n")
-            alice.expect(" 974 Alice n :Mode is locked by ChanServ")
 
             alice.send("MODE #persist +kljL secret 5 2:60 #overflow")
             alice.expect(" MODE #persist +kljL secret 5 2:60 #overflow")
@@ -160,6 +164,23 @@ def main():
             alice.expect(" MODE #persist +e Friend!*@*")
             alice.send("MODE #persist +I Invite!*@*")
             alice.expect(" MODE #persist +I Invite!*@*")
+
+            # Updating boolean MLOCK triggers a channel restore. Parameterized
+            # modes must survive that restore unchanged.
+            alice.send("CHANSERV SET #persist MLOCK +nt")
+            alice.expect("Persistent mode lock updated.")
+            assert_parameter_modes(alice, "Alice")
+
+            # Parameterized MLOCK is intentionally unsupported. Reject it
+            # cleanly rather than partially applying or changing runtime state.
+            alice.send("CHANSERV SET #persist MLOCK +k secret")
+            alice.expect("Invalid persistent mode lock. Only boolean channel modes are supported.")
+            assert_parameter_modes(alice, "Alice")
+
+            alice.send("MODE #persist +m")
+            alice.expect(" 974 Alice m :Mode is locked by ChanServ")
+            alice.send("MODE #persist -n")
+            alice.expect(" 974 Alice n :Mode is locked by ChanServ")
 
             # Diagnose the live MODE layer before persistence/restart. If this
             # fails, +I was never added to Channel.invite_exception_list.
@@ -187,13 +208,7 @@ def main():
             traveler.send("JOIN #persist secret")
             traveler.expect(" 366 Traveler #persist ")
 
-            traveler.send("MODE #persist")
-            lines = traveler.expect(" 324 Traveler #persist ")
-            mode_line = next(line for line in lines if " 324 Traveler #persist " in line)
-            for letter in ("n", "t", "r", "k", "l", "j", "L", "B"):
-                assert letter in mode_line, mode_line
-            assert "secret" in mode_line and "5" in mode_line and "2:60" in mode_line, mode_line
-            assert "#overflow" in mode_line and "#banned" in mode_line, mode_line
+            assert_parameter_modes(traveler, "Traveler")
 
             traveler.send("MODE #persist b")
             traveler.expect(" Bad!*@* ")
