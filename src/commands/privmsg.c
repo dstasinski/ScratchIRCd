@@ -139,6 +139,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         store_channel_history(server, client, channel->name, "PRIVMSG", delivered_text);
         ircv3_broadcast_message(channel, client, client, "PRIVMSG",
                                 channel->name, delivered_text);
+        client->last_activity = time(NULL);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) {
@@ -165,6 +166,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         }
         ircv3_send_message(destination, client, "PRIVMSG", destination->nick, text);
+        client->last_activity = time(NULL);
         if (destination->away[0] != '\0')
             client_sendf(client, RPL_AWAY, server->config.server_name,
                          client->nick, destination->nick, destination->away);
