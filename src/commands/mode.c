@@ -69,7 +69,7 @@ static int client_mode_self_settable(char letter) {
 }
 
 static void format_client_modes(const Client *client, char *out, size_t out_size) {
-    static const char letters[] = "BdghHINopRrSsTtVWwxz";
+    static const char letters[] = "BdghHiNopRrSsTtVWwxz";
     size_t used = 0U;
     size_t i;
 
@@ -418,45 +418,46 @@ static CommandResult mode_channel(Server *server, Client *client,
         }
 
         if (letter == 'j') {
-            unsigned long count, seconds;
-            char temp[64];
-            char *colon;
-            if (sign == '-') {
+            if (sign == '+') {
+                char copy[64];
+                char *colon;
+                unsigned long count;
+                unsigned long seconds;
+                if (param == NULL || strlen(param) >= sizeof(copy)) {
+                    client_sendf(client, ERR_NEEDMOREPARAMS,
+                                 server->config.server_name, client->nick, "MODE");
+                    continue;
+                }
+                ++argi;
+                (void)snprintf(copy, sizeof(copy), "%s", param);
+                colon = strchr(copy, ':');
+                if (colon == NULL) {
+                    client_sendf(client, ERR_NEEDMOREPARAMS,
+                                 server->config.server_name, client->nick, "MODE");
+                    continue;
+                }
+                *colon++ = '\0';
+                if (parse_uint(copy, &count) != 0 || parse_uint(colon, &seconds) != 0 ||
+                    count == 0UL || seconds == 0UL || count > UINT_MAX || seconds > UINT_MAX) {
+                    client_sendf(client, ERR_NEEDMOREPARAMS,
+                                 server->config.server_name, client->nick, "MODE");
+                    continue;
+                }
+                channel->join_throttle_count = (unsigned int)count;
+                channel->join_throttle_seconds = (unsigned int)seconds;
+                append_param(changed_params, sizeof(changed_params), param);
+            } else {
                 channel->join_throttle_count = 0U;
                 channel->join_throttle_seconds = 0U;
-                append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
-                continue;
             }
-            if (param == NULL) {
-                client_sendf(client, ERR_NEEDMOREPARAMS,
-                             server->config.server_name, client->nick, "MODE");
-                continue;
-            }
-            ++argi;
-            (void)snprintf(temp, sizeof(temp), "%s", param);
-            colon = strchr(temp, ':');
-            if (colon == NULL) {
-                client_sendf(client, ERR_NEEDMOREPARAMS,
-                             server->config.server_name, client->nick, "MODE");
-                continue;
-            }
-            *colon++ = '\0';
-            if (parse_uint(temp, &count) != 0 || parse_uint(colon, &seconds) != 0 ||
-                count == 0UL || seconds == 0UL || count > UINT_MAX || seconds > UINT_MAX) {
-                client_sendf(client, ERR_NEEDMOREPARAMS,
-                             server->config.server_name, client->nick, "MODE");
-                continue;
-            }
-            channel->join_throttle_count = (unsigned int)count;
-            channel->join_throttle_seconds = (unsigned int)seconds;
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
-            append_param(changed_params, sizeof(changed_params), param);
             continue;
         }
 
         if (letter == 'L' || letter == 'B') {
-            char *destination = letter == 'L' ? channel->limit_redirect : channel->ban_redirect;
-            size_t destination_size = letter == 'L' ? sizeof(channel->limit_redirect) : sizeof(channel->ban_redirect);
+            char *field = letter == 'L' ? channel->limit_redirect : channel->ban_redirect;
+            size_t field_size = letter == 'L' ? sizeof(channel->limit_redirect)
+                                               : sizeof(channel->ban_redirect);
             if (sign == '+') {
                 if (param == NULL || strchr(IRC_CHANNEL_PREFIXES, param[0]) == NULL) {
                     client_sendf(client, ERR_NEEDMOREPARAMS,
@@ -464,53 +465,58 @@ static CommandResult mode_channel(Server *server, Client *client,
                     continue;
                 }
                 ++argi;
-                (void)snprintf(destination, destination_size, "%s", param);
+                (void)snprintf(field, field_size, "%s", param);
                 append_param(changed_params, sizeof(changed_params), param);
-            } else destination[0] = '\0';
+            } else field[0] = '\0';
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
         if (letter == 'b' || letter == 'e' || letter == 'I') {
-            if (param == NULL) {
-                send_mask_list(server, client, channel, letter);
-                continue;
-            }
+            ChannelMaskEntry **list;
+            if (param == NULL) continue;
             ++argi;
-            if (letter == 'b' && sign == '+' && ban_mask_targets_protected(channel, param)) {
-                client_sendf(client, ERR_CANNOTCHANGECHANMODE,
-                             server->config.server_name, client->nick, letter,
-                             "Protected users may not be banned by ordinary channel operators");
+            if (letter == 'b' && sign == '+' &&
+                ban_mask_targets_protected(channel, param) &&
+                !may_manage_protected(channel, client)) {
+                client_sendf(client, ERR_CHANOPRIVSNEEDED,
+                             server->config.server_name, client->nick, channel->name);
                 continue;
             }
-            if (sign == '+') (void)channel_mask_add(channel, letter, param);
-            else (void)channel_mask_remove(channel, letter, param);
+            list = letter == 'b' ? &channel->ban_list
+                 : letter == 'e' ? &channel->exception_list
+                                 : &channel->invite_exception_list;
+            if (sign == '+')
+                (void)channel_mask_add_authorized(
+                    list, param,
+                    letter == 'b' && may_manage_protected(channel, client));
+            else
+                (void)channel_mask_remove(list, param);
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), param);
             continue;
         }
 
         client_sendf(client, ERR_UNKNOWNMODE, server->config.server_name,
-                     client->nick, letter, channel->name);
+                     client->nick, letter);
     }
 
     if (changed[0] != '\0') {
-        char line[IRCD_MESSAGE_BUFFER_SIZE];
-        (void)snprintf(line, sizeof(line), ":%s!%s@%s MODE %s %s%s%s\r\n",
+        char message[IRCD_MESSAGE_BUFFER_SIZE];
+        (void)snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s%s%s\r\n",
                        client->nick, client->user, client->display_host,
                        channel->name, changed,
                        changed_params[0] != '\0' ? " " : "",
                        changed_params);
-        channel_broadcast(channel, NULL, line);
+        channel_broadcast(channel, NULL, message);
     }
     return COMMAND_KEEP_CLIENT;
 }
 
 CommandResult command_mode(Server *server, Client *client, char *params) {
-    char copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *target;
     char *mode_string;
-    char *argv[32];
+    char *argv[IRC_MODE_MAX_PARAMS];
     size_t argc = 0U;
     char *token;
 
@@ -521,17 +527,17 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    (void)snprintf(copy, sizeof(copy), "%s", params);
-    target = strtok(copy, " ");
+    target = strtok(params, " ");
     mode_string = strtok(NULL, " ");
-    while ((token = strtok(NULL, " ")) != NULL && argc < sizeof(argv) / sizeof(argv[0]))
+    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL)
         argv[argc++] = token;
 
-    if (target == NULL) {
+    if (target == NULL || *target == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
                      client->nick, "MODE");
         return COMMAND_KEEP_CLIENT;
     }
+
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL)
         return mode_channel(server, client, target, mode_string, argv, argc);
     return mode_user(server, client, target, mode_string);
