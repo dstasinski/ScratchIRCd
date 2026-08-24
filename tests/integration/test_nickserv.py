@@ -77,7 +77,7 @@ def wait_listen(port, proc):
             return
         except OSError:
             time.sleep(0.05)
-    raise RuntimeError("server did not listen")
+    raise RuntimeError("listener did not start")
 
 
 def register(client, nick):
@@ -259,16 +259,39 @@ def main():
             admin.send("NSSET Alice VHOST registered.example.test")
             admin.expect("NickServ account updated.")
 
-            requester.send("QUIT :reconnect for vhost")
+            # VHOST is applied on successful authentication, even when the client
+            # is already joined.  Everything that consumes public identity must
+            # switch immediately from the cloak to the vhost, while channel
+            # membership itself remains unchanged.
+            requester.send("QUIT :replace with live vhost test")
             requester.close(); clients.remove(requester)
             user = IRCClient(port); clients.append(user)
             register(user, "Traveler")
+            user.send("MODE Traveler +x")
+            user.expect(" 221 Traveler ")
+            admin.send("JOIN #vhost")
+            admin.expect(" 366 Admin #vhost ")
+            user.send("JOIN #vhost")
+            user.expect(" 366 Traveler #vhost ")
+            admin.send("MODE #vhost +b Traveler!*@cloak-*")
+            admin.expect(" MODE #vhost +b Traveler!*@cloak-*")
+            user.send("PART #vhost :pre-identify ban check")
+            user.expect(" PART #vhost :pre-identify ban check")
+            user.send("JOIN #vhost")
+            user.expect(" 474 Traveler #vhost ")
+
             user.send("IDENTIFY Alice thirdpass")
             user.expect("Password accepted - you are now identified.")
+            user.send("JOIN #vhost")
+            user.expect(" 366 Traveler #vhost ")
             user.send("WHOIS Traveler")
             whois = user.expect(" 318 Traveler Traveler ")
             assert any(" 311 Traveler Traveler " in line and
                        " registered.example.test " in line for line in whois), whois
+            user.send("PRIVMSG #vhost :vhost-prefix")
+            prefixed = admin.expect("PRIVMSG #vhost :vhost-prefix")
+            assert any(line.startswith(":Traveler!Traveler@registered.example.test ")
+                       for line in prefixed if "PRIVMSG #vhost :vhost-prefix" in line), prefixed
 
             admin.send("NSSET Alice ENABLED 0")
             admin.expect("NickServ account updated.")
