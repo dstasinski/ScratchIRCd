@@ -154,11 +154,14 @@ def main():
             admin.expect("PRIVMSG #OpsLog :logged message")
             receiver.send("NOTICE #OpsLog :logged notice")
             admin.expect("NOTICE #OpsLog :logged notice")
+
+            # #OpsLog is registered, so its ChanServ mode lock rejects +s.
+            # That rejected MODE must still never appear in the logfile.
             receiver.send("MODE #OpsLog +s")
+            receiver.expect(" 974 bob s :Mode is locked by ChanServ")
             receiver.send("MODE #OpsLog")
-            mode_lines = receiver.expect(" 324 bob #OpsLog ")
-            assert any("s" in line.split(" 324 bob #OpsLog ", 1)[1].split()[0]
-                       for line in mode_lines if " 324 bob #OpsLog " in line), mode_lines
+            mode_lines = receiver.expect(" 324 bob #OpsLog +r")
+            assert any(" 324 bob #OpsLog +r" in line for line in mode_lines), mode_lines
 
             quitter = IRCClient(port); clients.append(quitter)
             register(quitter, "quitter")
