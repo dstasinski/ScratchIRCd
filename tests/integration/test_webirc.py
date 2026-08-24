@@ -39,14 +39,23 @@ def wait_listen(port,proc):
         try:s=socket.create_connection(("127.0.0.1",port),timeout=.1);s.close();return
         except OSError:time.sleep(.05)
     raise RuntimeError("listener did not start")
+def complete_nospoof(client,nick,version="DirectClient 1.0"):
+    lines=client.expect("PING :")
+    ping=next(line for line in lines if line.startswith("PING :"));cookie=ping.split(":",1)[1]
+    client.send(f"PONG :{cookie}")
+    client.expect("\x01VERSION\x01")
+    client.send(f"NOTICE test.local :\x01VERSION {version}\x01")
+    client.expect(f" 001 {nick} ",duration=5)
+    return cookie
 def main():
-    if len(sys.argv)!=2:raise SystemExit("usage: test_webirc.py scratchircd")
-    binary=os.path.abspath(sys.argv[1])
+    if len(sys.argv)!=3:raise SystemExit("usage: test_webirc.py scratchircd scratchircd-mkpasswd")
+    binary=os.path.abspath(sys.argv[1]);mkpasswd=os.path.abspath(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="scratchircd-webirc-") as td:
         port=free_port();conf=os.path.join(td,"ircd.conf")
+        admin_hash=subprocess.check_output([mkpasswd,"adminpass"],text=True).strip()
         with open(conf,"w",encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n")
-        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=rejected=silent=None
+            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n");f.write("netadmin_name = root\n");f.write(f"netadmin_password_hash = {admin_hash}\n");f.write("netadmin_hostmask = *!*@203.0.113.9\n")
+        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=observer=rejected=silent=None
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             trusted.send("WEBIRC gateway-secret web.example supplied.example 203.0.113.9");trusted.send("NICK webuser");trusted.send("USER webuser 0 * :Web User")
@@ -73,6 +82,27 @@ def main():
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
             trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
+
+            observer=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
+            observer.send("NICK observer");observer.send("USER observer 0 * :Observer User")
+            complete_nospoof(observer,"observer","DirectClient 2.0")
+
+            observer.send("WHOIS webuser")
+            ordinary_whois=observer.expect(" 318 observer webuser ")
+            assert not any(" 672 observer webuser " in line for line in ordinary_whois),ordinary_whois
+            assert not any(" 673 observer webuser " in line for line in ordinary_whois),ordinary_whois
+
+            trusted.send("OPER root adminpass")
+            trusted.expect(" 381 webuser :You are now a Network Administrator")
+            trusted.send("WHOIS webuser")
+            oper_web_whois=trusted.expect(" 318 webuser webuser ")
+            assert any(" 672 webuser webuser :TestClient 1.0" in line for line in oper_web_whois),oper_web_whois
+            assert any(" 673 webuser webuser :https://example.test/client" in line for line in oper_web_whois),oper_web_whois
+
+            trusted.send("WHOIS observer")
+            oper_direct_whois=trusted.expect(" 318 webuser observer ")
+            assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
+            assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
 
             trusted.send("VERSION")
             server_version=trusted.expect(" 351 webuser ")
@@ -104,6 +134,7 @@ def main():
             silent.expect("No-spoof PING timeout",duration=8)
         finally:
             if trusted:trusted.close()
+            if observer:observer.close()
             if rejected:rejected.close()
             if silent:silent.close()
             if proc.poll() is None:
