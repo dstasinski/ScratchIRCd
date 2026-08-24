@@ -24,13 +24,13 @@ int channel_invite_has(const Channel *channel, uint64_t client_id);
 int channel_invite_consume(Channel *channel, uint64_t client_id);
 void channel_invite_clear(Channel *channel);
 
-/** Return non-zero if +j currently permits another join by client. */
+/** Return non-zero if channel-wide +j currently permits another join. */
 int channel_join_throttle_allows(Channel *channel, uint64_t client_id);
 
-/** Record one successful join for +j accounting. */
+/** Record one successful join in the channel-wide +j window. */
 void channel_join_throttle_record(Channel *channel, uint64_t client_id);
 
-/** Free all +j per-client accounting records. */
+/** Reset all +j window accounting. */
 void channel_join_throttle_clear(Channel *channel);
 
 #endif /* IRCD_CHANNEL_POLICY_H */
