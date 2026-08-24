@@ -169,7 +169,7 @@ add_test(NAME operator_override_integration COMMAND ${Python3_EXECUTABLE} ${CMAK
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
 add_test(NAME tls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(tls_integration PROPERTIES TIMEOUT 60)
-add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_webirc.py $<TARGET_FILE:scratchircd>)
+add_test(NAME webirc_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_webirc.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(webirc_integration PROPERTIES TIMEOUT 60)
 add_test(NAME nickserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_nickserv.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(nickserv_integration PROPERTIES TIMEOUT 120)
