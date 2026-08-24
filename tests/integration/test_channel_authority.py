@@ -152,7 +152,8 @@ def main():
             owner.send("JOIN #bansource");owner.expect(" 366 Owner #bansource ")
             owner.send("MODE #bansource +B #redirectkey");owner.expect(" MODE #bansource +B #redirectkey")
             owner.send("MODE #bansource +b RenamedOutside!*@*");owner.expect(" MODE #bansource +b RenamedOutside!*@*")
-            outsider.send("JOIN #bansource sourcekey");outsider.expect(" 470 RenamedOutside #bansource #redirectkey ")
+            outsider.send("JOIN #bansource sourcekey");link=outsider.expect(" 470 RenamedOutside [Link] #bansource ")
+            assert "#redirectkey" in link,link
             outsider.expect(" 475 RenamedOutside #redirectkey ")
             outsider.expect_not(" 366 RenamedOutside #redirectkey ")
 
@@ -160,14 +161,16 @@ def main():
             owner.send("JOIN #redirectinvite");owner.expect(" 366 Owner #redirectinvite ")
             owner.send("MODE #redirectinvite +i");owner.expect(" MODE #redirectinvite +i")
             owner.send("MODE #bansource +B #redirectinvite");owner.expect(" MODE #bansource +B #redirectinvite")
-            outsider.send("JOIN #bansource");outsider.expect(" 470 RenamedOutside #bansource #redirectinvite ")
+            outsider.send("JOIN #bansource");link=outsider.expect(" 470 RenamedOutside [Link] #bansource ")
+            assert "#redirectinvite" in link,link
             outsider.expect(" 473 RenamedOutside #redirectinvite ")
 
             # +L redirects a full channel with the same Client identity and normal destination JOIN path.
             protect.send("JOIN #limitdest");protect.expect(" 366 Protect #limitdest ")
             owner.send("JOIN #limitsource");owner.expect(" 366 Owner #limitsource ")
             owner.send("MODE #limitsource +lL 1 #limitdest");owner.expect(" MODE #limitsource +lL 1 #limitdest")
-            outsider.send("JOIN #limitsource");outsider.expect(" 470 RenamedOutside #limitsource #limitdest ")
+            outsider.send("JOIN #limitsource");link=outsider.expect(" 470 RenamedOutside [Link] #limitsource ")
+            assert "#limitdest" in link,link
             joined=protect.expect(" JOIN #limitdest")
             assert joined.startswith(":RenamedOutside!RenamedOutside@"),joined
             outsider.expect(" 366 RenamedOutside #limitdest ")
