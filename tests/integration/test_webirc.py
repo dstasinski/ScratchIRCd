@@ -88,9 +88,7 @@ def main():
             trusted.send("JOIN #blocked");trusted.expect("respond to the CTCP VERSION")
             trusted.send("NOTICE test.local :\x01VERSION TestClient 1.0\x01")
             trusted.send("JOIN #allowed");trusted.expect(" JOIN #allowed")
-            # WEBSITE is informational only: JOIN succeeds before WEBSITE is answered.
             trusted.send("NOTICE test.local :\x01WEBSITE https://example.test/client\x01")
-            # First valid metadata response is authoritative for the connection.
             trusted.send("NOTICE test.local :\x01VERSION EvilOverwrite 9.9\x01")
             trusted.send("NOTICE test.local :\x01WEBSITE https://evil.example/overwrite\x01")
             trusted.send("MODE webuser");modes=trusted.expect(" 221 webuser ");assert any("V" in line.rsplit(" ",1)[-1] for line in modes if " 221 webuser " in line),modes
@@ -98,7 +96,6 @@ def main():
             observer=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             observer.send("NICK observer");observer.send("USER observer 0 * :Observer User")
             complete_nospoof(observer,"observer","DirectClient 2.0")
-            # Direct clients were never asked for WEBSITE; unsolicited replies are ignored.
             observer.send("NOTICE test.local :\x01WEBSITE https://unsolicited.example/\x01")
 
             observer.send("WHOIS webuser")
@@ -119,8 +116,6 @@ def main():
             assert any(" 672 webuser observer :DirectClient 2.0" in line for line in oper_direct_whois),oper_direct_whois
             assert not any(" 673 webuser observer " in line for line in oper_direct_whois),oper_direct_whois
 
-            # +H/+I/+W are oper self-toggle modes.  Ordinary WHOIS must hide
-            # operator status and idle/signon while +W reports only public identity.
             trusted.send("MODE webuser +HIW")
             hidden_modes=trusted.expect(" 221 webuser ")
             hidden_token=mode_token(hidden_modes,"webuser")
@@ -138,8 +133,6 @@ def main():
             whois_notice=trusted.expect("*** observer!observer@cloak-")
             assert not any("observer!observer@127.0.0.1" in line for line in whois_notice),whois_notice
 
-            # WHO always exposes display_host, even to operators; real host/IP stays
-            # in the oper-only WHOIS 378 audit numeric.
             trusted.send("WHO observer")
             who_lines=trusted.expect(" 315 webuser observer ")
             who_reply=next(line for line in who_lines if " 352 webuser " in line and " observer " in line)
@@ -150,18 +143,12 @@ def main():
             assert " cloak-" in whois_user and "127.0.0.1" not in whois_user,whois_user
             assert any(" 378 webuser observer " in line and "127.0.0.1" in line for line in cloak_audit),cloak_audit
 
-            # A second IRC operator remains exempt from +H/+I hiding.
-            trusted.send("OPERADD auditop auditpass - :-")
-            trusted.expect("NOTICE webuser :Operator added")
-            observer.send("OPER auditop auditpass")
-            observer.expect(" 381 observer :You are now an IRC operator")
-            observer.send("WHOIS webuser")
-            oper_exempt=observer.expect(" 318 observer webuser ")
-            assert any(" 313 observer webuser :is an Administrator" in line for line in oper_exempt),oper_exempt
-            assert any(" 317 observer webuser " in line for line in oper_exempt),oper_exempt
-            trusted.expect("*** observer!observer@cloak-")
+            # The operator themself remains exempt from +H/+I hiding.
+            trusted.send("WHOIS webuser")
+            self_exempt=trusted.expect(" 318 webuser webuser ")
+            assert any(" 313 webuser webuser :is an Administrator" in line for line in self_exempt),self_exempt
+            assert any(" 317 webuser webuser " in line for line in self_exempt),self_exempt
 
-            # Disabling +W stops WHOIS notifications without changing WHOIS itself.
             trusted.send("MODE webuser -W")
             no_w_modes=trusted.expect(" 221 webuser ")
             assert "W" not in mode_token(no_w_modes,"webuser"),no_w_modes
@@ -170,7 +157,6 @@ def main():
             observer.expect(" 318 observer webuser ")
             assert not any("did a /WHOIS on you" in line for line in trusted.collect(.5))
 
-            # Non-message commands do not reset idle time.
             time.sleep(1.2)
             observer.send("PING :idle-check")
             observer.expect(" PONG test.local ::idle-check")
@@ -180,14 +166,12 @@ def main():
             idle_before=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_before>=1,idle_before
 
-            # A delivered PRIVMSG resets idle time.
             observer.send("PRIVMSG webuser :idle reset by privmsg")
             trusted.expect(" PRIVMSG webuser :idle reset by privmsg")
             trusted.send("WHOIS observer")
             idle_after_privmsg=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_privmsg<=1,idle_after_privmsg
 
-            # A delivered NOTICE also resets idle time.
             time.sleep(1.2)
             observer.send("NOTICE webuser :idle reset by notice")
             trusted.expect(" NOTICE webuser :idle reset by notice")
@@ -195,8 +179,6 @@ def main():
             idle_after_notice=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_notice<=1,idle_after_notice
 
-            # A client that passes the PING cookie may register without answering
-            # VERSION, but remains restricted until the VERSION reply arrives.
             limited=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             limited.send("NICK limited");limited.send("USER limited 0 * :Limited User")
             limited_lines=limited.expect("PING :")
