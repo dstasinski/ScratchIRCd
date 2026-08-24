@@ -2,6 +2,7 @@
 """End-to-end tests for permission-controlled operator actions."""
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -94,6 +95,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-oper-actions-") as tmp:
         port = free_port()
         data_dir = os.path.join(tmp, "data")
+        os.makedirs(data_dir, exist_ok=True)
         config = os.path.join(tmp, "ircd.conf")
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
@@ -109,6 +111,10 @@ def main():
             f.write("admin_email = admin@example.test\n")
             f.write(f"operators_db = {data_dir}/operators.db\n")
             f.write(f"bans_db = {data_dir}/bans.db\n")
+            f.write(f"nickserv_db = {data_dir}/nickserv.db\n")
+            f.write(f"chanserv_db = {data_dir}/chanserv.db\n")
+            f.write(f"memoserv_db = {data_dir}/memoserv.db\n")
+            f.write(f"history_db = {data_dir}/history.db\n")
             f.write("kline_default_duration_seconds = 2\n")
             f.write("kline_default_reason = nickname kline default\n")
             f.write("zline_default_duration_seconds = 2\n")
@@ -118,7 +124,7 @@ def main():
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True)
+                                stderr=subprocess.PIPE, text=True, cwd=tmp)
         clients = []
         try:
             wait_listen(port, proc)
@@ -128,6 +134,61 @@ def main():
             register(receiver, "bob")
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
+
+            # Channel logging is persistent ChanServ state but only opers and
+            # above may toggle it, even when a non-oper is the channel founder.
+            receiver.send("NICKSERV REGISTER bobpass")
+            receiver.expect("Nickname registered and identified.")
+            receiver.send("JOIN #OpsLog")
+            receiver.expect(" 366 bob #OpsLog ")
+            receiver.send("CHANSERV REGISTER #OpsLog :operator logging test")
+            receiver.expect("Channel registered successfully.")
+            receiver.send("CHANSERV SET #OpsLog LOGGING ON")
+            receiver.expect("Only IRC operators and network administrators may change channel logging.")
+            admin.send("CHANSERV SET #OpsLog LOGGING ON")
+            admin.expect("Channel logging enabled.")
+
+            admin.send("JOIN #OpsLog")
+            admin.expect(" 366 alice #OpsLog ")
+            receiver.send("PRIVMSG #OpsLog :logged message")
+            admin.expect("PRIVMSG #OpsLog :logged message")
+            receiver.send("NOTICE #OpsLog :logged notice")
+            admin.expect("NOTICE #OpsLog :logged notice")
+            receiver.send("MODE #OpsLog +s")
+            admin.expect(" MODE #OpsLog +s")
+
+            quitter = IRCClient(port); clients.append(quitter)
+            register(quitter, "quitter")
+            quitter.send("JOIN #OpsLog")
+            quitter.expect(" 366 quitter #OpsLog ")
+            quitter.send("QUIT :logging quit test")
+            quitter.close(); clients.remove(quitter)
+
+            admin.send("PART #OpsLog :logging part test")
+            admin.expect(" PART #OpsLog :logging part test")
+            admin.send("CHANSERV SET #OpsLog LOGGING OFF")
+            admin.expect("Channel logging disabled.")
+            receiver.send("PRIVMSG #OpsLog :after-disabled")
+            time.sleep(0.1)
+
+            suffix = time.strftime("%d%b%Y", time.localtime())
+            log_path = os.path.join(tmp, "logs", f"OpsLog.log.{suffix}")
+            assert os.path.exists(log_path), log_path
+            with open(log_path, "r", encoding="utf-8", errors="replace") as log_file:
+                log_lines = [line.rstrip("\n") for line in log_file]
+            assert log_lines, log_lines
+            timestamp_re = re.compile(r"^\[[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\]")
+            assert all(timestamp_re.match(line) for line in log_lines), log_lines
+            assert "---" in log_lines[0] and "---" in log_lines[-1], log_lines
+            joined = "\n".join(log_lines)
+            assert "alice (alice@" in joined and " joined #OpsLog." in joined, joined
+            assert "<bob> logged message" in joined, joined
+            assert "-bob- logged notice" in joined, joined
+            assert "quitter (quitter@" in joined and " joined #OpsLog." in joined, joined
+            assert "left irc: Quit:  logging quit test" in joined, joined
+            assert "alice (alice@" in joined and "left #OpsLog: logging part test" in joined, joined
+            assert "MODE #OpsLog" not in joined, joined
+            assert "after-disabled" not in joined, joined
 
             receiver.send("STATS")
             stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
