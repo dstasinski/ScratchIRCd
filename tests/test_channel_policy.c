@@ -49,13 +49,21 @@ int main(void) {
     assert(channel_invite_consume(&channel, client.id));
     assert(!channel_invite_has(&channel, client.id));
 
+    /* +j is channel-wide: different client IDs share one join window. */
     channel.join_throttle_count = 2U;
     channel.join_throttle_seconds = 60U;
-    assert(channel_join_throttle_allows(&channel, client.id));
-    channel_join_throttle_record(&channel, client.id);
-    assert(channel_join_throttle_allows(&channel, client.id));
-    channel_join_throttle_record(&channel, client.id);
-    assert(!channel_join_throttle_allows(&channel, client.id));
+    assert(channel_join_throttle_allows(&channel, 42U));
+    channel_join_throttle_record(&channel, 42U);
+    assert(channel_join_throttle_allows(&channel, 99U));
+    channel_join_throttle_record(&channel, 99U);
+    assert(!channel_join_throttle_allows(&channel, 42U));
+    assert(!channel_join_throttle_allows(&channel, 100U));
+
+    /* Clearing/reconfiguring +j starts a fresh window. */
+    channel_join_throttle_clear(&channel);
+    assert(channel_join_throttle_allows(&channel, 100U));
+    assert(channel.join_throttle_window_count == 0U);
+    assert(channel.join_throttle_window_start == 0);
 
     channel_mask_clear(&channel.ban_list);
     channel_mask_clear(&channel.exception_list);
