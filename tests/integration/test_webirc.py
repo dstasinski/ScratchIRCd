@@ -118,7 +118,7 @@ def main():
             # Non-message commands do not reset idle time.
             time.sleep(1.2)
             observer.send("PING :idle-check")
-            observer.expect("PONG :idle-check")
+            observer.expect(" PONG test.local ::idle-check")
             observer.send("WHOIS webuser")
             observer.expect(" 318 observer webuser ")
             trusted.send("WHOIS observer")
