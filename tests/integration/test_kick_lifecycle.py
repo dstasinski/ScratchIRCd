@@ -145,14 +145,14 @@ def main():
             half.expect(" 484 Half #kickrank ")
             half.send("KICK #kickrank Voice :lower rank")
             voice.expect(" KICK #kickrank Voice :lower rank")
-            voice.send("PRIVMSG #kickrank :still here?")
-            voice.expect(" 404 Voice #kickrank ")
+            voice.send("PART #kickrank :membership probe")
+            voice.expect(" 442 Voice #kickrank ")
 
             # Self-KICK is explicitly permitted for any member with KICK authority.
             half.send("KICK #kickrank Half :self departure")
             half.expect(" KICK #kickrank Half :self departure")
-            half.send("PRIVMSG #kickrank :after self kick")
-            half.expect(" 404 Half #kickrank ")
+            half.send("PART #kickrank :membership probe")
+            half.expect(" 442 Half #kickrank ")
 
             # OWNER cannot be kicked by a lower-ranked channel operator.
             oper.send("KICK #kickrank Owner :not allowed")
