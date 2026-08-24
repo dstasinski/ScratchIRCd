@@ -88,6 +88,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         store_channel_history(server, client, channel->name, delivered_text);
         ircv3_broadcast_message(channel, client, client, "NOTICE",
                                 channel->name, delivered_text);
+        client->last_activity = time(NULL);
     } else {
         Client *destination = hash_get(&server->clients_by_nick, target);
         if (destination == NULL) return COMMAND_KEEP_CLIENT;
@@ -97,6 +98,7 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && is_ctcp(text))
             return COMMAND_KEEP_CLIENT;
         ircv3_send_message(destination, client, "NOTICE", destination->nick, text);
+        client->last_activity = time(NULL);
     }
 
     return COMMAND_KEEP_CLIENT;
