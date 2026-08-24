@@ -3,6 +3,11 @@
 
 #include "server.h"
 
+#define IRCD_CHANNEL_LOG_PATH_MAX 1024U
+#ifndef IRCD_PATH_MAX
+#define IRCD_PATH_MAX IRCD_CHANNEL_LOG_PATH_MAX
+#endif
+
 /**
  * Optional ChanServ-controlled per-channel text logging.
  *
