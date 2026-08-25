@@ -6,6 +6,7 @@
 #include "modes.h"
 #include "numerics.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -20,6 +21,45 @@
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
+}
+
+static int numeric_ip_equal(const char *left, const char *right) {
+    struct in_addr left4, right4;
+    struct in6_addr left6, right6;
+    if (left == NULL || right == NULL) return 0;
+    if (inet_pton(AF_INET, left, &left4) == 1 &&
+        inet_pton(AF_INET, right, &right4) == 1)
+        return memcmp(&left4, &right4, sizeof(left4)) == 0;
+    if (inet_pton(AF_INET6, left, &left6) == 1 &&
+        inet_pton(AF_INET6, right, &right6) == 1)
+        return memcmp(&left6, &right6, sizeof(left6)) == 0;
+    return 0;
+}
+
+int server_connection_limit_ip_exempt(const Server *server, const char *ip) {
+    size_t index;
+    if (server == NULL || ip == NULL || *ip == '\0') return 0;
+    for (index = 0U; index < server->config.connection_limit_exempt_ip_count; ++index)
+        if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
+    for (index = 0U; index < server->config.webirc_gateway_count; ++index)
+        if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
+    return 0;
+}
+
+int server_connection_limit_reached(const Server *server, const char *ip,
+                                    const Client *exclude) {
+    size_t index;
+    size_t count = 0U;
+    if (server == NULL || ip == NULL || *ip == '\0' ||
+        server->config.max_connections_per_ip == 0U ||
+        server_connection_limit_ip_exempt(server, ip)) return 0;
+    for (index = 0U; index < server->client_count; ++index) {
+        const Client *candidate = server->clients[index];
+        if (candidate == NULL || candidate == exclude) continue;
+        if (numeric_ip_equal(candidate->real_ip, ip) &&
+            ++count >= server->config.max_connections_per_ip) return 1;
+    }
+    return 0;
 }
 
 /** Open all IPv4/IPv6 listeners for one configured port. */
@@ -141,7 +181,8 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         }
         if (server->client_count >= server->config.max_clients ||
             ensure_client_capacity(server) != 0 || set_nonblocking(fd) != 0 ||
-            peer_ip(&address, address_length, ip, sizeof(ip)) != 0) {
+            peer_ip(&address, address_length, ip, sizeof(ip)) != 0 ||
+            server_connection_limit_reached(server, ip, NULL)) {
             close(fd);
             continue;
         }
