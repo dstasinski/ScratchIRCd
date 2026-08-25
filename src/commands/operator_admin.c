@@ -22,6 +22,7 @@
 #include "operator_db.h"
 
 #include <argon2.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -62,12 +63,23 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
 }
 
 static int valid_oper_name(const Server *server, const char *name) {
+    const unsigned char *p = (const unsigned char *)name;
     if (name == NULL || *name == '\0' || strlen(name) > IRCD_OPER_NAME_MAX)
         return 0;
     if (server->config.netadmin_name[0] != '\0' &&
         strcasecmp(name, server->config.netadmin_name) == 0)
         return 0;
-    return strchr(name, ' ') == NULL && strchr(name, ',') == NULL;
+    for (; *p != '\0'; ++p)
+        if (!isalnum(*p) && *p != '-' && *p != '_' && *p != '.') return 0;
+    return 1;
+}
+
+static int valid_oper_vhost(const char *host) {
+    const unsigned char *p = (const unsigned char *)host;
+    if (host == NULL || strlen(host) > IRCD_OPER_VHOST_MAX) return 0;
+    for (; *p != '\0'; ++p)
+        if (!isalnum(*p) && *p != '.' && *p != '-' && *p != '_' && *p != ':') return 0;
+    return 1;
 }
 
 /** Validate an ordinary-oper permission string and forbid netadmin. */
@@ -112,7 +124,7 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
     stored_vhost = vhost != NULL && strcmp(vhost, "-") == 0 ? "" : vhost;
 
     if (!valid_oper_name(server, name) || password == NULL || *password == '\0' ||
-        stored_vhost == NULL || strlen(stored_vhost) > IRCD_OPER_VHOST_MAX ||
+        stored_vhost == NULL || !valid_oper_vhost(stored_vhost) ||
         permissions_arg == NULL ||
         !normalized_permissions(permissions_arg, &permissions)) {
         admin_notice(server, client, "OPERADD invalid parameters");
@@ -208,7 +220,7 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
             rc = operator_db_set_permissions(&db, name, permissions);
     } else if (strcasecmp(field, "VHOST") == 0) {
         const char *vhost = strcmp(value, "-") == 0 ? "" : value;
-        if (strlen(vhost) <= IRCD_OPER_VHOST_MAX)
+        if (valid_oper_vhost(vhost))
             rc = operator_db_set_vhost(&db, name, vhost);
     } else if (strcasecmp(field, "ENABLED") == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
