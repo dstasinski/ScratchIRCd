@@ -5,8 +5,10 @@
 
 #include "message_policy.h"
 #include "modes.h"
+#include "oper.h"
 
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -31,7 +33,7 @@ int message_contains_color(const char *text) {
 
 static const unsigned char *skip_irc_color(const unsigned char *p) {
     int count = 0;
-    ++p; /* skip 0x03 */
+    ++p;
     while (count < 2 && isdigit(*p)) { ++p; ++count; }
     if (*p == ',') {
         ++p;
@@ -43,7 +45,7 @@ static const unsigned char *skip_irc_color(const unsigned char *p) {
 
 static const unsigned char *skip_irc_hex_color(const unsigned char *p) {
     int count = 0;
-    ++p; /* skip 0x04 */
+    ++p;
     while (count < 6 && is_hex(*p)) { ++p; ++count; }
     if (*p == ',') {
         ++p;
@@ -92,6 +94,25 @@ void server_notice_broadcast(Server *server, const char *text) {
             client_sendf(target, ":%s NOTICE %s :*** %s",
                          server->config.server_name, target->nick, text);
         }
+    }
+}
+
+void snotice_broadcast(Server *server, SnoticeMask category, const char *fmt, ...) {
+    char text[IRCD_OUTPUT_BUFFER_SIZE];
+    va_list args;
+    size_t i;
+    if (server == NULL || category == 0U || fmt == NULL) return;
+    va_start(args, fmt);
+    (void)vsnprintf(text, sizeof(text), fmt, args);
+    va_end(args);
+    text[sizeof(text) - 1U] = '\0';
+    for (i = 0U; i < server->client_count; ++i) {
+        Client *target = server->clients[i];
+        if (target == NULL || !target->registered || !is_oper_client(target)) continue;
+        if (!client_mode_has(target->modes, CLIENT_MODE_SERVER_NOTICES)) continue;
+        if ((target->snotice_mask & category) == 0U) continue;
+        client_sendf(target, ":%s NOTICE %s :*** %s",
+                     server->config.server_name, target->nick, text);
     }
 }
 
