@@ -14,10 +14,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+int channel_name_valid(const char *name) {
+    size_t index;
+    size_t length;
+    if (name == NULL || strchr(IRC_CHANNEL_PREFIXES, name[0]) == NULL) return 0;
+    length = strlen(name);
+    if (length < 2U || length > IRC_CHANNEL_NAME_MAX) return 0;
+    for (index = 1U; index < length; ++index) {
+        unsigned char ch = (unsigned char)name[index];
+        if (ch <= 0x20U || ch == ',' || ch == ':' || ch == 0x7fU) return 0;
+    }
+    return 1;
+}
+
 Channel *channel_create(const char *name) {
     Channel *channel;
 
-    if (name == NULL) {
+    if (!channel_name_valid(name)) {
         return NULL;
     }
 
