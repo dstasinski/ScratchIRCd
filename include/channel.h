@@ -62,6 +62,8 @@ typedef struct Channel {
     size_t member_count;
 } Channel;
 
+/** Validate one local channel name using the server's supported #/& syntax. */
+int channel_name_valid(const char *name);
 Channel *channel_create(const char *name);
 void channel_free(void *ptr);
 ChannelMember *channel_find_member(const Channel *channel, const Client *client);
