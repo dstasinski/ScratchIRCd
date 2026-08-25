@@ -137,17 +137,20 @@ def main():
             watcher = IRCClient(port)
             register(watcher, "Watcher")
 
-            watcher.send("WATCH +Subject +Renamed +Temp")
+            # WATCH must store only syntactically valid IRC nicknames.
+            watcher.send("WATCH +123bad +Bad,Nick +Subject +Renamed +Temp")
             watcher.expect(" 605 Watcher Subject ")
             watcher.expect(" 605 Watcher Renamed ")
             watcher.expect(" 605 Watcher Temp ")
+            watcher.send("WATCH")
+            watch_list = watcher.expect(" 606 Watcher :")
+            assert "123bad" not in watch_list and "Bad,Nick" not in watch_list, watch_list
+            watcher.expect(" 607 Watcher :End of WATCH L")
 
             subject = IRCClient(port)
             register(subject, "Subject")
             watcher.expect(" 600 Watcher Subject ")
 
-            # LUSERS counts only fully registered clients.  A connection that
-            # has claimed a NICK but has not completed USER remains unknown.
             pending = IRCClient(port)
             pending.send("NICK Pending")
             watcher.send("WATCH +Pending")
@@ -159,21 +162,15 @@ def main():
             pending.close()
             pending = None
 
-            # Public identity commands must use display_host.  Cloaking never
-            # changes the real connection identity used by server policy.
             subject.send("MODE Subject +x")
             subject.expect(" 221 Subject ")
             watcher.send("USERHOST Subject")
             userhost = watcher.expect(" 302 Watcher :Subject=+subject@cloak-")
             assert "127.0.0.1" not in userhost, userhost
 
-            # USERIP is privileged real-IP data and must not be available to an
-            # ordinary registered user.
             watcher.send("USERIP Subject")
             watcher.expect(" 481 Watcher ")
 
-            # Virtual services are not Client objects and therefore must not be
-            # synthesized into online-client enumeration commands.
             watcher.send("ISON Subject NickServ ChanServ MemoServ")
             ison = watcher.expect(" 303 Watcher :Subject")
             assert "NickServ" not in ison and "ChanServ" not in ison and "MemoServ" not in ison, ison
@@ -186,9 +183,6 @@ def main():
             assert "NickServ" not in names and "ChanServ" not in names and "MemoServ" not in names, names
             watcher.expect(" 366 Watcher #presence :End of /NAMES list.")
 
-            # Nick change produces an offline event for the old watched nick,
-            # an online event for the new watched nick, and a WHOWAS record.
-            # WHOWAS must retain the public display_host, never real_ip/real_host.
             subject.send("NICK Renamed")
             watcher.expect(" 601 Watcher Subject ")
             watcher.expect(" 600 Watcher Renamed ")
@@ -197,28 +191,24 @@ def main():
             assert "cloak-" in historical and "127.0.0.1" not in historical, historical
             watcher.expect(" 369 Watcher Subject :End of WHOWAS")
 
-            # SILENCE uses the sender's public nick!user@display_host identity.
+            # Control-bearing SILENCE masks are ignored and never enter list state.
+            subject.send("SILENCE +bad\x01mask")
             subject.send("SILENCE +Watcher!*@*")
             subject.send("SILENCE")
             subject.expect(" 271 Renamed Renamed Watcher!*@*")
-            subject.expect(" 272 Renamed :End of Silence List")
+            silence_end = subject.expect(" 272 Renamed :End of Silence List")
+            assert "bad" not in silence_end
             watcher.send("PRIVMSG Renamed :this must be blocked")
             subject.expect_not("this must be blocked")
             watcher.send("NOTICE Renamed :this notice must also be blocked")
             subject.expect_not("this notice must also be blocked")
 
-            # Commands on different client sockets have no cross-connection
-            # ordering guarantee. Query the list after removal and wait for 272
-            # so the server has definitely processed the removal before Watcher
-            # sends the delivery-restored PRIVMSG.
             subject.send("SILENCE -Watcher!*@*")
             subject.send("SILENCE")
             subject.expect(" 272 Renamed :End of Silence List")
             watcher.send("PRIVMSG Renamed :delivery restored")
             subject.expect("PRIVMSG Renamed :delivery restored")
 
-            # Establish a three-user high-water mark, then ensure LUSERS keeps
-            # Max: 3 after the third registered user disconnects.
             watcher.send("LUSERS")
             watcher.expect(" 265 Watcher :Current Local Users: 2  Max: 2")
             temp = IRCClient(port)
@@ -227,8 +217,6 @@ def main():
             watcher.send("LUSERS")
             watcher.expect(" 265 Watcher :Current Local Users: 3  Max: 3")
 
-            # Abrupt socket loss must still drive WATCH and WHOWAS through the
-            # client destruction hook, not only through a clean QUIT command.
             temp.close()
             temp = None
             watcher.expect(" 601 Watcher Temp ")
