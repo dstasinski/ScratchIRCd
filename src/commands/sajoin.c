@@ -13,11 +13,6 @@
 #include <stdio.h>
 #include <string.h>
 
-static int valid_channel(const char *name) {
-    return name != NULL && strchr(IRC_CHANNEL_PREFIXES, name[0]) != NULL &&
-           strlen(name) <= IRC_CHANNEL_NAME_MAX;
-}
-
 CommandResult command_sajoin(Server *server, Client *client, char *params) {
     char *nick;
     char *channels;
@@ -47,7 +42,7 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
         char message[IRCD_MESSAGE_BUFFER_SIZE];
         int first;
 
-        if (!valid_channel(name) || target->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) continue;
+        if (!channel_name_valid(name) || target->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) continue;
         channel = server_get_or_create_channel(server, name);
         if (channel == NULL || channel_has_client(channel, target)) continue;
         first = channel->member_count == 0U;
