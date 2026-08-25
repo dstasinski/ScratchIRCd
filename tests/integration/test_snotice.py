@@ -54,7 +54,10 @@ def main():
             assert not any("Failed OPER:" in x for x in admin.lines(1.0)),"operator notice ignored -o mask"
             admin.send("SNOTICE +o");admin.expect("SNOTICE mask now:")
             other.send("OPER root wrong");admin.expect("Failed OPER:")
-            admin.send("MODE Admin -s");admin.expect(" MODE Admin -s")
+            admin.send("MODE Admin -s")
+            mode_line=admin.expect(" 221 Admin ")
+            mode_token=mode_line.split(" 221 Admin ",1)[1].split()[0]
+            assert "s" not in mode_token.lstrip("+"),mode_line
             other.send("OPER root wrong")
             assert not any("Failed OPER:" in x for x in admin.lines(1.0)),"SNOTICE delivered with user mode -s"
         finally:
