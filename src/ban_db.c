@@ -61,6 +61,17 @@ static int wildcard_match(const char *pattern, const char *text) {
     return *pattern == '\0';
 }
 
+static int numeric_ip_equal(const char *left, const char *right) {
+    struct in_addr left4, right4;
+    struct in6_addr left6, right6;
+    if (left == NULL || right == NULL) return 0;
+    if (inet_pton(AF_INET, left, &left4) == 1 && inet_pton(AF_INET, right, &right4) == 1)
+        return memcmp(&left4, &right4, sizeof(left4)) == 0;
+    if (inet_pton(AF_INET6, left, &left6) == 1 && inet_pton(AF_INET6, right, &right6) == 1)
+        return memcmp(&left6, &right6, sizeof(left6)) == 0;
+    return 0;
+}
+
 /** Match one numeric address against an IPv4/IPv6 CIDR mask. */
 static int cidr_match(const char *cidr, const char *address) {
     char network_text[IRC_IP_MAX + 1U];
@@ -69,7 +80,6 @@ static int cidr_match(const char *cidr, const char *address) {
     unsigned long prefix;
     unsigned char network[16];
     unsigned char candidate[16];
-    size_t address_bytes;
     unsigned int max_prefix;
     int family;
     size_t whole_bytes;
@@ -88,11 +98,9 @@ static int cidr_match(const char *cidr, const char *address) {
 
     if (inet_pton(AF_INET, network_text, network) == 1) {
         family = AF_INET;
-        address_bytes = 4U;
         max_prefix = 32U;
     } else if (inet_pton(AF_INET6, network_text, network) == 1) {
         family = AF_INET6;
-        address_bytes = 16U;
         max_prefix = 128U;
     } else {
         return 0;
@@ -106,7 +114,6 @@ static int cidr_match(const char *cidr, const char *address) {
         unsigned char mask = (unsigned char)(0xFFU << (8U - remainder));
         if ((network[whole_bytes] & mask) != (candidate[whole_bytes] & mask)) return 0;
     }
-    (void)address_bytes;
     return 1;
 }
 
@@ -266,6 +273,10 @@ int ban_db_match(BanDb *db, BanType type, const char *identity1,
         if (type == BAN_TYPE_ZLINE && strchr(candidate.mask, '/') != NULL) {
             matched = (identity1 != NULL && cidr_match(candidate.mask, identity1)) ||
                       (identity2 != NULL && cidr_match(candidate.mask, identity2));
+        } else if (type == BAN_TYPE_ZLINE && strchr(candidate.mask, '*') == NULL &&
+                   strchr(candidate.mask, '?') == NULL) {
+            matched = (identity1 != NULL && numeric_ip_equal(candidate.mask, identity1)) ||
+                      (identity2 != NULL && numeric_ip_equal(candidate.mask, identity2));
         } else {
             matched = (identity1 != NULL && wildcard_match(candidate.mask, identity1)) ||
                       (identity2 != NULL && wildcard_match(candidate.mask, identity2));
