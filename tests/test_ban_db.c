@@ -19,6 +19,9 @@ int main(void) {
     char path[128];
     BanDb db;
     BanRecord match;
+    char oversized_mask[IRC_CHANNEL_MASK_MAX + 2U];
+    char oversized_reason[IRC_QUIT_REASON_MAX + 2U];
+    char oversized_set_by[IRCD_OPER_NAME_MAX + 2U];
 
     (void)snprintf(path, sizeof(path), "/tmp/scratchircd-bans-%ld.db", (long)getpid());
     unlink(path);
@@ -34,6 +37,19 @@ int main(void) {
                       "testing ipv6 cidr zline", "root") == 0);
     assert(ban_db_add(&db, BAN_TYPE_ZLINE, "2001:db8::1",
                       "testing exact ipv6 zline", "root") == 0);
+
+    /* Persistence rejects fields that cannot round-trip through BanRecord. */
+    memset(oversized_mask, 'm', sizeof(oversized_mask) - 1U);
+    oversized_mask[sizeof(oversized_mask) - 1U] = '\0';
+    memset(oversized_reason, 'r', sizeof(oversized_reason) - 1U);
+    oversized_reason[sizeof(oversized_reason) - 1U] = '\0';
+    memset(oversized_set_by, 's', sizeof(oversized_set_by) - 1U);
+    oversized_set_by[sizeof(oversized_set_by) - 1U] = '\0';
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, oversized_mask, "reason", "root") == -1);
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@oversized-reason.test",
+                      oversized_reason, "root") == -1);
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@oversized-setter.test",
+                      "reason", oversized_set_by) == -1);
 
     assert(ban_db_match(&db, BAN_TYPE_KLINE,
                         "baduser@example.test", NULL, &match) == 1);
