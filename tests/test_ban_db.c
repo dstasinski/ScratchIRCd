@@ -32,6 +32,8 @@ int main(void) {
                       "testing ipv4 cidr zline", "root") == 0);
     assert(ban_db_add(&db, BAN_TYPE_ZLINE, "2001:db8:1234::/48",
                       "testing ipv6 cidr zline", "root") == 0);
+    assert(ban_db_add(&db, BAN_TYPE_ZLINE, "2001:db8::1",
+                      "testing exact ipv6 zline", "root") == 0);
 
     assert(ban_db_match(&db, BAN_TYPE_KLINE,
                         "baduser@example.test", NULL, &match) == 1);
@@ -56,6 +58,11 @@ int main(void) {
     assert(strcmp(match.mask, "2001:db8:1234::/48") == 0);
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "2001:db8:1235::1", NULL, &match) == 0);
+
+    /* Exact IPv6 ZLINEs also compare numerically, not by presentation text. */
+    assert(ban_db_match(&db, BAN_TYPE_ZLINE,
+                        "2001:0db8:0:0:0:0:0:1", NULL, &match) == 1);
+    assert(strcmp(match.mask, "2001:db8::1") == 0);
 
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "198.51.100.9", NULL, &match) == 0);
