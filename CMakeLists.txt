@@ -175,6 +175,8 @@ add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
 add_test(NAME channel_logging_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_logging.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(channel_logging_integration PROPERTIES TIMEOUT 60)
+add_test(NAME connection_limit_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_connection_limit.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(connection_limit_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_override_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
 add_test(NAME tls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py $<TARGET_FILE:scratchircd>)
@@ -211,6 +213,8 @@ add_test(NAME geoban_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_S
 set_tests_properties(geoban_integration PROPERTIES TIMEOUT 60)
 add_test(NAME channel_authority_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_authority.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(channel_authority_integration PROPERTIES TIMEOUT 60)
+add_test(NAME kick_lifecycle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_kick_lifecycle.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(kick_lifecycle_integration PROPERTIES TIMEOUT 60)
 add_test(NAME die_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_die.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(die_integration PROPERTIES TIMEOUT 60)
 
