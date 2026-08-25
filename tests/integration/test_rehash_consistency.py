@@ -85,7 +85,7 @@ def write_conf(path, port, admin_hash, td, *, admin1="Before Rehash",
         f.write(f"netadmin_name = root\nnetadmin_password_hash = {admin_hash}\n")
         f.write("netadmin_hostmask = *!*@127.0.0.1\n")
         if nospoof:
-            f.write("nospoof_enabled = 1\nnospoof_timeout_seconds = 10\n")
+            f.write("nospoof = 1\nnospoof_timeout_seconds = 10\n")
         if server_password:
             f.write(f"server_password = {server_password}\n")
 
