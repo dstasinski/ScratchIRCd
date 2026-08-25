@@ -144,6 +144,9 @@
 #define IRC_REALNAME_MAX 127U
 #define IRC_HOST_MAX 255U
 #define IRC_IP_MAX 45U
+/* IRC messages are capped at 512 octets including CRLF. */
+#define IRC_WIRE_LINE_MAX 512U
+#define IRC_LINE_CONTENT_MAX (IRC_WIRE_LINE_MAX - 2U)
 #define IRC_INPUT_BUFFER_SIZE 4096U
 #define IRC_MAX_CHANNELS_PER_CLIENT 32U
 #define IRC_UNKNOWN_HOST "unknown"
