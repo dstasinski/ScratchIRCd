@@ -72,7 +72,6 @@ static int numeric_ip_equal(const char *left, const char *right) {
     return 0;
 }
 
-/** Match one numeric address against an IPv4/IPv6 CIDR mask. */
 static int cidr_match(const char *cidr, const char *address) {
     char network_text[IRC_IP_MAX + 1U];
     const char *slash;
@@ -194,7 +193,10 @@ static int ban_db_add_internal(BanDb *db, BanType type, const char *mask,
         "VALUES(?1,?2,?3,?4,unixepoch(),CASE WHEN ?5=0 THEN 0 ELSE unixepoch()+?5 END)";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || mask == NULL || *mask == '\0') return -1;
+    if (db == NULL || db->handle == NULL || mask == NULL || *mask == '\0' ||
+        strlen(mask) > IRC_CHANNEL_MASK_MAX ||
+        (reason != NULL && strlen(reason) > IRC_QUIT_REASON_MAX) ||
+        (set_by != NULL && strlen(set_by) > IRCD_OPER_NAME_MAX)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     sqlite3_bind_text(stmt, 2, mask, -1, SQLITE_TRANSIENT);
