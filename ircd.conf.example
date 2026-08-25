@@ -11,6 +11,16 @@ tls_cert_file =
 tls_key_file =
 
 max_clients = 1024
+
+# Maximum simultaneous connections sharing one real client IP. Set to 0 to
+# disable the per-IP limit. Trusted WebIRC gateway source IPs are automatically
+# exempt so the gateway itself is never treated as one end user. After WEBIRC
+# authentication, the supplied end-user IP is checked against this limit.
+max_connections_per_ip = 0
+# Repeat as needed for literal IPv4/IPv6 addresses that should be exempt.
+# connection_limit_exempt_ip = 192.0.2.10
+# connection_limit_exempt_ip = 2001:db8::20
+
 dns_timeout_seconds = 5
 
 # PING-cookie anti-spoofing. After NICK establishes a usable target the server
