@@ -14,6 +14,14 @@
 
 #include <string.h>
 
+static int valid_silence_mask(const char *mask) {
+    const unsigned char *p;
+    if (mask == NULL || *mask == '\0' || strlen(mask) > IRC_CHANNEL_MASK_MAX) return 0;
+    for (p = (const unsigned char *)mask; *p != '\0'; ++p)
+        if (*p < 0x20U || *p == 0x7fU) return 0;
+    return 1;
+}
+
 static void list_masks(Server *server, Client *client) {
     ClientSilenceEntry *entry;
     for (entry = client->silence_list; entry != NULL; entry = entry->next)
@@ -36,7 +44,7 @@ CommandResult command_silence(Server *server, Client *client, char *params) {
         int rc;
         if ((token[0] != '+' && token[0] != '-') || token[1] == '\0') continue;
         mask = token + 1;
-        if (strlen(mask) > IRC_CHANNEL_MASK_MAX) continue;
+        if (!valid_silence_mask(mask)) continue;
         if (token[0] == '+') {
             rc = presence_silence_add(client, mask);
             if (rc < 0) {
