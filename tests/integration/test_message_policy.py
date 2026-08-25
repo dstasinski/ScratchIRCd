@@ -144,6 +144,25 @@ def main():
             register(admin, "Admin")
             register(user, "User")
 
+            # TARGMAX advertises one PRIVMSG/NOTICE target. Reject a comma list
+            # rather than treating it as an implementation-dependent literal.
+            user.send("PRIVMSG Admin,User :must not deliver")
+            user.expect(" 407 User Admin,User ")
+            admin.expect_not("must not deliver")
+            user.send("NOTICE Admin,User :must not notice")
+            admin.expect_not("must not notice")
+            user.send("NOTICE Admin :")
+            admin.expect_not("NOTICE Admin :")
+
+            # Channel creation uses one shared syntax validator. Comma/colon
+            # names must not create partial or malformed channels.
+            user.send("JOIN #bad,name")
+            user.expect(" 403 User #bad,name ")
+            user.send("JOIN #bad:name")
+            user.expect(" 403 User #bad:name ")
+            user.send("JOIN #")
+            user.expect(" 403 User # ")
+
             # +g and +s are operator-only listener modes.
             user.send("MODE User +gs")
             user.expect(" 481 User ")
