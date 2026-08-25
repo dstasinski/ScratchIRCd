@@ -15,6 +15,9 @@ int main(void) {
     assert(fd >= 0);
     file = fdopen(fd, "w");
     assert(file != NULL);
+    assert(fputs("max_connections_per_ip = 4\n", file) >= 0);
+    assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
+    assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
     assert(fputs("dnsbl_timeout_seconds = 9\n", file) >= 0);
     assert(fputs("dnsbl = Primary dnsbl.example.test\n", file) >= 0);
     assert(fputs("dnsbl = Secondary dnsbl2.example.test\n", file) >= 0);
@@ -36,6 +39,10 @@ int main(void) {
 
     runtime_config_defaults(&config);
     assert(runtime_config_load(&config, path) == 0);
+    assert(config.max_connections_per_ip == 4U);
+    assert(config.connection_limit_exempt_ip_count == 2U);
+    assert(strcmp(config.connection_limit_exempt_ips[0], "192.0.2.10") == 0);
+    assert(strcmp(config.connection_limit_exempt_ips[1], "2001:db8::10") == 0);
     assert(config.dnsbl_timeout_seconds == 9U);
     assert(config.dnsbl_count == 2U);
     assert(strcmp(config.dnsbls[0].name, "Primary") == 0);
