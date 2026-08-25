@@ -11,9 +11,29 @@
 #include "numerics.h"
 #include "presence.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+
+static int valid_watch_nick_char(unsigned char ch) {
+    return isalnum(ch) || ch == '-' || ch == '_' || ch == '[' || ch == ']' ||
+           ch == '\\' || ch == '`' || ch == '^' || ch == '{' || ch == '}' ||
+           ch == '|';
+}
+
+static int valid_watch_nick(const char *nick) {
+    size_t index;
+    size_t length;
+    if (nick == NULL) return 0;
+    length = strlen(nick);
+    if (length == 0U || length > IRC_NICK_MAX) return 0;
+    if (!(isalpha((unsigned char)nick[0]) || strchr("[]\\`_^{|}", nick[0]) != NULL))
+        return 0;
+    for (index = 1U; index < length; ++index)
+        if (!valid_watch_nick_char((unsigned char)nick[index])) return 0;
+    return 1;
+}
 
 static void report_current(Server *server, Client *client, const char *nick) {
     Client *subject = hash_get(&server->clients_by_nick, nick);
@@ -56,7 +76,7 @@ CommandResult command_watch(Server *server, Client *client, char *params) {
         const char *nick;
         if ((token[0] != '+' && token[0] != '-') || token[1] == '\0') continue;
         nick = token + 1;
-        if (strlen(nick) > IRC_NICK_MAX) continue;
+        if (!valid_watch_nick(nick)) continue;
         if (token[0] == '+') {
             int rc = presence_watch_add(client, nick);
             if (rc < 0) {
