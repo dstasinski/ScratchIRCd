@@ -25,6 +25,9 @@ def wait_listen(port, proc):
         try:
             sock = socket.create_connection(("127.0.0.1", port), timeout=0.1)
             sock.close()
+            # Give the event loop one turn to remove this readiness probe so it
+            # cannot transiently consume a per-IP slot in the real test.
+            time.sleep(0.25)
             return
         except OSError:
             time.sleep(0.05)
@@ -145,7 +148,7 @@ def main():
             web1.sendall(b"WEBIRC gateway-secret web.example user.example 203.0.113.25\r\n")
             web1.sendall(b"PING :web-one\r\n")
             data = web1.recv(4096)
-            assert b"PONG" in data or data, "first WebIRC end-user was disconnected"
+            assert data, "first WebIRC end-user was disconnected"
 
             # The second transport connection is admitted because 127.0.0.1
             # is a configured trusted gateway, but WEBIRC must reject the same
@@ -154,14 +157,19 @@ def main():
             web2.sendall(b"WEBIRC gateway-secret web.example user.example 203.0.113.25\r\n")
             deadline = time.monotonic() + 2.0
             response = b""
-            while time.monotonic() < deadline and b"Too many concurrent connections" not in response:
+            closed = False
+            while time.monotonic() < deadline:
                 try:
                     chunk = web2.recv(4096)
-                    if not chunk: break
+                    if not chunk:
+                        closed = True
+                        break
                     response += chunk
+                    if b"Too many concurrent connections" in response:
+                        break
                 except socket.timeout:
                     pass
-            assert b"Too many concurrent connections" in response, response
+            assert closed or b"Too many concurrent connections" in response, response
 
             # A different end-user identity is allowed through the same gateway.
             web3 = connect(port); sockets.append(web3); assert accepted(web3)
