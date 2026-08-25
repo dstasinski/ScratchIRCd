@@ -5,9 +5,11 @@
 
 #include "ban_db.h"
 
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -57,6 +59,55 @@ static int wildcard_match(const char *pattern, const char *text) {
     }
     while (*pattern == '*') ++pattern;
     return *pattern == '\0';
+}
+
+/** Match one numeric address against an IPv4/IPv6 CIDR mask. */
+static int cidr_match(const char *cidr, const char *address) {
+    char network_text[IRC_IP_MAX + 1U];
+    const char *slash;
+    char *end = NULL;
+    unsigned long prefix;
+    unsigned char network[16];
+    unsigned char candidate[16];
+    size_t address_bytes;
+    unsigned int max_prefix;
+    int family;
+    size_t whole_bytes;
+    unsigned int remainder;
+
+    if (cidr == NULL || address == NULL) return 0;
+    slash = strchr(cidr, '/');
+    if (slash == NULL || slash == cidr || strchr(slash + 1, '/') != NULL) return 0;
+    if ((size_t)(slash - cidr) >= sizeof(network_text)) return 0;
+    memcpy(network_text, cidr, (size_t)(slash - cidr));
+    network_text[slash - cidr] = '\0';
+
+    errno = 0;
+    prefix = strtoul(slash + 1, &end, 10);
+    if (errno != 0 || end == slash + 1 || *end != '\0') return 0;
+
+    if (inet_pton(AF_INET, network_text, network) == 1) {
+        family = AF_INET;
+        address_bytes = 4U;
+        max_prefix = 32U;
+    } else if (inet_pton(AF_INET6, network_text, network) == 1) {
+        family = AF_INET6;
+        address_bytes = 16U;
+        max_prefix = 128U;
+    } else {
+        return 0;
+    }
+    if (prefix > max_prefix || inet_pton(family, address, candidate) != 1) return 0;
+
+    whole_bytes = (size_t)(prefix / 8UL);
+    remainder = (unsigned int)(prefix % 8UL);
+    if (whole_bytes > 0U && memcmp(network, candidate, whole_bytes) != 0) return 0;
+    if (remainder != 0U) {
+        unsigned char mask = (unsigned char)(0xFFU << (8U - remainder));
+        if ((network[whole_bytes] & mask) != (candidate[whole_bytes] & mask)) return 0;
+    }
+    (void)address_bytes;
+    return 1;
 }
 
 static void record_from_stmt(sqlite3_stmt *stmt, BanRecord *record) {
@@ -210,9 +261,16 @@ int ban_db_match(BanDb *db, BanType type, const char *identity1,
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         BanRecord candidate;
+        int matched = 0;
         record_from_stmt(stmt, &candidate);
-        if ((identity1 != NULL && wildcard_match(candidate.mask, identity1)) ||
-            (identity2 != NULL && wildcard_match(candidate.mask, identity2))) {
+        if (type == BAN_TYPE_ZLINE && strchr(candidate.mask, '/') != NULL) {
+            matched = (identity1 != NULL && cidr_match(candidate.mask, identity1)) ||
+                      (identity2 != NULL && cidr_match(candidate.mask, identity2));
+        } else {
+            matched = (identity1 != NULL && wildcard_match(candidate.mask, identity1)) ||
+                      (identity2 != NULL && wildcard_match(candidate.mask, identity2));
+        }
+        if (matched) {
             *record = candidate;
             sqlite3_finalize(stmt);
             return 1;
