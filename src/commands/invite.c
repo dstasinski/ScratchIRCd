@@ -39,6 +39,11 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
                      server->config.server_name, client->nick, "INVITE");
         return COMMAND_KEEP_CLIENT;
     }
+    if (!channel_name_valid(channel_name)) {
+        client_sendf(client, ERR_NOSUCHCHANNEL,
+                     server->config.server_name, client->nick, channel_name);
+        return COMMAND_KEEP_CLIENT;
+    }
 
     target = hash_get(&server->clients_by_nick, nick);
     if (target == NULL || !target->registered) {
