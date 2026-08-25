@@ -245,13 +245,24 @@ static int advance_tls_handshake(Server *server, Client *client) {
 static int process_buffered_lines(Server *server, Client *client) {
     for (;;) {
         char *newline = memchr(client->inbuf, '\n', client->inbuf_len);
+        size_t raw_length;
         size_t line_length;
         size_t consumed;
-        char line[IRC_INPUT_BUFFER_SIZE];
-        if (newline == NULL) return 0;
-        line_length = (size_t)(newline - client->inbuf);
-        consumed = line_length + 1U;
+        char line[IRC_LINE_CONTENT_MAX + 1U];
+        if (newline == NULL) {
+            /* At most 510 content octets plus a possible trailing CR may wait
+             * for the terminating LF. Anything larger can never be valid. */
+            return client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U ? 1 : 0;
+        }
+        raw_length = (size_t)(newline - client->inbuf);
+        consumed = raw_length + 1U;
+        line_length = raw_length;
         if (line_length > 0U && client->inbuf[line_length - 1U] == '\r') --line_length;
+        if (line_length > IRC_LINE_CONTENT_MAX ||
+            memchr(client->inbuf, '\0', raw_length) != NULL ||
+            memchr(client->inbuf, '\r', line_length) != NULL) {
+            return 1;
+        }
         memcpy(line, client->inbuf, line_length);
         line[line_length] = '\0';
         memmove(client->inbuf, client->inbuf + consumed, client->inbuf_len - consumed);
@@ -282,7 +293,6 @@ static int read_client(Server *server, Client *client) {
     }
 
     client->inbuf_len += (size_t)received;
-    client->inbuf[client->inbuf_len] = '\0';
     return process_buffered_lines(server, client);
 }
 
