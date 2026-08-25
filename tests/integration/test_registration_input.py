@@ -47,10 +47,10 @@ class IRCClient:
                 data = self.sock.recv(4096)
                 if data == b"":
                     return True
-            except (ConnectionResetError, BrokenPipeError, OSError):
-                return True
             except socket.timeout:
                 pass
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                return True
         return False
 
     def close(self):
