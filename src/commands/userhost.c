@@ -3,7 +3,8 @@
  * @brief Implementation of IRC USERHOST.
  *
  * USERHOST is a client-visible command and therefore returns display_host,
- * never the client's real DNS hostname or real IP address.
+ * never the client's real DNS hostname or real IP address. Requests are capped
+ * at the traditional five nickname parameters to bound response amplification.
  */
 
 #include "commands.h"
@@ -13,6 +14,7 @@
 
 CommandResult command_userhost(Server *server, Client *client, char *params) {
     char *nick;
+    unsigned int count = 0U;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
@@ -21,7 +23,8 @@ CommandResult command_userhost(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    for (nick = strtok(params, " "); nick != NULL; nick = strtok(NULL, " ")) {
+    for (nick = strtok(params, " "); nick != NULL && count < 5U;
+         nick = strtok(NULL, " "), ++count) {
         Client *target = hash_get(&server->clients_by_nick, nick);
         if (target != NULL && target->registered) {
             client_sendf(client, RPL_USERHOST,
