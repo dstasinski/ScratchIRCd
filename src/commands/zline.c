@@ -1,12 +1,13 @@
 /**
  * @file zline.c
- * @brief Persistent numeric-IP ZLINE management.
+ * @brief Persistent numeric-IP and CIDR ZLINE management.
  *
  * ZLINE matches only Client.real_ip. For WebIRC connections that field is the
  * authenticated end-user address, never the gateway socket address.
  *
  * ZLINE <nick> is shorthand for a temporary exact real_ip ban using the
- * configured default duration/reason. Explicit IP masks remain permanent.
+ * configured default duration/reason. Explicit masks may be exact IPv4/IPv6,
+ * CIDR, or legacy wildcard IP masks.
  */
 
 #include "ban_db.h"
@@ -15,8 +16,34 @@
 #include "numerics.h"
 #include "oper.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+static int valid_cidr_mask(const char *mask) {
+    char address[IRC_IP_MAX + 1U];
+    const char *slash;
+    char *end = NULL;
+    unsigned long prefix;
+    struct in_addr v4;
+    struct in6_addr v6;
+    unsigned long max_prefix;
+
+    if (mask == NULL || (slash = strchr(mask, '/')) == NULL || slash == mask ||
+        strchr(slash + 1, '/') != NULL || (size_t)(slash - mask) >= sizeof(address)) return 0;
+    memcpy(address, mask, (size_t)(slash - mask));
+    address[slash - mask] = '\0';
+
+    if (inet_pton(AF_INET, address, &v4) == 1) max_prefix = 32UL;
+    else if (inet_pton(AF_INET6, address, &v6) == 1) max_prefix = 128UL;
+    else return 0;
+
+    errno = 0;
+    prefix = strtoul(slash + 1, &end, 10);
+    return errno == 0 && end != slash + 1 && *end == '\0' && prefix <= max_prefix;
+}
 
 CommandResult command_zline(Server *server, Client *client, char *params) {
     char *mask;
@@ -75,6 +102,12 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         reason = server->config.zline_default_reason;
         shorthand = 1;
     } else {
+        if (strlen(mask) > IRC_CHANNEL_MASK_MAX ||
+            (strchr(mask, '/') != NULL && !valid_cidr_mask(mask))) {
+            client_sendf(client, ":%s NOTICE %s :Invalid ZLINE mask: %s",
+                         server->config.server_name, client->nick, mask);
+            return COMMAND_KEEP_CLIENT;
+        }
         if (reason != NULL && *reason == ':') ++reason;
         if (reason == NULL || *reason == '\0') reason = "Z-lined";
     }
