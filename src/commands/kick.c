@@ -1,15 +1,6 @@
 /**
  * @file kick.c
- * @brief Implementation of the IRC KICK command.
- *
- * KICK uses the shared channel privilege rank rather than hard-coded prefix
- * checks. Halfops may kick lower-ranked members, operators may kick halfops or
- * lower, protected members may kick protected members or lower, and owners may
- * kick protected members or lower. Owners remain protected from ordinary KICK.
- * A member with KICK authority may kick themself as a voluntary departure;
- * hierarchy checks apply only when targeting another member.
- * Future service/oper override commands (such as SAPART) deliberately bypass
- * this normal channel hierarchy.
+ * @brief Implementation of IRC KICK command.
  */
 
 #include "commands.h"
@@ -45,6 +36,11 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     if (channel_name == NULL || nick == NULL) {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "KICK");
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (!channel_name_valid(channel_name)) {
+        client_sendf(client, ERR_NOSUCHCHANNEL,
+                     server->config.server_name, client->nick, channel_name);
         return COMMAND_KEEP_CLIENT;
     }
     if (reason != NULL && *reason == ':') ++reason;
@@ -87,14 +83,6 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
     }
 
     target_rank = channel_privilege_rank(target_member->privileges);
-
-    /*
-     * Self-KICK is a voluntary departure once the actor has KICK authority.
-     * For other targets, +a is deliberately special: another +a member may
-     * kick a +a target despite equal rank. Owners may also kick protected
-     * members. Operators and halfops may not. Owner targets continue to use
-     * the normal hierarchy.
-     */
     if (target != client &&
         channel_privilege_has(target_member->privileges, CHANNEL_PRIV_PROTECTED) &&
         !channel_privilege_has(target_member->privileges, CHANNEL_PRIV_OWNER)) {
