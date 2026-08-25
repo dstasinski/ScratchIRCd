@@ -71,6 +71,11 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                      client->nick, "PRIVMSG");
         return COMMAND_KEEP_CLIENT;
     }
+    if (strchr(target, ',') != NULL) {
+        client_sendf(client, ERR_TOOMANYTARGETS, server->config.server_name,
+                     client->nick, target);
+        return COMMAND_KEEP_CLIENT;
+    }
     if (text == NULL || *text == '\0' || (text[0] == ':' && text[1] == '\0')) {
         client_sendf(client, ERR_NOTEXTTOSEND, server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
