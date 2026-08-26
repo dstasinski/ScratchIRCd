@@ -3,14 +3,25 @@
 #include "channel_log.h"
 #include "chanserv_db.h"
 #include "modes.h"
+#include "oper.h"
 
 #include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+/* This unit test has no live IRC clients; it only needs to satisfy the
+ * channel-log module's observability hook when exercising a full backlog. */
+void snotice_broadcast(struct Server *server, SnoticeMask category,
+                       const char *fmt, ...) {
+    (void)server;
+    (void)category;
+    (void)fmt;
+}
 
 static int read_file(const char *path, char *buffer, size_t size) {
     FILE *file = fopen(path, "r");
