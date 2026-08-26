@@ -19,6 +19,7 @@ typedef struct ServerConfig {
     size_t max_connections_per_ip;
     char connection_limit_exempt_ips[IRCD_MAX_CONNECTION_LIMIT_EXEMPT_IPS][IRC_IP_MAX + 1U];
     size_t connection_limit_exempt_ip_count;
+    unsigned int registration_timeout_seconds;
     unsigned int dns_timeout_seconds;
 
     char tls_port[IRCD_PORT_TEXT_MAX + 1U];
