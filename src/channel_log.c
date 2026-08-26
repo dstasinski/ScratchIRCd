@@ -4,6 +4,7 @@
 #include "modes.h"
 #include "oper.h"
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef struct ChannelLogState {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
@@ -27,6 +29,7 @@ static char log_db_path[IRCD_PATH_MAX + 1U];
 static size_t log_queue_count;
 static int log_queue_count_known;
 static time_t log_queue_full_notice_time;
+static time_t log_retention_next_check;
 
 static ChanServDb *shared_db(Server *server) {
     if (server == NULL || server->config.chanserv_db[0] == '\0') return NULL;
@@ -130,6 +133,34 @@ static void log_path(const char *name, const char *suffix, char *path, size_t si
 
 static int make_logs_dir(void) { return mkdir("logs", 0750) == 0 || errno == EEXIST ? 0 : -1; }
 static void suffix_for(const struct tm *tm, char *out, size_t size) { (void)strftime(out, size, "%d%b%Y", tm); }
+
+static void prune_old_log_files(Server *server, time_t now) {
+    DIR *dir;
+    struct dirent *entry;
+    const time_t cutoff = now - (time_t)IRCD_CHANNEL_LOG_RETENTION_DAYS * 86400;
+    size_t removed = 0U;
+
+    if (server == NULL || now <= 0) return;
+    if (log_retention_next_check != 0 && now < log_retention_next_check) return;
+    log_retention_next_check = now + 3600;
+
+    dir = opendir("logs");
+    if (dir == NULL) return;
+    while ((entry = readdir(dir)) != NULL) {
+        char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
+        struct stat st;
+        if (entry->d_name[0] == '.' || strstr(entry->d_name, ".log.") == NULL) continue;
+        if (snprintf(path, sizeof(path), "logs/%s", entry->d_name) < 0) continue;
+        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_mtime >= cutoff) continue;
+        if (unlink(path) == 0) ++removed;
+    }
+    closedir(dir);
+    if (removed != 0U)
+        snotice_broadcast(server, SNOTICE_ADMIN,
+                          "Channel log retention pruned %zu file%s older than %u days",
+                          removed, removed == 1U ? "" : "s",
+                          (unsigned)IRCD_CHANNEL_LOG_RETENTION_DAYS);
+}
 
 static void boundary(const char *channel, const char *suffix, const struct tm *local, int midnight) {
     char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U], text[96], stamp[16];
@@ -289,6 +320,7 @@ void channel_log_rotate_all(time_t now) {
     char suffix[32];
     if (!active_server) return;
     channel_log_flush_due(active_server, now);
+    prune_old_log_files(active_server, now);
     if (localtime_r(&now, &local) == NULL) return;
     suffix_for(&local, suffix, sizeof(suffix));
     for (state = states; state; state = state->next) {
