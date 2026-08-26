@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "numerics.h"
 #include "oper.h"
@@ -27,6 +28,7 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
     char *nick;
     char *host;
     Client *target;
+    char old_host[IRC_HOST_MAX + 1U];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_OVERRIDE)) {
@@ -46,7 +48,7 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    /* SETHOST changes only the public identity. real_ip/real_host are immutable here. */
+    (void)snprintf(old_host, sizeof(old_host), "%s", target->display_host);
     (void)snprintf(target->display_host, sizeof(target->display_host), "%s", host);
     target->modes = client_mode_add(target->modes, CLIENT_MODE_VHOST);
     target->modes = client_mode_remove(target->modes, CLIENT_MODE_CLOAKED);
@@ -56,5 +58,9 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
                  target->nick, target->display_host);
     client_sendf(target, ":%s NOTICE %s :Your displayed hostname is now %s",
                  server->config.server_name, target->nick, target->display_host);
+    snotice_broadcast(server, SNOTICE_IDENTITY,
+                      "SETHOST by %s: %s %s -> %s [real_ip=%s]",
+                      client->nick, target->nick, old_host,
+                      target->display_host, target->real_ip);
     return COMMAND_KEEP_CLIENT;
 }
