@@ -10,6 +10,7 @@
 #include "oper.h"
 #include "presence.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -32,65 +33,104 @@ static void send_isupport_payload(Server *server,Client *client,const char *payl
         client_sendf(client,RPL_PROTOCOLS,server->config.server_name,client->nick,payload);
 }
 
-static void send_pchannels_isupport(Server *server,Client *client,const char *base){
-    static int index_ensured=0;
+/* PCHANNELS changes rarely compared with client registrations. Keep one
+ * process-local snapshot and rebuild it only after the ChanServ DB generation
+ * changes (create/drop/enable/disable) or the configured DB path changes. */
+static char *pchannels_cache=NULL;
+static uint64_t pchannels_cache_generation=0U;
+static char pchannels_cache_path[IRCD_CONFIG_PATH_MAX+1U];
+
+static int rebuild_pchannels_cache(Server *server){
     ChanServDb db={0};
     sqlite3_stmt *stmt=NULL;
-    char payload[IRC_LINE_CONTENT_MAX+1U];
-    size_t used;
+    char *fresh=NULL;
+    size_t used=0U,capacity=1U;
     int rc=SQLITE_DONE;
+    uint64_t generation;
+
+    if(server==NULL)return -1;
+    generation=chanserv_db_pchannels_generation();
+    fresh=malloc(capacity);
+    if(fresh==NULL)return -1;
+    fresh[0]='\0';
+
+    if(chanserv_db_open(&db,server->config.chanserv_db)!=0){free(fresh);return -1;}
+    if(sqlite3_prepare_v2(db.db,"SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",-1,&stmt,NULL)!=SQLITE_OK){chanserv_db_close(&db);free(fresh);return -1;}
+
+    while((rc=sqlite3_step(stmt))==SQLITE_ROW){
+        const char *name=(const char *)sqlite3_column_text(stmt,0);
+        size_t n=name!=NULL?strlen(name):0U;
+        size_t needed;
+        char *grown;
+        if(n==0U)continue;
+        needed=used+(used?1U:0U)+n+1U;
+        if(needed>capacity){
+            size_t next=capacity;
+            while(next<needed){
+                size_t doubled=next<4096U?4096U:next*2U;
+                if(doubled<next){sqlite3_finalize(stmt);chanserv_db_close(&db);free(fresh);return -1;}
+                next=doubled;
+            }
+            grown=realloc(fresh,next);
+            if(grown==NULL){sqlite3_finalize(stmt);chanserv_db_close(&db);free(fresh);return -1;}
+            fresh=grown;capacity=next;
+        }
+        if(used)fresh[used++]=',';
+        memcpy(fresh+used,name,n);used+=n;fresh[used]='\0';
+    }
+    sqlite3_finalize(stmt);
+    chanserv_db_close(&db);
+    if(rc!=SQLITE_DONE){free(fresh);return -1;}
+
+    free(pchannels_cache);
+    pchannels_cache=fresh;
+    pchannels_cache_generation=generation;
+    (void)snprintf(pchannels_cache_path,sizeof(pchannels_cache_path),"%s",server->config.chanserv_db);
+    return 0;
+}
+
+static const char *get_pchannels_cache(Server *server){
+    uint64_t generation;
+    if(server==NULL)return "";
+    generation=chanserv_db_pchannels_generation();
+    if(pchannels_cache==NULL||pchannels_cache_generation!=generation||strcmp(pchannels_cache_path,server->config.chanserv_db)!=0){
+        if(rebuild_pchannels_cache(server)!=0)return pchannels_cache!=NULL?pchannels_cache:"";
+    }
+    return pchannels_cache!=NULL?pchannels_cache:"";
+}
+
+static void send_pchannels_isupport(Server *server,Client *client,const char *base){
+    const char *cached;
+    const char *cursor;
+    char payload[IRC_LINE_CONTENT_MAX+1U];
     int names_in_chunk=0;
 
     if(server==NULL||client==NULL||base==NULL)return;
+    cached=get_pchannels_cache(server);
     if(snprintf(payload,sizeof(payload),"%s PCHANNELS=",base)<0)return;
-    used=strlen(payload);
+    cursor=cached;
 
-    if(chanserv_db_open(&db,server->config.chanserv_db)!=0){
-        send_isupport_payload(server,client,payload);
-        return;
-    }
-
-    if(!index_ensured){
-        char *error=NULL;
-        if(sqlite3_exec(db.db,"CREATE INDEX IF NOT EXISTS channels_enabled_name_idx ON channels(enabled,name COLLATE IRCNOCASE)",NULL,NULL,&error)==SQLITE_OK)index_ensured=1;
-        sqlite3_free(error);
-    }
-
-    if(sqlite3_prepare_v2(db.db,"SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",-1,&stmt,NULL)==SQLITE_OK){
-        while((rc=sqlite3_step(stmt))==SQLITE_ROW){
-            const char *name=(const char *)sqlite3_column_text(stmt,0);
-            size_t n=name!=NULL?strlen(name):0U;
-            char candidate[IRC_LINE_CONTENT_MAX+1U];
-            int written;
-            if(n==0U)continue;
-            written=snprintf(candidate,sizeof(candidate),"%s%s%s",payload,names_in_chunk?",":"",name);
-            if(written>=0&&(size_t)written<sizeof(candidate)&&isupport_payload_fits(server,client,candidate)){
-                memcpy(payload,candidate,(size_t)written+1U);
-                used=(size_t)written;
-                names_in_chunk=1;
-                continue;
-            }
-
-            /* The complete PCHANNELS token no longer fits on this 005. Emit
-             * the current chunk intact, then continue the same token on a new
-             * 005 line. We never split a channel name or split merely to
-             * balance line lengths. */
+    while(*cursor!='\0'){
+        const char *comma=strchr(cursor,',');
+        size_t n=comma!=(const char *)NULL?(size_t)(comma-cursor):strlen(cursor);
+        char name[IRC_CHANNEL_NAME_MAX+1U];
+        char candidate[IRC_LINE_CONTENT_MAX+1U];
+        int written;
+        if(n>IRC_CHANNEL_NAME_MAX)n=IRC_CHANNEL_NAME_MAX;
+        memcpy(name,cursor,n);name[n]='\0';
+        written=snprintf(candidate,sizeof(candidate),"%s%s%s",payload,names_in_chunk?",":"",name);
+        if(written>=0&&(size_t)written<sizeof(candidate)&&isupport_payload_fits(server,client,candidate)){
+            memcpy(payload,candidate,(size_t)written+1U);
+            names_in_chunk=1;
+        }else{
             send_isupport_payload(server,client,payload);
             written=snprintf(payload,sizeof(payload),"PCHANNELS=%s",name);
-            if(written<0||(size_t)written>=sizeof(payload)||!isupport_payload_fits(server,client,payload)){
-                payload[0]='\0';
-                names_in_chunk=0;
-                break;
-            }
-            used=(size_t)written;
+            if(written<0||(size_t)written>=sizeof(payload)||!isupport_payload_fits(server,client,payload))return;
             names_in_chunk=1;
         }
-        sqlite3_finalize(stmt);
+        cursor=comma!=NULL?comma+1U:cursor+strlen(cursor);
     }
-
-    (void)used;
-    if(payload[0]!='\0')send_isupport_payload(server,client,payload);
-    chanserv_db_close(&db);
+    send_isupport_payload(server,client,payload);
 }
 
 static void send_isupport(Server *server,Client *client){
