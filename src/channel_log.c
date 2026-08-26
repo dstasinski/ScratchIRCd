@@ -2,6 +2,7 @@
 #include "channel_log.h"
 #include "chanserv_db.h"
 #include "modes.h"
+#include "oper.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -23,6 +24,9 @@ static ChannelLogState *states;
 static Server *active_server;
 static ChanServDb log_db;
 static char log_db_path[IRCD_PATH_MAX + 1U];
+static size_t log_queue_count;
+static int log_queue_count_known;
+static time_t log_queue_full_notice_time;
 
 static ChanServDb *shared_db(Server *server) {
     if (server == NULL || server->config.chanserv_db[0] == '\0') return NULL;
@@ -31,10 +35,22 @@ static ChanServDb *shared_db(Server *server) {
     if (log_db.db != NULL) {
         chanserv_db_close(&log_db);
         log_db_path[0] = '\0';
+        log_queue_count = 0U;
+        log_queue_count_known = 0;
     }
     if (chanserv_db_open(&log_db, server->config.chanserv_db) != 0) return NULL;
     (void)snprintf(log_db_path, sizeof(log_db_path), "%s", server->config.chanserv_db);
     return &log_db;
+}
+
+static int ensure_queue_count(Server *server) {
+    ChanServDb *db;
+    if (log_queue_count_known) return 0;
+    db = shared_db(server);
+    if (db == NULL || chanserv_db_logging_queue_count(db, &log_queue_count) != 0)
+        return -1;
+    log_queue_count_known = 1;
+    return 0;
 }
 
 int channel_log_init(Server *server) {
@@ -42,8 +58,8 @@ int channel_log_init(Server *server) {
     if (server == NULL) return -1;
     active_server = server;
     db = shared_db(server);
-    if (db == NULL) return -1;
-    return chanserv_db_logging_ensure_schema(db);
+    if (db == NULL || chanserv_db_logging_ensure_schema(db) != 0) return -1;
+    return ensure_queue_count(server);
 }
 
 static ChannelLogState *state_for(const char *name, int create) {
@@ -149,10 +165,24 @@ static void ensure_file(ChannelLogState *state, time_t when) {
 
 static int enqueue(Server *server, Channel *channel, time_t when, const char *body) {
     ChanServDb *db;
+    int rc;
+    time_t now;
     if (!server || !channel || !body || !state_enabled(server, channel->name)) return 0;
     db = shared_db(server);
-    if (db == NULL) return -1;
-    return chanserv_db_logging_queue_add(db, channel->name, (long long)when, body);
+    if (db == NULL || ensure_queue_count(server) != 0) return -1;
+    if (log_queue_count >= server->config.channel_log_queue_max_rows) {
+        now = time(NULL);
+        if (log_queue_full_notice_time == 0 || now - log_queue_full_notice_time >= 60) {
+            snotice_broadcast(server, SNOTICE_ADMIN | SNOTICE_FLOOD,
+                              "Channel log durable queue full (%zu/%zu); new log events are being refused until backlog flushes",
+                              log_queue_count, server->config.channel_log_queue_max_rows);
+            log_queue_full_notice_time = now;
+        }
+        return -1;
+    }
+    rc = chanserv_db_logging_queue_add(db, channel->name, (long long)when, body);
+    if (rc == 0) ++log_queue_count;
+    return rc;
 }
 
 static int flush_channel(Server *server, const char *name) {
@@ -164,7 +194,7 @@ static int flush_channel(Server *server, const char *name) {
     active_server = server;
     state = state_for(name, 1);
     db = shared_db(server);
-    if (!state || db == NULL) return -1;
+    if (!state || db == NULL || ensure_queue_count(server) != 0) return -1;
     for (;;) {
         size_t i;
         long long last_id = 0;
@@ -187,6 +217,10 @@ static int flush_channel(Server *server, const char *name) {
             last_id = rows[i].id;
         }
         if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) return -1;
+        if (log_queue_count >= count) log_queue_count -= count;
+        else log_queue_count = 0U;
+        if (log_queue_count < server->config.channel_log_queue_max_rows)
+            log_queue_full_notice_time = 0;
     }
     return 0;
 }
