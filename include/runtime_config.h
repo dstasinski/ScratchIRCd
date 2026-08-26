@@ -20,18 +20,15 @@ typedef struct ServerConfig {
     char connection_limit_exempt_ips[IRCD_MAX_CONNECTION_LIMIT_EXEMPT_IPS][IRC_IP_MAX + 1U];
     size_t connection_limit_exempt_ip_count;
     unsigned int registration_timeout_seconds;
+    size_t output_queue_max_bytes;
     unsigned int dns_timeout_seconds;
 
     char tls_port[IRCD_PORT_TEXT_MAX + 1U];
     char tls_cert_file[IRCD_CONFIG_PATH_MAX + 1U];
     char tls_key_file[IRCD_CONFIG_PATH_MAX + 1U];
 
-    /* PING-cookie anti-spoofing. Disabled by default for legacy configs; the
-     * shipped example enables it. */
     int nospoof_enabled;
     unsigned int nospoof_timeout_seconds;
-
-    /* Stable public-host cloaking. An empty key disables +x generation. */
     char cloak_prefix[IRCD_CLOAK_PREFIX_MAX + 1U];
     char cloak_key[IRCD_CLOAK_KEY_MAX + 1U];
 
@@ -44,7 +41,6 @@ typedef struct ServerConfig {
 
     char geoip_city_db[IRCD_CONFIG_PATH_MAX + 1U];
     char geoip_asn_db[IRCD_CONFIG_PATH_MAX + 1U];
-
     char server_password[IRCD_SERVER_PASSWORD_MAX + 1U];
     char motd_file[IRCD_CONFIG_PATH_MAX + 1U];
     char rules_file[IRCD_CONFIG_PATH_MAX + 1U];
@@ -76,7 +72,6 @@ typedef struct ServerConfig {
     char netadmin_password_hash[IRCD_OPER_HASH_MAX + 1U];
     char netadmin_hostmask[IRCD_OPER_HOSTMASK_MAX + 1U];
     char netadmin_vhost[IRCD_OPER_VHOST_MAX + 1U];
-
     char source_path[IRCD_CONFIG_PATH_MAX + 1U];
 } ServerConfig;
 
