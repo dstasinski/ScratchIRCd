@@ -6,6 +6,7 @@
 #include "oper.h"
 
 #include <assert.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,19 @@ static size_t queue_count(ChanServDb *db) {
     return count;
 }
 
+static void create_log_with_mtime(const char *path, time_t when) {
+    FILE *file;
+    struct timespec times[2];
+    file = fopen(path, "w");
+    assert(file != NULL);
+    assert(fputs("retention test\n", file) >= 0);
+    assert(fclose(file) == 0);
+    times[0].tv_sec = when;
+    times[0].tv_nsec = 0;
+    times[1] = times[0];
+    assert(utimensat(AT_FDCWD, path, times, 0) == 0);
+}
+
 int main(void) {
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
@@ -47,6 +61,8 @@ int main(void) {
     char old_suffix[32], new_suffix[32];
     char old_path[128], new_path[128];
     char old_text[4096], new_text[4096], expected_boundary[128];
+    const char *expired_log = "logs/Expired.log.01Jan2000";
+    const char *fresh_log = "logs/Fresh.log.01Jan2099";
     Server server;
     Channel channel;
     Client client;
@@ -124,6 +140,16 @@ int main(void) {
     assert(chanserv_db_open(&db, db_path) == 0);
     assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
+
+    /* Retention is based on actual file age, not trust in a filename date. */
+    create_log_with_mtime(expired_log,
+                          next_midnight - (time_t)(IRCD_CHANNEL_LOG_RETENTION_DAYS + 1U) * 86400);
+    create_log_with_mtime(fresh_log, next_midnight - 3600);
+    assert(access(expired_log, F_OK) == 0);
+    assert(access(fresh_log, F_OK) == 0);
+    channel_log_rotate_all(next_midnight + 3600);
+    assert(access(expired_log, F_OK) != 0);
+    assert(access(fresh_log, F_OK) == 0);
 
     assert(chdir(original) == 0);
     return 0;
