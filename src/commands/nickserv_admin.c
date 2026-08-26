@@ -1,17 +1,10 @@
 /**
  * @file nickserv_admin.c
  * @brief Network-administrator management of NickServ accounts.
- *
- * Commands:
- *   NSINFO <account>
- *   NSSET <account> PASSWORD <new-password>
- *   NSSET <account> VHOST <vhost|->
- *   NSSET <account> EMAIL <address|->
- *   NSSET <account> ENABLED <0|1>
- *   NSDROP <account>
  */
 
 #include "commands.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "nickserv_db.h"
 #include "numerics.h"
@@ -151,6 +144,13 @@ CommandResult command_nsset(Server *server, Client *client, char *params) {
     }
     nickserv_db_close(&db);
     notice(server, client, rc == 0 ? "NickServ account updated." : "NSSET failed.");
+    if (rc == 0) {
+        const char *detail = strcasecmp(field, "PASSWORD") == 0 ? "PASSWORD changed" :
+                             strcasecmp(field, "EMAIL") == 0 ? "EMAIL changed" : value;
+        snotice_broadcast(server, SNOTICE_SERVICES,
+                          "NSSET by %s: account=%s field=%s value=%s",
+                          client->nick, name, field, detail);
+    }
     return COMMAND_KEEP_CLIENT;
 }
 
@@ -174,5 +174,7 @@ CommandResult command_nsdrop(Server *server, Client *client, char *params) {
     }
     nickserv_db_close(&db);
     notice(server, client, "NickServ account deleted.");
+    snotice_broadcast(server, SNOTICE_SERVICES,
+                      "NSDROP by %s: account=%s", client->nick, name);
     return COMMAND_KEEP_CLIENT;
 }
