@@ -257,7 +257,7 @@ static void expire_connection_lookups(Server *server) {
             snotice_broadcast(server, SNOTICE_FLOOD, "Registration timeout for %s (nick=%s cap=%s sasl_state=%d)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->cap_negotiating ? "yes" : "no", (int)client->sasl_state);
             client_sendf(client, ":%s ERROR :Registration timeout", server->config.server_name); server_disconnect(server, client, "Registration timeout"); continue;
         }
-        if (server->config.nospoof_enabled && client->nospoof_started && !client->nospoof_verified && client->nospoof_deadline <= now) { snotice_broadcast(server, SNOTICE_SECURITY, "No-spoof PING timeout for %s (nick=%s)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*"); client_sendf(client, ":%s ERROR :No-spoof PING timeout", server->config.server_name); server_disconnect(server, client, "No-spoof PING timeout"); continue; }
+        if (server->config.nospoof_enabled && client->nospoof_started && !client->nospoof_verified && client->nospoof_deadline <= now) { snotice_broadcast(server, SNOTICE_SECURITY, "No-spoof PING timeout for %s (nick=%s)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*" ); client_sendf(client, ":%s ERROR :No-spoof PING timeout", server->config.server_name); server_disconnect(server, client, "No-spoof PING timeout"); continue; }
         if (client->dns_state == CLIENT_DNS_PENDING && client->dns_deadline <= now) { client->dns_state = CLIENT_DNS_TIMEOUT; client->real_host[0] = '\0'; snotice_broadcast(server, SNOTICE_DNS, "FCrDNS timeout for %s", client->real_ip); if (client->tls_state != CLIENT_TLS_HANDSHAKE) client_sendf(client, NOTICE_FAILDNS, server->config.server_name); command_maybe_register(server, client); }
         if (client->dnsbl_state == CLIENT_DNSBL_PENDING && client->dnsbl_deadline <= now) { client->dnsbl_state = CLIENT_DNSBL_TIMEOUT; snotice_broadcast(server, SNOTICE_DNS, "DNSBL lookup timeout for %s", client->real_ip); command_maybe_register(server, client); }
         ++index;
@@ -274,8 +274,26 @@ int server_init(Server *server, const ServerConfig *config) {
     return 0;
 }
 
-Channel *server_get_or_create_channel(Server *server, const char *name) { Channel *channel; if (server == NULL || name == NULL) return NULL; channel = hash_get(&server->channels_by_name, name); if (channel != NULL) return channel; channel = channel_create(name); if (channel == NULL) return NULL; if (hash_set(&server->channels_by_name, channel->name, channel) != 0) { channel_free(channel); return NULL; } return channel; }
-void server_remove_channel_if_empty(Server *server, Channel *channel) { if (server == NULL || channel == NULL || channel->member_count != 0U) return; (void)hash_remove(&server->channels_by_name, channel->name); channel_free(channel); }
+Channel *server_get_or_create_channel(Server *server, const char *name) {
+    Channel *channel;
+    if (server == NULL || name == NULL) return NULL;
+    channel = hash_get(&server->channels_by_name, name);
+    if (channel != NULL) return channel;
+    if (server->channel_count >= server->config.max_channels) return NULL;
+    channel = channel_create(name);
+    if (channel == NULL) return NULL;
+    if (hash_set(&server->channels_by_name, channel->name, channel) != 0) { channel_free(channel); return NULL; }
+    ++server->channel_count;
+    return channel;
+}
+
+void server_remove_channel_if_empty(Server *server, Channel *channel) {
+    if (server == NULL || channel == NULL || channel->member_count != 0U) return;
+    if (hash_remove(&server->channels_by_name, channel->name) != NULL) {
+        if (server->channel_count > 0U) --server->channel_count;
+        channel_free(channel);
+    }
+}
 
 static int clients_share_channel(const Client *left, const Client *right) {
     ClientChannelLink *link;
@@ -386,5 +404,5 @@ void server_destroy(Server *server) {
     free(server->listener_tls); server->listener_tls = NULL; server->listener_count = 0U;
     dnsbl_resolver_destroy(&server->dnsbl); dns_resolver_destroy(&server->dns); geoip_destroy(&server->geoip);
     if (server->tls_ctx != NULL) { SSL_CTX_free(server->tls_ctx); server->tls_ctx = NULL; }
-    hash_destroy(&server->channels_by_name, channel_free); hash_destroy(&server->clients_by_nick, NULL);
+    hash_destroy(&server->channels_by_name, channel_free); server->channel_count = 0U; hash_destroy(&server->clients_by_nick, NULL);
 }
