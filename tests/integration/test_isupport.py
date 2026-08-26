@@ -43,11 +43,7 @@ def read_registration(sock, nick):
             if not chunk:
                 break
             data += chunk
-            # Registration may contain more than two 005 replies when a large
-            # PCHANNELS token has to be split to respect the IRC wire limit.
             if f" 005 {nick} ".encode() in data and b" :are supported by this server\r\n" in data:
-                # Give the server a brief chance to deliver any immediately
-                # following 005 continuation line before returning.
                 time.sleep(0.05)
         except socket.timeout:
             break
@@ -92,7 +88,6 @@ def assert_base_isupport(lines, nick):
     replies = [line for line in lines if f" 005 {nick} " in line]
     assert len(replies) >= 2, replies
     for line in replies:
-        # 512 bytes total on the wire, including CRLF.
         assert len((line + "\r\n").encode()) <= 512, line
         payload = line.split(f" 005 {nick} ", 1)[1]
         payload = payload.rsplit(" :are supported by this server", 1)[0]
@@ -170,7 +165,6 @@ def main():
                 except OSError: pass
             stop_server(proc)
 
-        # Seed enough channels to require PCHANNELS continuation by wire size.
         db = open_chanserv_db(chanserv_db)
         try:
             for i in range(80):
@@ -183,13 +177,16 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        sock = None
+        sockets = []
+        moved_db = chanserv_db + ".moved"
         try:
             wait_listen(port, proc)
-            sock, lines = register_and_read(port, "Bounded")
+            first, lines = register_and_read(port, "Bounded")
+            sockets.append(first)
             replies = assert_base_isupport(lines, "Bounded")
             names, pchannel_lines = pchannels_from_replies(replies, "Bounded")
-            assert names == [f"#PersistentChannel{i:03d}" for i in range(80)], names
+            expected_names = [f"#PersistentChannel{i:03d}" for i in range(80)]
+            assert names == expected_names, names
             assert pchannel_lines > 1, replies
 
             db = open_chanserv_db(chanserv_db)
@@ -198,8 +195,22 @@ def main():
             finally:
                 db.close()
             assert "channels_enabled_name_idx" in indexes, indexes
+
+            # After the first registration populates the process-local cache,
+            # remove the backing DB pathname. A second registration must still
+            # receive the complete PCHANNELS snapshot without reopening SQLite.
+            os.rename(chanserv_db, moved_db)
+            cached, lines = register_and_read(port, "Cached")
+            sockets.append(cached)
+            replies = assert_base_isupport(lines, "Cached")
+            cached_names, cached_lines = pchannels_from_replies(replies, "Cached")
+            assert cached_names == expected_names, cached_names
+            assert cached_lines == pchannel_lines, (cached_lines, pchannel_lines)
+            os.rename(moved_db, chanserv_db)
         finally:
-            if sock is not None:
+            if os.path.exists(moved_db) and not os.path.exists(chanserv_db):
+                os.rename(moved_db, chanserv_db)
+            for sock in sockets:
                 try: sock.close()
                 except OSError: pass
             stop_server(proc)
