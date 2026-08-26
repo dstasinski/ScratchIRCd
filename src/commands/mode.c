@@ -474,6 +474,7 @@ static CommandResult mode_channel(Server *server, Client *client,
 
         if (letter == 'b' || letter == 'e' || letter == 'I') {
             ChannelMaskEntry **list;
+            int list_rc;
             if (param == NULL) continue;
             ++argi;
             if (letter == 'b' && sign == '+' &&
@@ -486,12 +487,21 @@ static CommandResult mode_channel(Server *server, Client *client,
             list = letter == 'b' ? &channel->ban_list
                  : letter == 'e' ? &channel->exception_list
                                  : &channel->invite_exception_list;
-            if (sign == '+')
-                (void)channel_mask_add_authorized(
+            if (sign == '+') {
+                list_rc = channel_mask_add_authorized(
                     list, param,
                     letter == 'b' && may_manage_protected(channel, client));
-            else
-                (void)channel_mask_remove(list, param);
+                if (list_rc == -2) {
+                    client_sendf(client, ERR_BANLISTFULL,
+                                 server->config.server_name, client->nick,
+                                 channel->name, param);
+                    continue;
+                }
+                if (list_rc != 0) continue;
+            } else {
+                list_rc = channel_mask_remove(list, param);
+                if (list_rc <= 0) continue;
+            }
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), param);
             continue;
