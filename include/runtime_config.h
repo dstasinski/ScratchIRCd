@@ -60,6 +60,7 @@ typedef struct ServerConfig {
     size_t history_max_rows;
     size_t channel_log_queue_max_rows;
     size_t memoserv_quota;
+    size_t memoserv_sender_quota;
     unsigned int memoserv_retention_days;
     unsigned int nickserv_registrations_per_ip;
     unsigned int nickserv_registration_window_seconds;
