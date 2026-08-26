@@ -8,6 +8,7 @@
  */
 
 #include "nickserv.h"
+#include "auth_limit.h"
 #include "mail.h"
 #include "modes.h"
 #include "nickserv_db.h"
@@ -148,6 +149,7 @@ int nickserv_identify(Server *server, Client *client,
     found = nickserv_db_get(&db, account_name, &account);
     nickserv_db_close(&db);
     if (found != 1 || !account.enabled) return 0;
+    if (!auth_limit_consume(server, client, "NickServ IDENTIFY")) return 0;
     if (argon2id_verify(account.password_hash, password, strlen(password)) != ARGON2_OK) return 0;
 
     apply_account(client, &account);
@@ -182,6 +184,12 @@ static void command_register(Server *server, Client *client, char *password) {
         nickserv_notice(server, client, existing == 1
             ? "That nickname is already registered."
             : "Account lookup failed.");
+        return;
+    }
+
+    if (!auth_limit_consume(server, client, "NickServ REGISTER")) {
+        nickserv_db_close(&db);
+        nickserv_notice(server, client, "Password hashing rate limit reached; try again later.");
         return;
     }
 
@@ -221,7 +229,7 @@ static void command_identify(Server *server, Client *client, char *params) {
     nickserv_notice(server, client,
         nickserv_identify(server, client, account, password)
             ? "Password accepted - you are now identified."
-            : "Password incorrect or account unavailable.");
+            : "Password incorrect, account unavailable, or authentication throttled.");
 }
 
 static void command_set_password(Server *server, Client *client, char *password) {
@@ -234,6 +242,10 @@ static void command_set_password(Server *server, Client *client, char *password)
     }
     if (password == NULL || *password == '\0') {
         nickserv_notice(server, client, "Syntax: SET PASSWORD <new-password>");
+        return;
+    }
+    if (!auth_limit_consume(server, client, "NickServ SET PASSWORD")) {
+        nickserv_notice(server, client, "Password hashing rate limit reached; try again later.");
         return;
     }
     if (hash_password(password, encoded, sizeof(encoded)) != 0 ||
@@ -439,6 +451,10 @@ static void command_reset(Server *server, Client *client, char *params) {
         char password_hash[IRCD_OPER_HASH_MAX + 1U];
         int rc = -1;
         hash_token(token, token_hash, sizeof(token_hash));
+        if (!auth_limit_consume(server, client, "NickServ RESET password")) {
+            nickserv_notice(server, client, "Password hashing rate limit reached; try again later.");
+            return;
+        }
         if (hash_password(new_password, password_hash, sizeof(password_hash)) == 0 &&
             nickserv_db_open(&db, server->config.nickserv_db) == 0) {
             rc = nickserv_db_consume_reset_token(&db, account_name, token_hash,
