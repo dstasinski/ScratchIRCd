@@ -145,12 +145,20 @@ int client_send_raw(Client *client, const char *data, size_t length) {
 int client_send_line(Client *client, const char *line) {
     char buffer[IRCD_OUTPUT_BUFFER_SIZE];
     int written;
+    size_t content_length;
     size_t length;
     if (client == NULL || line == NULL) return -1;
+
+    /* RFC IRC framing allows at most 512 octets including CRLF. Never let a
+     * caller's oversized formatter escape onto the wire. Callers that need to
+     * return large result sets must chunk them into multiple IRC messages. */
+    content_length = strlen(line);
+    if (content_length > IRC_LINE_CONTENT_MAX) return -1;
+
     written = snprintf(buffer, sizeof(buffer), "%s\r\n", line);
     if (written < 0) return -1;
     length = (size_t)written;
-    if (length >= sizeof(buffer)) { length = sizeof(buffer) - 1U; if (length >= 2U) { buffer[length - 2U] = '\r'; buffer[length - 1U] = '\n'; } }
+    if (length > IRC_WIRE_LINE_MAX || length >= sizeof(buffer)) return -1;
     return client_send_raw(client, buffer, length);
 }
 
@@ -161,6 +169,6 @@ int client_sendf(Client *client, const char *fmt, ...) {
     if (client == NULL || fmt == NULL) return -1;
     va_start(args, fmt); written = vsnprintf(line, sizeof(line), fmt, args); va_end(args);
     if (written < 0) return -1;
-    line[sizeof(line) - 1U] = '\0';
+    if ((size_t)written >= sizeof(line)) return -1;
     return client_send_line(client, line);
 }
