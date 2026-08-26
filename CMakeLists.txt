@@ -138,13 +138,13 @@ add_test(NAME history_database COMMAND test_history_db)
 
 add_executable(test_nickserv_db tests/test_nickserv_db.c src/nickserv_db.c)
 target_include_directories(test_nickserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_definitions(test_nickserv_db PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_definitions(test_nickserv_db PRIVATE _POSIX_C_SOURCE=200809L IRCD_NICKSERV_ACCOUNT_HARD_MAX=2U)
 target_link_libraries(test_nickserv_db PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
 add_test(NAME nickserv_database COMMAND test_nickserv_db)
 
 add_executable(test_chanserv_db tests/test_chanserv_db.c src/chanserv_db.c)
 target_include_directories(test_chanserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_definitions(test_chanserv_db PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_definitions(test_chanserv_db PRIVATE _POSIX_C_SOURCE=200809L IRCD_CHANSERV_REGISTRATION_HARD_MAX=2U IRCD_CHANSERV_ACCESS_HARD_MAX=2U)
 target_link_libraries(test_chanserv_db PRIVATE SQLite::SQLite3)
 add_test(NAME chanserv_database COMMAND test_chanserv_db)
 
