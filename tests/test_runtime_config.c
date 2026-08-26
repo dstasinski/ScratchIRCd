@@ -31,6 +31,8 @@ int main(void) {
 
     runtime_config_defaults(&config);
     assert(config.max_channels == IRCD_DEFAULT_MAX_CHANNELS);
+    assert(config.history_retention_days == IRCD_DEFAULT_HISTORY_RETENTION_DAYS);
+    assert(config.history_max_rows == IRCD_DEFAULT_HISTORY_MAX_ROWS);
 
     assert(fd >= 0);
     file = fdopen(fd, "w");
@@ -52,6 +54,8 @@ int main(void) {
     assert(fputs("memoserv_retention_days = 45\n", file) >= 0);
     assert(fputs("history_db = data/test-history.db\n", file) >= 0);
     assert(fputs("history_limit = 42\n", file) >= 0);
+    assert(fputs("history_retention_days = 60\n", file) >= 0);
+    assert(fputs("history_max_rows = 500000\n", file) >= 0);
     assert(fputs("kline_default_duration_seconds = 1800\n", file) >= 0);
     assert(fputs("kline_default_reason = default kline reason\n", file) >= 0);
     assert(fputs("zline_default_duration_seconds = 900\n", file) >= 0);
@@ -85,6 +89,8 @@ int main(void) {
     assert(config.memoserv_retention_days == 45U);
     assert(strcmp(config.history_db, "data/test-history.db") == 0);
     assert(config.history_limit == 42U);
+    assert(config.history_retention_days == 60U);
+    assert(config.history_max_rows == 500000U);
     assert(config.kline_default_duration_seconds == 1800U);
     assert(strcmp(config.kline_default_reason, "default kline reason") == 0);
     assert(config.zline_default_duration_seconds == 900U);
@@ -97,6 +103,11 @@ int main(void) {
     assert(load_single_option("max_channels = 0\n") != 0);
     assert(load_single_option("max_channels = 262145\n") != 0);
     assert(load_single_option("max_channels = 262144\n") == 0);
+    assert(load_single_option("history_retention_days = 3651\n") != 0);
+    assert(load_single_option("history_retention_days = 0\n") == 0);
+    assert(load_single_option("history_max_rows = 0\n") != 0);
+    assert(load_single_option("history_max_rows = 10000001\n") != 0);
+    assert(load_single_option("history_max_rows = 10000000\n") == 0);
 
     (void)unlink(path);
     return 0;
