@@ -164,7 +164,7 @@ static void send_isupport(Server *server,Client *client){
     char first[IRCD_MESSAGE_BUFFER_SIZE];
     char second_base[IRCD_MESSAGE_BUFFER_SIZE];
     (void)snprintf(first,sizeof(first),"CASEMAPPING=rfc1459 CHANTYPES=#& PREFIX=(qaohv)~&@%%+ CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz CHANLIMIT=#&:%u NICKLEN=%u USERLEN=%u HOSTLEN=%u CHANNELLEN=%u TOPICLEN=%u KICKLEN=%u MODES=%u NETWORK=%s",(unsigned)IRC_MAX_CHANNELS_PER_CLIENT,(unsigned)IRC_NICK_MAX,(unsigned)IRC_USER_MAX,(unsigned)IRC_HOST_MAX,(unsigned)IRC_CHANNEL_NAME_MAX,(unsigned)IRC_CHANNEL_TOPIC_MAX,(unsigned)IRC_KICK_REASON_MAX,(unsigned)IRC_MODE_MAX_PARAMS,server->config.network_name);
-    (void)snprintf(second_base,sizeof(second_base),"EXCEPTS=e INVEX=I WATCH=%u SILENCE=%u TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1 MSGREFTYPES=timestamp CHATHISTORY=%zu",(unsigned)IRCD_WATCH_MAX,(unsigned)IRCD_SILENCE_MAX,server->config.history_limit);
+    (void)snprintf(second_base,sizeof(second_base),"EXCEPTS=e INVEX=I MAXLIST=b:%u,e:%u,I:%u WATCH=%u SILENCE=%u TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1 MSGREFTYPES=timestamp CHATHISTORY=%zu",(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRCD_WATCH_MAX,(unsigned)IRCD_SILENCE_MAX,server->config.history_limit);
     send_isupport_payload(server,client,first);
     send_pchannels_isupport(server,client,second_base);
 }
@@ -173,25 +173,25 @@ void command_maybe_register(Server *server,Client *client){if(server==NULL||clie
 
 int command_require_registered(Client *client){if(client!=NULL&&client->registered)return 0;if(client!=NULL)client_sendf(client,ERR_NOTREGISTERED,IRCD_DEFAULT_SERVER_NAME,command_reply_nick(client));return 1;}
 
-static int names_payload_fits(const Client *client,char marker,const Channel *channel,const char *names){
+static int names_payload_fits(const Server *server,const Client *client,char marker,const Channel *channel,const char *names){
     int written;
-    if(client==NULL||channel==NULL||names==NULL)return 0;
-    written=snprintf(NULL,0,RPL_NAMREPLY,IRCD_DEFAULT_SERVER_NAME,client->nick,marker,channel->name,names);
+    if(server==NULL||client==NULL||channel==NULL||names==NULL)return 0;
+    written=snprintf(NULL,0,RPL_NAMREPLY,server->config.server_name,client->nick,marker,channel->name,names);
     return written>=0&&(size_t)written<=IRC_LINE_CONTENT_MAX;
 }
 
-static void send_names_chunk(Client *client,char marker,const Channel *channel,const char *names){
-    if(client==NULL||channel==NULL||names==NULL)return;
-    client_sendf(client,RPL_NAMREPLY,IRCD_DEFAULT_SERVER_NAME,client->nick,marker,channel->name,names);
+static void send_names_chunk(const Server *server,Client *client,char marker,const Channel *channel,const char *names){
+    if(server==NULL||client==NULL||channel==NULL||names==NULL)return;
+    client_sendf(client,RPL_NAMREPLY,server->config.server_name,client->nick,marker,channel->name,names);
 }
 
-void command_send_names(Channel *channel,Client *client){
+void command_send_names(Server *server,Channel *channel,Client *client){
     char names[IRC_LINE_CONTENT_MAX+1U];
     char candidate[IRC_LINE_CONTENT_MAX+1U];
     ChannelMember *member;
     char marker;
     size_t used=0U;
-    if(channel==NULL||client==NULL)return;
+    if(server==NULL||channel==NULL||client==NULL)return;
     marker=channel->name[0]=='&'?IRC_NAMES_PRIVATE_MARKER:IRC_NAMES_PUBLIC_MARKER;
     names[0]='\0';
     for(member=channel->members;member!=NULL;member=member->next){
@@ -201,15 +201,15 @@ void command_send_names(Channel *channel,Client *client){
         int candidate_written;
         if(token_written<0||(size_t)token_written>=sizeof(token))continue;
         candidate_written=snprintf(candidate,sizeof(candidate),"%s%s%s",names,used?" ":"",token);
-        if(candidate_written>=0&&(size_t)candidate_written<sizeof(candidate)&&names_payload_fits(client,marker,channel,candidate)){
+        if(candidate_written>=0&&(size_t)candidate_written<sizeof(candidate)&&names_payload_fits(server,client,marker,channel,candidate)){
             memcpy(names,candidate,(size_t)candidate_written+1U);
             used=(size_t)candidate_written;
             continue;
         }
-        if(used!=0U)send_names_chunk(client,marker,channel,names);
+        if(used!=0U)send_names_chunk(server,client,marker,channel,names);
         (void)snprintf(names,sizeof(names),"%s",token);
         used=strlen(names);
     }
-    if(used!=0U||channel->member_count==0U)send_names_chunk(client,marker,channel,names);
-    client_sendf(client,RPL_ENDOFNAMES,IRCD_DEFAULT_SERVER_NAME,client->nick,channel->name);
+    if(used!=0U||channel->member_count==0U)send_names_chunk(server,client,marker,channel,names);
+    client_sendf(client,RPL_ENDOFNAMES,server->config.server_name,client->nick,channel->name);
 }
