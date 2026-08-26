@@ -12,4 +12,5 @@ int command_require_registered(Client *client);
 void command_maybe_register(Server *server, Client *client);
 void command_send_names(Server *server, Channel *channel, Client *client);
 void command_nickserv_message(Server *server, Client *client, char *text);
+void command_memoserv_message(Server *server, Client *client, char *text);
 #endif
