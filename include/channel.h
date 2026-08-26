@@ -53,6 +53,16 @@ typedef struct Channel {
     char limit_redirect[IRC_CHANNEL_NAME_MAX + 1U];
     char ban_redirect[IRC_CHANNEL_NAME_MAX + 1U];
 
+    /**
+     * Read-mostly ChanServ policy cached for a live channel. These fields are
+     * refreshed from chanserv.db whenever registration/founder/MLOCK/enabled
+     * state changes. ACCESS entries remain database-backed so authorization
+     * changes cannot become stale.
+     */
+    int chanserv_policy_valid;
+    char chanserv_founder[IRC_NICK_MAX + 1U];
+    ChannelModeSet chanserv_mode_lock;
+
     ChannelMaskEntry *ban_list;
     ChannelMaskEntry *exception_list;
     ChannelMaskEntry *invite_exception_list;
