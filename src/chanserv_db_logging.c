@@ -135,6 +135,20 @@ int chanserv_db_logging_queue_add(ChanServDb *db, const char *channel,
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
+int chanserv_db_logging_queue_count(ChanServDb *db, size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (count != NULL) *count = 0U;
+    if (db == NULL || db->db == NULL || count == NULL) return -1;
+    if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
+    if (sqlite3_prepare_v2(db->db, "SELECT COUNT(*) FROM channel_log_queue",
+                           -1, &stmt, NULL) != SQLITE_OK) return -1;
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *count = (size_t)sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
 int chanserv_db_logging_queue_oldest(ChanServDb *db, long long *event_time) {
     sqlite3_stmt *stmt = NULL;
     int rc;
