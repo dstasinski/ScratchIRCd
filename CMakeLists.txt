@@ -50,20 +50,12 @@ add_executable(scratchircd
     src/commands/whois.c src/commands/whowas.c src/commands/zline.c
 )
 
-set_source_files_properties(src/commands/mode.c PROPERTIES
-    COMPILE_DEFINITIONS "command_mode=command_mode_core")
-set_source_files_properties(src/commands/mode_persist.c PROPERTIES
-    COMPILE_DEFINITIONS "command_mode=command_mode_policy_core")
-set_source_files_properties(src/commands/privmsg.c PROPERTIES
-    COMPILE_DEFINITIONS "command_privmsg=command_privmsg_core")
-set_source_files_properties(src/commands/notice.c PROPERTIES
-    COMPILE_DEFINITIONS "command_notice=command_notice_core")
+set_source_files_properties(src/commands/mode.c PROPERTIES COMPILE_DEFINITIONS "command_mode=command_mode_core")
+set_source_files_properties(src/commands/mode_persist.c PROPERTIES COMPILE_DEFINITIONS "command_mode=command_mode_policy_core")
+set_source_files_properties(src/commands/privmsg.c PROPERTIES COMPILE_DEFINITIONS "command_privmsg=command_privmsg_core")
+set_source_files_properties(src/commands/notice.c PROPERTIES COMPILE_DEFINITIONS "command_notice=command_notice_core")
 
-target_include_directories(scratchircd PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${ARGON2_INCLUDE_DIR}
-    ${MAXMINDDB_INCLUDE_DIR}
-)
+target_include_directories(scratchircd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${ARGON2_INCLUDE_DIR} ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(scratchircd PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(scratchircd PRIVATE Threads::Threads ${ARGON2_LIBRARY} ${MAXMINDDB_LIBRARY} SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 
@@ -75,6 +67,11 @@ add_executable(test_client_identity tests/test_client_identity.c src/client.c)
 target_include_directories(test_client_identity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_link_libraries(test_client_identity PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME client_identity COMMAND test_client_identity)
+
+add_executable(test_client_output tests/test_client_output.c src/client.c)
+target_include_directories(test_client_output PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_link_libraries(test_client_output PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+add_test(NAME client_output_queue COMMAND test_client_output)
 
 add_executable(test_cloak tests/test_cloak.c src/cloak.c src/client.c src/modes.c)
 target_include_directories(test_cloak PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
@@ -151,19 +148,14 @@ target_compile_definitions(test_chanserv_db PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_chanserv_db PRIVATE SQLite::SQLite3)
 add_test(NAME chanserv_database COMMAND test_chanserv_db)
 
-add_executable(test_chanserv_persist
-    tests/test_chanserv_persist.c src/chanserv_db.c src/chanserv_persist.c
-    src/channel.c src/channel_policy.c src/client.c)
-target_include_directories(test_chanserv_persist PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+add_executable(test_chanserv_persist tests/test_chanserv_persist.c src/chanserv_db.c src/chanserv_persist.c src/channel.c src/channel_policy.c src/client.c)
+target_include_directories(test_chanserv_persist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(test_chanserv_persist PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
 
-add_executable(test_channel_log
-    tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/chanserv_db_logging.c src/client.c src/modes.c)
-target_include_directories(test_channel_log PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+add_executable(test_channel_log tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/chanserv_db_logging.c src/client.c src/modes.c)
+target_include_directories(test_channel_log PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(test_channel_log PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_channel_log PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME channel_log_rotation COMMAND test_channel_log)
@@ -228,7 +220,7 @@ add_test(NAME die_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOUR
 set_tests_properties(die_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_client_output test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
