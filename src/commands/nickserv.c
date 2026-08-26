@@ -1,15 +1,12 @@
 /**
  * @file nickserv.c
  * @brief Direct /NICKSERV command alias for the virtual NickServ service.
- *
- * IRC clients commonly translate /NICKSERV locally into PRIVMSG NickServ.
- * ScratchIRCd also accepts NICKSERV directly so RECOVER/GHOST/RESET and the
- * rest of the service command set work consistently across clients.
  */
 
 #include "commands.h"
 #include "ircv3.h"
 #include "memoserv.h"
+#include "message_policy.h"
 #include "nickserv.h"
 #include "numerics.h"
 #include "presence.h"
@@ -52,10 +49,16 @@ static void recover_presence_after(Server *server, Client *target,
 
 void command_nickserv_message(Server *server, Client *client, char *text) {
     int was_identified;
+    int registering = 0;
     char old_nick[IRC_NICK_MAX + 1U] = "";
+    char command_copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char *service_command;
     Client *recover_target;
 
     if (server == NULL || client == NULL || text == NULL) return;
+    (void)snprintf(command_copy, sizeof(command_copy), "%s", text);
+    service_command = strtok(command_copy, " ");
+    registering = service_command != NULL && strcasecmp(service_command, "REGISTER") == 0;
     was_identified = client->account_name[0] != '\0';
     recover_target = recover_target_before(server, text, old_nick, sizeof(old_nick));
     nickserv_handle_message(server, client, text);
@@ -63,6 +66,11 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
     if (!was_identified && client->account_name[0] != '\0') {
         ircv3_account_notify(client);
         memoserv_notify_unread(server, client);
+        if (registering) {
+            snotice_broadcast(server, SNOTICE_REGISTRATIONS,
+                              "NickServ registration: account=%s nick=%s real_ip=%s",
+                              client->account_name, client->nick, client->real_ip);
+        }
     }
 }
 
