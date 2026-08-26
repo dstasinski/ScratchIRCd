@@ -118,15 +118,17 @@ void snotice_broadcast(Server *server, SnoticeMask category, const char *fmt, ..
 
 void oper_message_broadcast(Server *server, const Client *source,
                             const char *command, const char *text) {
+    char line[IRCD_MESSAGE_BUFFER_SIZE];
     size_t i;
+    size_t length;
     if (server == NULL || source == NULL || command == NULL || text == NULL) return;
+    (void)snprintf(line, sizeof(line), ":%s!%s@%s %s :%s\r\n",
+                   source->nick, source->user, source->display_host, command, text);
+    length = strlen(line);
     for (i = 0U; i < server->client_count; ++i) {
         Client *target = server->clients[i];
         if (target != NULL && target->registered && is_oper_client(target) &&
-            client_mode_has(target->modes, CLIENT_MODE_GLOBALS)) {
-            client_sendf(target, ":%s!%s@%s %s :%s",
-                         source->nick, source->user, source->display_host,
-                         command, text);
-        }
+            client_mode_has(target->modes, CLIENT_MODE_GLOBALS))
+            (void)client_send_raw(target, line, length);
     }
 }
