@@ -1,3 +1,4 @@
+#define IRCD_NICKSERV_ACCOUNT_HARD_MAX 2U
 #include "nickserv_db.h"
 
 #include <assert.h>
@@ -12,6 +13,8 @@ int main(void) {
     NickServDb db = {0};
     NickServAccount account;
     NickServAccount loaded;
+    NickServAccount second;
+    NickServAccount third;
 
     assert(fd >= 0);
     close(fd);
@@ -23,6 +26,19 @@ int main(void) {
     snprintf(account.password_hash, sizeof(account.password_hash), "%s", "$argon2id$test");
     account.enabled = 1;
     assert(nickserv_db_add(&db, &account) == 0);
+
+    memset(&second, 0, sizeof(second));
+    snprintf(second.name, sizeof(second.name), "%s", "Alice");
+    snprintf(second.password_hash, sizeof(second.password_hash), "%s", "$argon2id$second");
+    second.enabled = 1;
+    assert(nickserv_db_add(&db, &second) == 0);
+
+    memset(&third, 0, sizeof(third));
+    snprintf(third.name, sizeof(third.name), "%s", "Overflow");
+    snprintf(third.password_hash, sizeof(third.password_hash), "%s", "$argon2id$third");
+    third.enabled = 1;
+    assert(nickserv_db_add(&db, &third) != 0);
+    assert(nickserv_db_get(&db, "Overflow", &loaded) == 0);
 
     assert(nickserv_db_get(&db, "daniel", &loaded) == 1);
     assert(strcmp(loaded.name, "Daniel") == 0);
@@ -64,6 +80,9 @@ int main(void) {
 
     assert(nickserv_db_delete(&db, "DANIEL") == 0);
     assert(nickserv_db_get(&db, "daniel", &loaded) == 0);
+    assert(nickserv_db_add(&db, &third) == 0);
+    assert(nickserv_db_delete(&db, "Alice") == 0);
+    assert(nickserv_db_delete(&db, "Overflow") == 0);
     nickserv_db_close(&db);
     assert(unlink(path) == 0);
     return 0;
