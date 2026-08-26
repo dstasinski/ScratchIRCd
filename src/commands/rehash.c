@@ -38,6 +38,7 @@ static int restart_required(const ServerConfig *current,
         updated->nospoof_timeout_seconds != current->nospoof_timeout_seconds ||
         updated->registration_timeout_seconds != current->registration_timeout_seconds ||
         updated->output_queue_max_bytes != current->output_queue_max_bytes ||
+        updated->max_channels != current->max_channels ||
         strcmp(updated->server_password, current->server_password) != 0 ||
         strcmp(updated->cloak_prefix, current->cloak_prefix) != 0 ||
         strcmp(updated->cloak_key, current->cloak_key) != 0)
