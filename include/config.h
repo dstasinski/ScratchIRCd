@@ -66,8 +66,10 @@
 /* Channel PRIVMSG exception characters for user mode +d. */
 #define IRCD_DEAF_COMMAND_PREFIXES "!"
 
-/* Cloaked hostname format: cloak- plus this many lowercase SHA-256 hex chars. */
-#define IRCD_CLOAK_HEX_LENGTH 24U
+/* Structured HMAC-SHA256 user cloaks. */
+#define IRCD_DEFAULT_CLOAK_PREFIX "dru"
+#define IRCD_CLOAK_PREFIX_MAX 16U
+#define IRCD_CLOAK_KEY_MAX 255U
 
 /* Nick-target KLINE/ZLINE shorthand defaults. */
 #define IRCD_DEFAULT_KLINE_DURATION_SECONDS 3600U
