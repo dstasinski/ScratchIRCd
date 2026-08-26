@@ -78,11 +78,14 @@ Client-triggered Argon2 password work is protected by a shared fair-share budget
 argon2_ops_per_ip = 10
 argon2_window_seconds = 60
 argon2_global_ops_per_minute = 60
+argon2_global_burst_per_second = 8
 ```
 
 The same budget covers NickServ registration hashing, NickServ/IDENTIFY/SASL password verification, NickServ password changes, password-reset completion, and OPER password verification. This means alternate IRC command forms such as `PRIVMSG NickServ` cannot bypass the limiter. Unknown or disabled account/operator names are rejected before Argon2 work is charged.
 
-`argon2_ops_per_ip = 0` disables the per-IP layer, and `argon2_global_ops_per_minute = 0` disables the global layer. The per-IP state is bounded and memory-only and is keyed by the final client `real_ip`; it is not written to service databases. Throttling is reported through the security/flood SNOTICE categories.
+The per-IP window prevents one real address from monopolizing password work, the one-minute global ceiling bounds sustained distributed work, and the short global burst ceiling prevents many addresses from front-loading the full minute allowance into one event-loop stall. Each layer must permit an operation before any Argon2 work begins.
+
+A value of `0` disables the corresponding per-IP, global-minute, or global-burst layer. The per-IP state is bounded and memory-only and is keyed by the final client `real_ip`; it is not written to service databases. Throttling is reported through the security/flood SNOTICE categories.
 
 ## ChanServ registrations and access
 
