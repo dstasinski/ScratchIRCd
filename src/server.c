@@ -3,6 +3,7 @@
 #include "channel_log.h"
 #include "commands.h"
 #include "irc.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "numerics.h"
 
@@ -179,10 +180,29 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
             if (errno == EINTR) continue;
             return;
         }
-        if (server->client_count >= server->config.max_clients ||
-            ensure_client_capacity(server) != 0 || set_nonblocking(fd) != 0 ||
-            peer_ip(&address, address_length, ip, sizeof(ip)) != 0 ||
-            server_connection_limit_reached(server, ip, NULL)) {
+        if (peer_ip(&address, address_length, ip, sizeof(ip)) != 0) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Connection rejected: unable to determine peer IP");
+            close(fd);
+            continue;
+        }
+        if (server->client_count >= server->config.max_clients) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Connection rejected from %s: global client limit reached (%zu/%zu)",
+                              ip, server->client_count, server->config.max_clients);
+            close(fd);
+            continue;
+        }
+        if (server_connection_limit_reached(server, ip, NULL)) {
+            snotice_broadcast(server, SNOTICE_FLOOD | SNOTICE_SECURITY,
+                              "Connection rejected from %s: per-IP concurrent connection limit reached (%u)",
+                              ip, server->config.max_connections_per_ip);
+            close(fd);
+            continue;
+        }
+        if (ensure_client_capacity(server) != 0 || set_nonblocking(fd) != 0) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Connection rejected from %s: server resource allocation/setup failure", ip);
             close(fd);
             continue;
         }
@@ -190,12 +210,16 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         client = client_create(fd, ++server->next_client_id,
                                ((struct sockaddr *)&address)->sa_family, ip);
         if (client == NULL) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Connection rejected from %s: client allocation failure", ip);
             close(fd);
             continue;
         }
 
         if (use_tls) {
             if (server->tls_ctx == NULL || (client->ssl = SSL_new(server->tls_ctx)) == NULL) {
+                snotice_broadcast(server, SNOTICE_SECURITY,
+                                  "TLS connection setup failed from %s", ip);
                 client_free(client);
                 close(fd);
                 continue;
@@ -206,6 +230,9 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         }
 
         server->clients[server->client_count++] = client;
+        snotice_broadcast(server, SNOTICE_CONNECTIONS,
+                          "Client connection accepted: real_ip=%s transport=%s",
+                          client->real_ip, use_tls ? "TLS" : "plain");
         client->dns_state = CLIENT_DNS_PENDING;
         client->dns_deadline = time(NULL) + (time_t)server->config.dns_timeout_seconds;
 
@@ -213,6 +240,8 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         if (dns_resolver_submit(&server->dns, client->id,
                                 client->address_family, client->real_ip) != 0) {
             client->dns_state = CLIENT_DNS_FAILED;
+            snotice_broadcast(server, SNOTICE_DNS,
+                              "FCrDNS submission failed for %s", client->real_ip);
             if (!use_tls) client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
         }
     }
@@ -239,6 +268,8 @@ static int advance_tls_handshake(Server *server, Client *client) {
     error = SSL_get_error(client->ssl, rc);
     if (error == SSL_ERROR_WANT_READ) { client->tls_want_write = 0; return 0; }
     if (error == SSL_ERROR_WANT_WRITE) { client->tls_want_write = 1; return 0; }
+    snotice_broadcast(server, SNOTICE_SECURITY,
+                      "TLS handshake failed from %s", client->real_ip);
     return 1;
 }
 
@@ -250,9 +281,13 @@ static int process_buffered_lines(Server *server, Client *client) {
         size_t consumed;
         char line[IRC_LINE_CONTENT_MAX + 1U];
         if (newline == NULL) {
-            /* At most 510 content octets plus a possible trailing CR may wait
-             * for the terminating LF. Anything larger can never be valid. */
-            return client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U ? 1 : 0;
+            if (client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U) {
+                snotice_broadcast(server, SNOTICE_SECURITY,
+                                  "Protocol violation from %s: overlong partial IRC line (%zu bytes)",
+                                  client->real_ip, client->inbuf_len);
+                return 1;
+            }
+            return 0;
         }
         raw_length = (size_t)(newline - client->inbuf);
         consumed = raw_length + 1U;
@@ -261,6 +296,9 @@ static int process_buffered_lines(Server *server, Client *client) {
         if (line_length > IRC_LINE_CONTENT_MAX ||
             memchr(client->inbuf, '\0', raw_length) != NULL ||
             memchr(client->inbuf, '\r', line_length) != NULL) {
+            snotice_broadcast(server, SNOTICE_SECURITY,
+                              "Protocol violation from %s: malformed or overlong IRC framing",
+                              client->real_ip);
             return 1;
         }
         memcpy(line, client->inbuf, line_length);
@@ -274,7 +312,11 @@ static int process_buffered_lines(Server *server, Client *client) {
 static int read_client(Server *server, Client *client) {
     int received;
     size_t available;
-    if (client->inbuf_len >= sizeof(client->inbuf) - 1U) return 1;
+    if (client->inbuf_len >= sizeof(client->inbuf) - 1U) {
+        snotice_broadcast(server, SNOTICE_SECURITY | SNOTICE_FLOOD,
+                          "Input buffer exhausted by %s", client->real_ip);
+        return 1;
+    }
     available = sizeof(client->inbuf) - client->inbuf_len - 1U;
 
     if (client->ssl != NULL) {
@@ -311,6 +353,8 @@ static void handle_dns_result(Server *server, const DnsResult *result) {
     if (result->verified && result->resolved_host[0] != '\0') {
         client->dns_state = CLIENT_DNS_VERIFIED;
         (void)snprintf(client->real_host, sizeof(client->real_host), "%s", result->resolved_host);
+        snotice_broadcast(server, SNOTICE_DNS,
+                          "FCrDNS verified: %s -> %s", client->real_ip, client->real_host);
         if (!client_mode_has(client->modes, CLIENT_MODE_CLOAKED | CLIENT_MODE_VHOST))
             (void)snprintf(client->display_host, sizeof(client->display_host), "%s", client->real_host);
         if (client->tls_state != CLIENT_TLS_HANDSHAKE)
@@ -318,6 +362,8 @@ static void handle_dns_result(Server *server, const DnsResult *result) {
     } else {
         client->dns_state = CLIENT_DNS_FAILED;
         client->real_host[0] = '\0';
+        snotice_broadcast(server, SNOTICE_DNS,
+                          "FCrDNS failed or did not verify for %s", client->real_ip);
         if (client->tls_state != CLIENT_TLS_HANDSHAKE)
             client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
     }
@@ -355,6 +401,11 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
             (void)ban_db_add(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by);
             ban_db_close(&db);
         }
+        snotice_broadcast(server, SNOTICE_DNS | SNOTICE_BANS,
+                          "DNSBL listed %s in %s (%s); automatic exact-IP ZLINE created",
+                          client->real_ip,
+                          result->zone[0] != '\0' ? result->zone : "unknown",
+                          result->name[0] != '\0' ? result->name : "listed");
         client_sendf(client, ERR_YOUREBANNEDCREEP,
                      server->config.server_name,
                      client->nick[0] != '\0' ? client->nick : "*",
@@ -377,6 +428,9 @@ static void expire_connection_lookups(Server *server) {
         Client *client = server->clients[index];
         if (server->config.nospoof_enabled && client->nospoof_started &&
             !client->nospoof_verified && client->nospoof_deadline <= now) {
+            snotice_broadcast(server, SNOTICE_SECURITY,
+                              "No-spoof PING timeout for %s (nick=%s)",
+                              client->real_ip, client->nick[0] != '\0' ? client->nick : "*");
             client_sendf(client, ":%s ERROR :No-spoof PING timeout",
                          server->config.server_name);
             server_disconnect(server, client, "No-spoof PING timeout");
@@ -385,6 +439,8 @@ static void expire_connection_lookups(Server *server) {
         if (client->dns_state == CLIENT_DNS_PENDING && client->dns_deadline <= now) {
             client->dns_state = CLIENT_DNS_TIMEOUT;
             client->real_host[0] = '\0';
+            snotice_broadcast(server, SNOTICE_DNS,
+                              "FCrDNS timeout for %s", client->real_ip);
             if (client->tls_state != CLIENT_TLS_HANDSHAKE)
                 client_sendf(client, NOTICE_FAILDNS, server->config.server_name);
             command_maybe_register(server, client);
@@ -392,6 +448,8 @@ static void expire_connection_lookups(Server *server) {
         if (client->dnsbl_state == CLIENT_DNSBL_PENDING &&
             client->dnsbl_deadline <= now) {
             client->dnsbl_state = CLIENT_DNSBL_TIMEOUT;
+            snotice_broadcast(server, SNOTICE_DNS,
+                              "DNSBL lookup timeout for %s", client->real_ip);
             command_maybe_register(server, client);
         }
         ++index;
@@ -452,6 +510,14 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     int fd;
 
     if (server == NULL || client == NULL) return;
+    snotice_broadcast(server, SNOTICE_CONNECTIONS,
+                      "Client disconnect: nick=%s user=%s display_host=%s real_ip=%s real_host=%s registered=%s reason=%s",
+                      client->nick[0] != '\0' ? client->nick : "*",
+                      client->user[0] != '\0' ? client->user : "*",
+                      client->display_host[0] != '\0' ? client->display_host : client->real_ip,
+                      client->real_ip,
+                      client->real_host[0] != '\0' ? client->real_host : "-",
+                      client->registered ? "yes" : "no", quit_reason);
     if (client->registered)
         (void)snprintf(quit_message, sizeof(quit_message),
                        ":%s!%s@%s QUIT :%s\r\n",
@@ -493,6 +559,8 @@ void server_run(Server *server) {
         int ready;
 
         if (poll_fds == NULL || (server->client_count > 0U && snapshot == NULL)) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Event-loop allocation failure; stopping server loop");
             free(poll_fds); free(snapshot); return;
         }
         for (index = 0U; index < server->listener_count; ++index) {
