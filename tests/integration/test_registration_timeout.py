@@ -40,17 +40,23 @@ class IRC:
                 return
         raise AssertionError(f"expected {needle!r}; got {got!r}")
 
-    def disconnected(self, timeout=0.5):
-        self.s.settimeout(timeout)
-        try:
-            data = self.s.recv(4096)
-            return data == b""
-        except socket.timeout:
-            return False
-        except (ConnectionResetError, BrokenPipeError, OSError):
-            return True
-        finally:
-            self.s.settimeout(0.2)
+    def disconnected(self, timeout=0.8):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            self.s.settimeout(max(0.05, end - time.monotonic()))
+            try:
+                data = self.s.recv(4096)
+                if not data:
+                    self.s.settimeout(0.2)
+                    return True
+            except socket.timeout:
+                self.s.settimeout(0.2)
+                return False
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                self.s.settimeout(0.2)
+                return True
+        self.s.settimeout(0.2)
+        return False
 
     def close(self):
         try:
