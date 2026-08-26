@@ -31,6 +31,9 @@ static const char *schema_sql =
 static HistoryDb shared_db = {0};
 static char shared_path[IRCD_CONFIG_PATH_MAX + 1U];
 static int shared_cleanup_registered = 0;
+static int64_t shared_last_maintenance_ms = 0;
+static unsigned int shared_last_retention_days = 0U;
+static size_t shared_last_max_rows = 0U;
 
 static int ensure_parent_directory(const char *path) {
     char parent[IRCD_CONFIG_PATH_MAX + 1U];
@@ -73,6 +76,9 @@ void history_db_close(HistoryDb *db) {
 static void shared_history_cleanup(void) {
     history_db_close(&shared_db);
     shared_path[0] = '\0';
+    shared_last_maintenance_ms = 0;
+    shared_last_retention_days = 0U;
+    shared_last_max_rows = 0U;
 }
 
 HistoryDb *history_db_shared(const char *path) {
@@ -138,6 +144,26 @@ int history_db_prune(HistoryDb *db, unsigned int retention_days,
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int history_db_shared_maintain(const char *path, unsigned int retention_days,
+                               size_t max_rows, int64_t now_ms) {
+    HistoryDb *db;
+    int policy_changed;
+    if (path == NULL || max_rows == 0U || now_ms < 0) return -1;
+    db = history_db_shared(path);
+    if (db == NULL) return -1;
+    policy_changed = retention_days != shared_last_retention_days ||
+                     max_rows != shared_last_max_rows;
+    if (!policy_changed && shared_last_maintenance_ms != 0 &&
+        now_ms >= shared_last_maintenance_ms &&
+        now_ms - shared_last_maintenance_ms < 300000LL)
+        return 0;
+    if (history_db_prune(db, retention_days, max_rows, now_ms) != 0) return -1;
+    shared_last_maintenance_ms = now_ms;
+    shared_last_retention_days = retention_days;
+    shared_last_max_rows = max_rows;
+    return 0;
 }
 
 static void copy_column(char *dest, size_t size, sqlite3_stmt *stmt, int column) {
