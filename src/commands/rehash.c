@@ -37,7 +37,9 @@ static int restart_required(const ServerConfig *current,
     if (updated->nospoof_enabled != current->nospoof_enabled ||
         updated->nospoof_timeout_seconds != current->nospoof_timeout_seconds ||
         updated->registration_timeout_seconds != current->registration_timeout_seconds ||
-        strcmp(updated->server_password, current->server_password) != 0)
+        strcmp(updated->server_password, current->server_password) != 0 ||
+        strcmp(updated->cloak_prefix, current->cloak_prefix) != 0 ||
+        strcmp(updated->cloak_key, current->cloak_key) != 0)
         return 1;
 
     if (updated->max_clients < live_clients) return 1;
