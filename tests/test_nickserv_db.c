@@ -1,4 +1,3 @@
-#define IRCD_NICKSERV_ACCOUNT_HARD_MAX 2U
 #include "nickserv_db.h"
 
 #include <assert.h>
