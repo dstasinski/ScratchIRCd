@@ -98,14 +98,14 @@ def assert_base_isupport(lines, nick):
         "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz", "CHANLIMIT=#&:32",
         "NICKLEN=31", "USERLEN=31", "HOSTLEN=255", "CHANNELLEN=63",
         "TOPICLEN=390", "KICKLEN=255", "MODES=32", "NETWORK=RuntimeNet",
-        "EXCEPTS=e", "INVEX=I", "WATCH=128", "SILENCE=64",
+        "EXCEPTS=e", "INVEX=I", "MAXLIST=b:100,e:100,I:100",
+        "WATCH=128", "SILENCE=64",
         "TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1",
         "MSGREFTYPES=timestamp", "CHATHISTORY=100", "PCHANNELS=",
     ]
     for token in expected:
         assert token in joined, (token, replies)
     assert "STATUSMSG=" not in joined, replies
-    assert "MAXLIST=" not in joined, replies
     return replies
 
 
