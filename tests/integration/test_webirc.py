@@ -62,7 +62,7 @@ def main():
         port=free_port();conf=os.path.join(td,"ircd.conf")
         admin_hash=subprocess.check_output([mkpasswd,"adminpass"],text=True).strip()
         with open(conf,"w",encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n");f.write("netadmin_name = root\n");f.write(f"netadmin_password_hash = {admin_hash}\n");f.write("netadmin_hostmask = *!*@203.0.113.9\n")
+            f.write("server_name = test.local\nnetwork_name = TestNet\n");f.write("bind_address = 127.0.0.1\n");f.write(f"port = {port}\n");f.write("max_clients = 32\ndns_timeout_seconds = 1\n");f.write("nospoof = yes\nnospoof_timeout_seconds = 5\n");f.write("cloak_prefix = dru\ncloak_key = webirc-test-cloak-key-0123456789\n");f.write(f"operators_db = {td}/operators.db\n");f.write(f"bans_db = {td}/bans.db\n");f.write("webirc_gateway = 127.0.0.1 gateway-secret\n");f.write("netadmin_name = root\n");f.write(f"netadmin_password_hash = {admin_hash}\n");f.write("netadmin_hostmask = *!*@203.0.113.9\n")
         proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);trusted=observer=limited=rejected=silent=None
         try:
             wait_listen(port,proc);trusted=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
@@ -122,16 +122,17 @@ def main():
             assert not any(" 313 observer webuser " in line for line in hidden_whois),hidden_whois
             assert not any(" 317 observer webuser " in line for line in hidden_whois),hidden_whois
             assert not any(" 378 observer webuser " in line for line in hidden_whois),hidden_whois
-            whois_notice=trusted.expect("*** observer!observer@cloak-")
+            whois_notice=trusted.expect("*** observer!observer@")
             assert not any("observer!observer@127.0.0.1" in line for line in whois_notice),whois_notice
+            assert any("@dru-" in line or ".IP" in line for line in whois_notice),whois_notice
             trusted.send("WHO observer")
             who_lines=trusted.expect(" 315 webuser observer ")
             who_reply=next(line for line in who_lines if " 352 webuser " in line and " observer " in line)
-            assert " cloak-" in who_reply and " 127.0.0.1 " not in who_reply,who_reply
+            assert " 127.0.0.1 " not in who_reply and (" dru-" in who_reply or ".IP " in who_reply),who_reply
             trusted.send("WHOIS observer")
             cloak_audit=trusted.expect(" 318 webuser observer ")
             whois_user=next(line for line in cloak_audit if " 311 webuser observer " in line)
-            assert " cloak-" in whois_user and "127.0.0.1" not in whois_user,whois_user
+            assert "127.0.0.1" not in whois_user and (" dru-" in whois_user or ".IP " in whois_user),whois_user
             assert any(" 378 webuser observer " in line and "127.0.0.1" in line for line in cloak_audit),cloak_audit
             trusted.send("WHOIS webuser")
             self_exempt=trusted.expect(" 318 webuser webuser ")
