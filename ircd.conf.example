@@ -17,23 +17,20 @@ max_clients = 1024
 # exempt so the gateway itself is never treated as one end user. After WEBIRC
 # authentication, the supplied end-user IP is checked against this limit.
 max_connections_per_ip = 0
-# Repeat as needed for literal IPv4/IPv6 addresses that should be exempt.
 # connection_limit_exempt_ip = 192.0.2.10
 # connection_limit_exempt_ip = 2001:db8::20
 
-# Maximum time from socket acceptance until IRC registration completes. This
-# bounds idle sockets and clients stalled in CAP, SASL, DNS, or registration.
-# Valid range: 5-600 seconds.
+# Maximum time from socket acceptance until IRC registration completes.
 registration_timeout_seconds = 60
+
+# Maximum unsent data retained per client when a nonblocking socket applies
+# backpressure. Slow clients exceeding this bounded SendQ are disconnected.
+# Valid range: 4096-1048576 bytes. Changing it requires RESTART.
+output_queue_max_bytes = 65536
 
 dns_timeout_seconds = 5
 
-# PING-cookie anti-spoofing. After NICK establishes a usable target the server
-# sends only the random PING cookie. CTCP VERSION is sent only after the client
-# returns the correct PONG. Authenticated WebIRC clients are additionally sent
-# CTCP WEBSITE, also only after the PING-cookie check has succeeded.
-# Registration waits for the matching PONG. Clients that do not answer VERSION
-# cannot JOIN or privately message non-operators.
+# PING-cookie anti-spoofing.
 nospoof = yes
 nospoof_timeout_seconds = 30
 
@@ -82,7 +79,7 @@ mail_from =
 nickserv_reset_seconds = 1800
 nickserv_verify_seconds = 86400
 
-# Bootstrap network administrator only. Ordinary operators live in operators_db.
+# Bootstrap network administrator only. Ordinary operators live in operators.db.
 netadmin_name =
 netadmin_password_hash =
 netadmin_hostmask = *!*@*
