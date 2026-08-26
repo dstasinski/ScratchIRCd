@@ -173,4 +173,43 @@ void command_maybe_register(Server *server,Client *client){if(server==NULL||clie
 
 int command_require_registered(Client *client){if(client!=NULL&&client->registered)return 0;if(client!=NULL)client_sendf(client,ERR_NOTREGISTERED,IRCD_DEFAULT_SERVER_NAME,command_reply_nick(client));return 1;}
 
-void command_send_names(Channel *channel,Client *client){char names[IRC_NAMES_BUFFER_SIZE];size_t used=0U;ChannelMember *member;char marker;if(channel==NULL||client==NULL)return;marker=channel->name[0]=='&'?IRC_NAMES_PRIVATE_MARKER:IRC_NAMES_PUBLIC_MARKER;names[0]='\0';for(member=channel->members;member!=NULL;member=member->next){char prefix=channel_privilege_prefix(member->privileges);int written=prefix!='\0'?snprintf(names+used,sizeof(names)-used,"%s%c%s",used?" ":"",prefix,member->client->nick):snprintf(names+used,sizeof(names)-used,"%s%s",used?" ":"",member->client->nick);if(written<0||(size_t)written>=sizeof(names)-used)break;used+=(size_t)written;}client_sendf(client,RPL_NAMREPLY,IRCD_DEFAULT_SERVER_NAME,client->nick,marker,channel->name,names);client_sendf(client,RPL_ENDOFNAMES,IRCD_DEFAULT_SERVER_NAME,client->nick,channel->name);}
+static int names_payload_fits(const Client *client,char marker,const Channel *channel,const char *names){
+    int written;
+    if(client==NULL||channel==NULL||names==NULL)return 0;
+    written=snprintf(NULL,0,RPL_NAMREPLY,IRCD_DEFAULT_SERVER_NAME,client->nick,marker,channel->name,names);
+    return written>=0&&(size_t)written<=IRC_LINE_CONTENT_MAX;
+}
+
+static void send_names_chunk(Client *client,char marker,const Channel *channel,const char *names){
+    if(client==NULL||channel==NULL||names==NULL)return;
+    client_sendf(client,RPL_NAMREPLY,IRCD_DEFAULT_SERVER_NAME,client->nick,marker,channel->name,names);
+}
+
+void command_send_names(Channel *channel,Client *client){
+    char names[IRC_LINE_CONTENT_MAX+1U];
+    char candidate[IRC_LINE_CONTENT_MAX+1U];
+    ChannelMember *member;
+    char marker;
+    size_t used=0U;
+    if(channel==NULL||client==NULL)return;
+    marker=channel->name[0]=='&'?IRC_NAMES_PRIVATE_MARKER:IRC_NAMES_PUBLIC_MARKER;
+    names[0]='\0';
+    for(member=channel->members;member!=NULL;member=member->next){
+        char token[IRC_NICK_MAX+2U];
+        char prefix=channel_privilege_prefix(member->privileges);
+        int token_written=prefix!='\0'?snprintf(token,sizeof(token),"%c%s",prefix,member->client->nick):snprintf(token,sizeof(token),"%s",member->client->nick);
+        int candidate_written;
+        if(token_written<0||(size_t)token_written>=sizeof(token))continue;
+        candidate_written=snprintf(candidate,sizeof(candidate),"%s%s%s",names,used?" ":"",token);
+        if(candidate_written>=0&&(size_t)candidate_written<sizeof(candidate)&&names_payload_fits(client,marker,channel,candidate)){
+            memcpy(names,candidate,(size_t)candidate_written+1U);
+            used=(size_t)candidate_written;
+            continue;
+        }
+        if(used!=0U)send_names_chunk(client,marker,channel,names);
+        (void)snprintf(names,sizeof(names),"%s",token);
+        used=strlen(names);
+    }
+    if(used!=0U||channel->member_count==0U)send_names_chunk(client,marker,channel,names);
+    client_sendf(client,RPL_ENDOFNAMES,IRCD_DEFAULT_SERVER_NAME,client->nick,channel->name);
+}
