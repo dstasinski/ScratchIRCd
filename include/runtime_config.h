@@ -31,6 +31,10 @@ typedef struct ServerConfig {
     int nospoof_enabled;
     unsigned int nospoof_timeout_seconds;
 
+    /* Stable public-host cloaking. An empty key disables +x generation. */
+    char cloak_prefix[IRCD_CLOAK_PREFIX_MAX + 1U];
+    char cloak_key[IRCD_CLOAK_KEY_MAX + 1U];
+
     WebIrcGatewayConfig webirc_gateways[IRCD_MAX_WEBIRC_GATEWAYS];
     size_t webirc_gateway_count;
 
