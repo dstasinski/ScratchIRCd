@@ -1,5 +1,3 @@
-#define IRCD_CHANSERV_REGISTRATION_HARD_MAX 2U
-#define IRCD_CHANSERV_ACCESS_HARD_MAX 2U
 #include "chanserv_db.h"
 #include "modes.h"
 #include <assert.h>
