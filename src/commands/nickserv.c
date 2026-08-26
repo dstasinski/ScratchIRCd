@@ -48,24 +48,23 @@ static void recover_presence_after(Server *server, Client *target,
     presence_watch_online(server, target);
 }
 
-static NickServRegistrationThrottle *registration_slot(Server *server,
-                                                        const char *ip,
-                                                        time_t now) {
+static NickServRegistrationThrottle *throttle_slot(NickServRegistrationThrottle *slots,
+                                                    const char *ip, time_t now,
+                                                    unsigned int window) {
     NickServRegistrationThrottle *free_slot = NULL;
     size_t i;
-    unsigned int window;
-    if (server == NULL || ip == NULL || *ip == '\0') return NULL;
-    window = server->config.nickserv_registration_window_seconds;
+    if (slots == NULL || ip == NULL || *ip == '\0' || window == 0U) return NULL;
     for (i = 0U; i < IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS; ++i) {
-        NickServRegistrationThrottle *slot = &server->nickserv_registration_throttles[i];
+        NickServRegistrationThrottle *slot = &slots[i];
         if (slot->ip[0] != '\0' && strcmp(slot->ip, ip) == 0) {
-            if (slot->window_start == 0 || now - slot->window_start >= (time_t)window) {
+            if (slot->window_start == 0 || now < slot->window_start ||
+                now - slot->window_start >= (time_t)window) {
                 slot->window_start = now;
                 slot->count = 0U;
             }
             return slot;
         }
-        if (slot->ip[0] == '\0' || slot->window_start == 0 ||
+        if (slot->ip[0] == '\0' || slot->window_start == 0 || now < slot->window_start ||
             now - slot->window_start >= (time_t)window) {
             if (free_slot == NULL) free_slot = slot;
         }
@@ -84,25 +83,60 @@ int server_nickserv_registration_allowed(Server *server, const char *ip,
     if (server == NULL || ip == NULL || *ip == '\0') return 0;
     limit = server->config.nickserv_registrations_per_ip;
     if (limit == 0U) return 1;
-    slot = registration_slot(server, ip, now);
+    slot = throttle_slot(server->nickserv_registration_throttles, ip, now,
+                         server->config.nickserv_registration_window_seconds);
     if (slot == NULL || slot->count >= limit) return 0;
     if (consume) ++slot->count;
     return 1;
 }
 
+static int nickserv_mail_request_allowed(Server *server, const char *ip,
+                                         time_t now) {
+    NickServRegistrationThrottle *slot;
+    unsigned int limit;
+    if (server == NULL || ip == NULL || *ip == '\0') return 0;
+    limit = server->config.nickserv_mail_requests_per_ip;
+    if (limit == 0U) return 1;
+    slot = throttle_slot(server->nickserv_mail_throttles, ip, now,
+                         server->config.nickserv_mail_window_seconds);
+    if (slot == NULL || slot->count >= limit) return 0;
+    ++slot->count;
+    return 1;
+}
+
+static int mail_producing_request(char *copy) {
+    char *command;
+    char *first;
+    char *second;
+    if (copy == NULL) return 0;
+    command = strtok(copy, " ");
+    first = command != NULL ? strtok(NULL, " ") : NULL;
+    second = first != NULL ? strtok(NULL, " ") : NULL;
+    if (command == NULL) return 0;
+    if (strcasecmp(command, "SET") == 0)
+        return first != NULL && strcasecmp(first, "EMAIL") == 0;
+    if (strcasecmp(command, "RESET") == 0)
+        return first != NULL && second == NULL;
+    return 0;
+}
+
 void command_nickserv_message(Server *server, Client *client, char *text) {
     int was_identified;
     int registering = 0;
+    int mail_request = 0;
     time_t now;
     char old_nick[IRC_NICK_MAX + 1U] = "";
     char command_copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char mail_copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *service_command;
     Client *recover_target;
 
     if (server == NULL || client == NULL || text == NULL) return;
     (void)snprintf(command_copy, sizeof(command_copy), "%s", text);
+    (void)snprintf(mail_copy, sizeof(mail_copy), "%s", text);
     service_command = strtok(command_copy, " ");
     registering = service_command != NULL && strcasecmp(service_command, "REGISTER") == 0;
+    mail_request = mail_producing_request(mail_copy);
     now = time(NULL);
     if (registering && client->account_name[0] == '\0' &&
         !client_mode_has(client->modes, CLIENT_MODE_NETADMIN) &&
@@ -114,6 +148,17 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
                           client->nick, client->real_ip,
                           server->config.nickserv_registrations_per_ip,
                           server->config.nickserv_registration_window_seconds);
+        return;
+    }
+    if (mail_request && !client_mode_has(client->modes, CLIENT_MODE_NETADMIN) &&
+        !nickserv_mail_request_allowed(server, client->real_ip, now)) {
+        client_sendf(client, ":NickServ!service@%s NOTICE %s :Email request rate limit reached for your IP address; try again later.",
+                     server->config.server_name, client->nick);
+        snotice_broadcast(server, SNOTICE_REGISTRATIONS | SNOTICE_FLOOD,
+                          "NickServ email request throttled: nick=%s real_ip=%s limit=%u/%us",
+                          client->nick, client->real_ip,
+                          server->config.nickserv_mail_requests_per_ip,
+                          server->config.nickserv_mail_window_seconds);
         return;
     }
     was_identified = client->account_name[0] != '\0';
