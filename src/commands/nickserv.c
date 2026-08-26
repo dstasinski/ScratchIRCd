@@ -92,15 +92,28 @@ int server_nickserv_registration_allowed(Server *server, const char *ip,
 
 static int nickserv_mail_request_allowed(Server *server, const char *ip,
                                          time_t now) {
-    NickServRegistrationThrottle *slot;
-    unsigned int limit;
+    NickServRegistrationThrottle *slot = NULL;
+    unsigned int per_ip;
     if (server == NULL || ip == NULL || *ip == '\0') return 0;
-    limit = server->config.nickserv_mail_requests_per_ip;
-    if (limit == 0U) return 1;
-    slot = throttle_slot(server->nickserv_mail_throttles, ip, now,
-                         server->config.nickserv_mail_window_seconds);
-    if (slot == NULL || slot->count >= limit) return 0;
-    ++slot->count;
+
+    if (server->nickserv_mail_global_window_start == 0 ||
+        now < server->nickserv_mail_global_window_start ||
+        now - server->nickserv_mail_global_window_start >= 60) {
+        server->nickserv_mail_global_window_start = now;
+        server->nickserv_mail_global_count = 0U;
+    }
+    if (server->nickserv_mail_global_count >=
+        server->config.nickserv_mail_global_per_minute) return 0;
+
+    per_ip = server->config.nickserv_mail_requests_per_ip;
+    if (per_ip != 0U) {
+        slot = throttle_slot(server->nickserv_mail_throttles, ip, now,
+                             server->config.nickserv_mail_window_seconds);
+        if (slot == NULL || slot->count >= per_ip) return 0;
+    }
+
+    ++server->nickserv_mail_global_count;
+    if (slot != NULL) ++slot->count;
     return 1;
 }
 
@@ -150,15 +163,18 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
                           server->config.nickserv_registration_window_seconds);
         return;
     }
-    if (mail_request && !client_mode_has(client->modes, CLIENT_MODE_NETADMIN) &&
+    if (mail_request && server->config.sendmail_path[0] != '\0' &&
+        server->config.mail_from[0] != '\0' &&
+        !client_mode_has(client->modes, CLIENT_MODE_NETADMIN) &&
         !nickserv_mail_request_allowed(server, client->real_ip, now)) {
-        client_sendf(client, ":NickServ!service@%s NOTICE %s :Email request rate limit reached for your IP address; try again later.",
+        client_sendf(client, ":NickServ!service@%s NOTICE %s :Email request rate limit reached; try again later.",
                      server->config.server_name, client->nick);
         snotice_broadcast(server, SNOTICE_REGISTRATIONS | SNOTICE_FLOOD,
-                          "NickServ email request throttled: nick=%s real_ip=%s limit=%u/%us",
+                          "NickServ email request throttled: nick=%s real_ip=%s per_ip=%u/%us global=%u/min",
                           client->nick, client->real_ip,
                           server->config.nickserv_mail_requests_per_ip,
-                          server->config.nickserv_mail_window_seconds);
+                          server->config.nickserv_mail_window_seconds,
+                          server->config.nickserv_mail_global_per_minute);
         return;
     }
     was_identified = client->account_name[0] != '\0';
