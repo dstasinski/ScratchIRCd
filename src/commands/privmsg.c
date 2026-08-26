@@ -85,16 +85,20 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     if (*text == ':') ++text;
 
     if (strcasecmp(target, "NickServ") == 0) {
-        command_nickserv_message(server, client, text);
+        if (command_expensive_allow(server, client, "NICKSERV", 2U))
+            command_nickserv_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "ChanServ") == 0) {
+        if (!command_expensive_allow(server, client, "CHANSERV", 2U))
+            return COMMAND_KEEP_CLIENT;
         if (!channel_log_handle_chanserv(server, client, text))
             chanserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "MemoServ") == 0) {
-        command_memoserv_message(server, client, text);
+        if (command_expensive_allow(server, client, "MEMOSERV", 2U))
+            command_memoserv_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
 
