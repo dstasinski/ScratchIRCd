@@ -54,11 +54,13 @@ typedef struct Channel {
     char ban_redirect[IRC_CHANNEL_NAME_MAX + 1U];
 
     /**
-     * Read-mostly ChanServ policy cached for a live channel. These fields are
-     * refreshed from chanserv.db whenever registration/founder/MLOCK/enabled
-     * state changes. ACCESS entries remain database-backed so authorization
-     * changes cannot become stale.
+     * Read-mostly ChanServ policy cached for a live channel. `loaded` also
+     * caches the negative result for an unregistered/disabled channel so JOIN
+     * does not reopen SQLite repeatedly. Explicit ChanServ mutations force a
+     * refresh. ACCESS entries remain database-backed so authorization changes
+     * cannot become stale.
      */
+    int chanserv_policy_loaded;
     int chanserv_policy_valid;
     char chanserv_founder[IRC_NICK_MAX + 1U];
     ChannelModeSet chanserv_mode_lock;
