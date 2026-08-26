@@ -112,6 +112,8 @@ def main():
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
+            f.write("cloak_prefix = dru\n")
+            f.write("cloak_key = user-modes-test-cloak-key-0123456789\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
             f.write(f"nickserv_db = {td}/nickserv.db\n")
@@ -143,22 +145,27 @@ def main():
             deaf.expect_not("ordinary chatter")
             speaker.send("PRIVMSG #modes :!bot command")
             deaf.expect("PRIVMSG #modes :!bot command")
-            # +d affects channel PRIVMSG only, not NOTICE.
             speaker.send("NOTICE #modes :channel notice")
             deaf.expect("NOTICE #modes :channel notice")
 
-            # +x changes only the publicly displayed hostname.
+            # +x changes only the publicly displayed hostname and is stable.
             deaf.send("MODE Deaf +x")
             deaf.expect(" 221 Deaf +dx")
             speaker.send("WHOIS Deaf")
             whois = speaker.expect(" 311 Speaker Deaf ")
-            assert "cloak-" in whois, whois
+            assert ".IP" in whois or "dru-" in whois, whois
             assert "127.0.0.1" not in whois, whois
+            first_host = whois.split()[5]
+            deaf.send("MODE Deaf -x"); deaf.expect(" 221 Deaf +d")
+            deaf.send("MODE Deaf +x"); deaf.expect(" 221 Deaf +dx")
+            speaker.send("WHOIS Deaf")
+            whois2 = speaker.expect(" 311 Speaker Deaf ")
+            assert first_host == whois2.split()[5], (first_host, whois2)
             deaf.send("MODE Deaf -x")
             deaf.expect(" 221 Deaf +d")
             speaker.send("WHOIS Deaf")
             whois = speaker.expect(" 311 Speaker Deaf ")
-            assert "cloak-" not in whois, whois
+            assert ".IP" not in whois and "dru-" not in whois, whois
 
             # +W is IRCop-only.
             deaf.send("MODE Deaf +W")
