@@ -8,7 +8,7 @@
 #include <string.h>
 
 static void setup(ServerConfig *config) {
-    runtime_config_defaults(config);
+    memset(config, 0, sizeof(*config));
     (void)snprintf(config->cloak_prefix, sizeof(config->cloak_prefix), "dru");
     (void)snprintf(config->cloak_key, sizeof(config->cloak_key),
                    "test-only-cloak-key-0123456789abcdef");
@@ -34,9 +34,9 @@ int main(void) {
         char *b1 = strchr(b, '.');
         char *c1 = strchr(c, '.');
         assert(a1 && b1 && c1);
-        assert(strcmp(a1, b1) == 0);      /* same /24 shares /24 and /16 fields */
-        assert(strcmp(a1, c1) != 0);      /* different /24 changes /24 field */
-        assert(strcmp(strchr(a1 + 1, '.'), strchr(c1 + 1, '.')) == 0); /* same /16 */
+        assert(strcmp(a1, b1) == 0);
+        assert(strcmp(a1, c1) != 0);
+        assert(strcmp(strchr(a1 + 1, '.'), strchr(c1 + 1, '.')) == 0);
     }
 
     assert(cloak_generate(&config, "2001:db8:1:2::1234", "", v61, sizeof(v61)) == 0);
