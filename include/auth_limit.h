@@ -1,7 +1,7 @@
 #ifndef IRCD_AUTH_LIMIT_H
 #define IRCD_AUTH_LIMIT_H
 
-#include "message_policy.h"
+#include "oper.h"
 #include "server.h"
 
 #include <stdio.h>
