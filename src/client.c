@@ -38,23 +38,15 @@ void client_set_output_limit(Client *client, size_t limit) {
     if (client->outbuf_len > limit) client->output_overflowed = 1;
 }
 
-int client_output_pending(const Client *client) {
-    return client != NULL && client->outbuf_len != 0U;
-}
+int client_output_pending(const Client *client) { return client != NULL && client->outbuf_len != 0U; }
 
 static int queue_append(Client *client, const char *data, size_t length) {
     size_t needed;
     size_t capacity;
     char *grown;
     if (length == 0U) return 0;
-    if (client->outbuf_limit == 0U || length > client->outbuf_limit - client->outbuf_len) {
-        client->output_overflowed = 1;
-        return -1;
-    }
-    if (client->outbuf_start != 0U && client->outbuf_start + client->outbuf_len + length > client->outbuf_capacity) {
-        memmove(client->outbuf, client->outbuf + client->outbuf_start, client->outbuf_len);
-        client->outbuf_start = 0U;
-    }
+    if (client->outbuf_limit == 0U || length > client->outbuf_limit - client->outbuf_len) { client->output_overflowed = 1; return -1; }
+    if (client->outbuf_start != 0U && client->outbuf_start + client->outbuf_len + length > client->outbuf_capacity) { memmove(client->outbuf, client->outbuf + client->outbuf_start, client->outbuf_len); client->outbuf_start = 0U; }
     needed = client->outbuf_start + client->outbuf_len + length;
     if (needed > client->outbuf_capacity) {
         capacity = client->outbuf_capacity == 0U ? 4096U : client->outbuf_capacity;
@@ -64,15 +56,9 @@ static int queue_append(Client *client, const char *data, size_t length) {
             capacity = next;
             if (capacity < needed && capacity == client->outbuf_limit) break;
         }
-        if (capacity < needed) {
-            client->output_overflowed = 1;
-            return -1;
-        }
+        if (capacity < needed) { client->output_overflowed = 1; return -1; }
         grown = realloc(client->outbuf, capacity);
-        if (grown == NULL) {
-            client->output_overflowed = 1;
-            return -1;
-        }
+        if (grown == NULL) { client->output_overflowed = 1; return -1; }
         client->outbuf = grown;
         client->outbuf_capacity = capacity;
     }
@@ -83,14 +69,14 @@ static int queue_append(Client *client, const char *data, size_t length) {
 
 static int transport_write(Client *client, const char *data, size_t length, size_t *written) {
     *written = 0U;
+    if (client->ssl != NULL && client->tls_state != CLIENT_TLS_ESTABLISHED) {
+        client->output_want_read = 0;
+        return 0;
+    }
     if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL) {
         size_t chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
         int rc = SSL_write(client->ssl, data, (int)chunk);
-        if (rc > 0) {
-            *written = (size_t)rc;
-            client->output_want_read = 0;
-            return 1;
-        }
+        if (rc > 0) { *written = (size_t)rc; client->output_want_read = 0; return 1; }
         {
             int error = SSL_get_error(client->ssl, rc);
             if (error == SSL_ERROR_WANT_READ) { client->output_want_read = 1; return 0; }
@@ -164,10 +150,7 @@ int client_send_line(Client *client, const char *line) {
     written = snprintf(buffer, sizeof(buffer), "%s\r\n", line);
     if (written < 0) return -1;
     length = (size_t)written;
-    if (length >= sizeof(buffer)) {
-        length = sizeof(buffer) - 1U;
-        if (length >= 2U) { buffer[length - 2U] = '\r'; buffer[length - 1U] = '\n'; }
-    }
+    if (length >= sizeof(buffer)) { length = sizeof(buffer) - 1U; if (length >= 2U) { buffer[length - 2U] = '\r'; buffer[length - 1U] = '\n'; } }
     return client_send_raw(client, buffer, length);
 }
 
@@ -176,9 +159,7 @@ int client_sendf(Client *client, const char *fmt, ...) {
     va_list args;
     int written;
     if (client == NULL || fmt == NULL) return -1;
-    va_start(args, fmt);
-    written = vsnprintf(line, sizeof(line), fmt, args);
-    va_end(args);
+    va_start(args, fmt); written = vsnprintf(line, sizeof(line), fmt, args); va_end(args);
     if (written < 0) return -1;
     line[sizeof(line) - 1U] = '\0';
     return client_send_line(client, line);
