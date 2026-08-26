@@ -65,7 +65,25 @@ def main():
             other.send("OPER root wrong")
             assert not any("Failed OPER:" in x for x in admin.lines(1.0)),"SNOTICE delivered with user mode -s"
 
-            admin.send("SNOTICE +cds");admin.expect("SNOTICE mask now:")
+            admin.send("SNOTICE +cdsvrxm");admin.expect("SNOTICE mask now:")
+            other.send("NICKSERV REGISTER service-secret")
+            other.expect("Nickname registered and identified")
+            reg_notice=admin.expect("NickServ registration: account=Other")
+            assert "service-secret" not in reg_notice,reg_notice
+
+            other.send("JOIN #svc")
+            other.expect(" JOIN #svc")
+            other.send("CHANSERV REGISTER #svc :SNOTICE test")
+            other.expect("Channel registered successfully")
+            admin.expect("ChanServ registration: channel=#svc founder=Other")
+
+            admin.send("SETHOST Other vhost.example")
+            admin.expect("SETHOST by Admin: Other")
+            admin.send("DEAF +Other")
+            admin.expect("DEAF by Admin: +Other")
+            admin.send("NSSET Other ENABLED 1")
+            admin.expect("NSSET by Admin: account=Other field=ENABLED value=1")
+
             newbie=IRC(p);newbie.send("NICK Newbie");newbie.send("USER newbie 0 * :Newbie");newbie.expect(" 001 Newbie ")
             admin.expect("Client registered: Newbie!")
             newbie.send("QUIT :bye")
