@@ -7,6 +7,7 @@
 int main(void) {
     Client client;
     Channel channel;
+    unsigned int i;
 
     memset(&client, 0, sizeof(client));
     memset(&channel, 0, sizeof(channel));
@@ -65,8 +66,26 @@ int main(void) {
     assert(channel.join_throttle_window_count == 0U);
     assert(channel.join_throttle_window_start == 0);
 
+    /* Attacker-controlled linked lists have hard cardinality bounds. */
+    channel_mask_clear(&channel.ban_list);
+    for (i = 0U; i < IRC_CHANNEL_MASK_LIST_MAX; ++i) {
+        char mask[64];
+        (void)snprintf(mask, sizeof(mask), "*!user%u@host.example", i);
+        assert(channel_mask_add(&channel.ban_list, mask) == 0);
+    }
+    assert(channel_mask_add(&channel.ban_list, "*!overflow@host.example") == -2);
+    /* A duplicate remains harmless and succeeds even when the list is full. */
+    assert(channel_mask_add(&channel.ban_list, "*!user0@host.example") == 0);
+
+    channel_invite_clear(&channel);
+    for (i = 0U; i < IRC_CHANNEL_INVITE_MAX; ++i)
+        assert(channel_invite_add(&channel, (uint64_t)i + 1U) == 0);
+    assert(channel_invite_add(&channel, UINT64_C(999999)) == -2);
+    assert(channel_invite_add(&channel, 1U) == 0);
+
     channel_mask_clear(&channel.ban_list);
     channel_mask_clear(&channel.exception_list);
+    channel_mask_clear(&channel.invite_exception_list);
     channel_invite_clear(&channel);
     channel_join_throttle_clear(&channel);
 
