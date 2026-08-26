@@ -3,10 +3,13 @@
 
 #include "config.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
 
 #define IRCD_TEXT_CACHE_MAX_BYTES 262144U
 
