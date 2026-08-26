@@ -58,6 +58,7 @@ typedef struct ServerConfig {
     size_t history_limit;
     unsigned int history_retention_days;
     size_t history_max_rows;
+    size_t channel_log_queue_max_rows;
     size_t memoserv_quota;
     unsigned int memoserv_retention_days;
 
