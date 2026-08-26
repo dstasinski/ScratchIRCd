@@ -17,9 +17,36 @@
 
 const char *command_reply_nick(const Client *client){return(client==NULL||client->nick[0]=='\0')?"*":client->nick;}
 
-static int registration_geo_banned(Server *server,Client *client){GeoBanDb db={0};GeoBanRecord record;int matched;if(geoban_db_open(&db,server->config.bans_db)!=0)return 0;matched=geoban_db_match(&db,&client->geoip,&record);if(matched==1){snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");(void)shutdown(client->fd,SHUT_RDWR);}geoban_db_close(&db);return matched==1;}
+/* Registration policy is consulted for every client but changes relatively
+ * rarely. Keep persistent SQLite handles rather than reopening bans.db twice
+ * per registration. Policy itself remains database-backed, so KLINE/ZLINE and
+ * GEOBAN changes become visible immediately on these same live connections. */
+static BanDb registration_ban_db={0};
+static GeoBanDb registration_geoban_db={0};
+static char registration_ban_path[IRCD_CONFIG_PATH_MAX+1U];
+static char registration_geoban_path[IRCD_CONFIG_PATH_MAX+1U];
 
-static int registration_banned(Server *server,Client *client){BanDb db={0};BanRecord record;char host_identity[IRCD_MESSAGE_BUFFER_SIZE],ip_identity[IRCD_MESSAGE_BUFFER_SIZE];const char *real_host_identity=NULL;int matched=0;BanType matched_type=BAN_TYPE_ZLINE;if(ban_db_open(&db,server->config.bans_db)!=0)return 0;if(ban_db_match(&db,BAN_TYPE_ZLINE,client->real_ip,NULL,&record)==1){matched=1;matched_type=BAN_TYPE_ZLINE;}else{if(client->real_host[0]!='\0'){(void)snprintf(host_identity,sizeof(host_identity),"%s@%s",client->user,client->real_host);real_host_identity=host_identity;}(void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);if(ban_db_match(&db,BAN_TYPE_KLINE,real_host_identity!=NULL?real_host_identity:ip_identity,ip_identity,&record)==1){matched=1;matched_type=BAN_TYPE_KLINE;}}if(matched){snotice_broadcast(server,SNOTICE_BANS,"Registration rejected by %s: %s!%s@%s [real_ip=%s] matched %s",matched_type==BAN_TYPE_ZLINE?"ZLINE":"KLINE",command_reply_nick(client),client->user,client->display_host,client->real_ip,record.mask);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"Banned");(void)shutdown(client->fd,SHUT_RDWR);}ban_db_close(&db);return matched;}
+static BanDb *registration_ban_handle(Server *server){
+    if(server==NULL||server->config.bans_db[0]=='\0')return NULL;
+    if(registration_ban_db.handle!=NULL&&strcmp(registration_ban_path,server->config.bans_db)==0)return &registration_ban_db;
+    if(registration_ban_db.handle!=NULL){ban_db_close(&registration_ban_db);registration_ban_path[0]='\0';}
+    if(ban_db_open(&registration_ban_db,server->config.bans_db)!=0)return NULL;
+    (void)snprintf(registration_ban_path,sizeof(registration_ban_path),"%s",server->config.bans_db);
+    return &registration_ban_db;
+}
+
+static GeoBanDb *registration_geoban_handle(Server *server){
+    if(server==NULL||server->config.bans_db[0]=='\0')return NULL;
+    if(registration_geoban_db.handle!=NULL&&strcmp(registration_geoban_path,server->config.bans_db)==0)return &registration_geoban_db;
+    if(registration_geoban_db.handle!=NULL){geoban_db_close(&registration_geoban_db);registration_geoban_path[0]='\0';}
+    if(geoban_db_open(&registration_geoban_db,server->config.bans_db)!=0)return NULL;
+    (void)snprintf(registration_geoban_path,sizeof(registration_geoban_path),"%s",server->config.bans_db);
+    return &registration_geoban_db;
+}
+
+static int registration_geo_banned(Server *server,Client *client){GeoBanDb *db;GeoBanRecord record;int matched;db=registration_geoban_handle(server);if(db==NULL)return 0;matched=geoban_db_match(db,&client->geoip,&record);if(matched==1){snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");(void)shutdown(client->fd,SHUT_RDWR);}return matched==1;}
+
+static int registration_banned(Server *server,Client *client){BanDb *db;BanRecord record;char host_identity[IRCD_MESSAGE_BUFFER_SIZE],ip_identity[IRCD_MESSAGE_BUFFER_SIZE];const char *real_host_identity=NULL;int matched=0;BanType matched_type=BAN_TYPE_ZLINE;db=registration_ban_handle(server);if(db==NULL)return 0;if(ban_db_match(db,BAN_TYPE_ZLINE,client->real_ip,NULL,&record)==1){matched=1;matched_type=BAN_TYPE_ZLINE;}else{if(client->real_host[0]!='\0'){(void)snprintf(host_identity,sizeof(host_identity),"%s@%s",client->user,client->real_host);real_host_identity=host_identity;}(void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);if(ban_db_match(db,BAN_TYPE_KLINE,real_host_identity!=NULL?real_host_identity:ip_identity,ip_identity,&record)==1){matched=1;matched_type=BAN_TYPE_KLINE;}}if(matched){snotice_broadcast(server,SNOTICE_BANS,"Registration rejected by %s: %s!%s@%s [real_ip=%s] matched %s",matched_type==BAN_TYPE_ZLINE?"ZLINE":"KLINE",command_reply_nick(client),client->user,client->display_host,client->real_ip,record.mask);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"Banned");(void)shutdown(client->fd,SHUT_RDWR);}return matched;}
 
 static int isupport_payload_fits(const Server *server,const Client *client,const char *payload){
     int written;
