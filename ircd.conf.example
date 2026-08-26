@@ -37,6 +37,12 @@ dns_timeout_seconds = 5
 nospoof = yes
 nospoof_timeout_seconds = 30
 
+# MODE +x cloaking. cloak_key must be a private random secret of at least
+# 16 characters; an empty key disables +x cloak generation. Changing either
+# value requires RESTART because cloaks are used in public identity and bans.
+cloak_prefix = dru
+cloak_key =
+
 # Authorized WebIRC gateways.
 # webirc_gateway = 127.0.0.1 change-me
 # webirc_gateway = 2001:db8::10 another-secret
