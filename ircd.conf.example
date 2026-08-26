@@ -75,7 +75,20 @@ kline_default_reason = Temporary KLINE
 zline_default_duration_seconds = 3600
 zline_default_reason = Temporary ZLINE
 
+# Maximum rows returned by one CHATHISTORY request.
 history_limit = 100
+# Persistent IRCv3 channel history is pruned approximately every five minutes.
+# A retention value of 0 disables age-based pruning, but history_max_rows is
+# always enforced. SQLite reuses freed pages rather than VACUUMing the hot DB.
+history_retention_days = 30
+history_max_rows = 250000
+
+# Channel text logging uses a durable SQLite queue before five-minute text-file
+# flushes. Existing queued events are never discarded to enforce this limit.
+# If the backlog reaches the ceiling, new log events are refused until the
+# backlog flushes and IRCops receive rate-limited admin/flood SNOTICES.
+channel_log_queue_max_rows = 250000
+
 memoserv_quota = 100
 memoserv_retention_days = 90
 
