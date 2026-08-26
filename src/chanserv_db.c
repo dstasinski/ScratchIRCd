@@ -191,16 +191,20 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
 
 int chanserv_db_create(ChanServDb *db, const char *name, const char *founder, const char *description) {
     sqlite3_stmt *stmt = NULL;
-    int rc;
+    int rc, changed;
     if (db == NULL || db->db == NULL || name == NULL || founder == NULL) return -1;
     if (sqlite3_prepare_v2(db->db,
-        "INSERT INTO channels(name,founder,description) VALUES(?1,?2,?3)", -1, &stmt, NULL) != SQLITE_OK) return -1;
+        "INSERT INTO channels(name,founder,description) "
+        "SELECT ?1,?2,?3 WHERE (SELECT COUNT(*) FROM channels) < ?4",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,2,founder,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,3,description != NULL ? description : "",-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt,4,(sqlite3_int64)IRCD_CHANSERV_REGISTRATION_HARD_MAX);
     rc = sqlite3_step(stmt);
+    changed = sqlite3_changes(db->db);
     sqlite3_finalize(stmt);
-    if (rc == SQLITE_DONE) { pchannels_changed(); return 0; }
+    if (rc == SQLITE_DONE && changed > 0) { pchannels_changed(); return 0; }
     return -1;
 }
 
@@ -272,15 +276,22 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
 
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccessLevel level) {
-    sqlite3_stmt *stmt=NULL; int rc;
+    sqlite3_stmt *stmt=NULL; int rc, changed;
     if(db==NULL||db->db==NULL||channel==NULL||account==NULL||
        level<CHANSERV_ACCESS_VOICE||
        (level>CHANSERV_ACCESS_OWNER && level!=CHANSERV_ACCESS_PROTECTED)) return -1;
     if(sqlite3_prepare_v2(db->db,
-        "INSERT INTO access(channel,account,level) VALUES(?1,?2,?3) ON CONFLICT(channel,account) DO UPDATE SET level=excluded.level,updated_at=unixepoch()",
+        "INSERT INTO access(channel,account,level) "
+        "SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM access WHERE channel=?1 AND account=?2) "
+        "OR (SELECT COUNT(*) FROM access WHERE channel=?1) < ?4 "
+        "ON CONFLICT(channel,account) DO UPDATE SET level=excluded.level,updated_at=unixepoch()",
         -1,&stmt,NULL)!=SQLITE_OK)return -1;
-    sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT); sqlite3_bind_int(stmt,3,(int)level);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE?0:-1;
+    sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt,3,(int)level);
+    sqlite3_bind_int64(stmt,4,(sqlite3_int64)IRCD_CHANSERV_ACCESS_HARD_MAX);
+    rc=sqlite3_step(stmt); changed=sqlite3_changes(db->db); sqlite3_finalize(stmt);
+    return rc==SQLITE_DONE && changed>0?0:-1;
 }
 
 int chanserv_db_access_delete(ChanServDb *db, const char *channel, const char *account) {
