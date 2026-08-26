@@ -41,4 +41,12 @@ int history_db_prune(HistoryDb *db, unsigned int retention_days,
  */
 HistoryDb *history_db_shared(const char *path);
 
+/**
+ * Run shared history pruning at most once every five minutes. A changed
+ * retention/max-row policy forces immediate maintenance. Failed maintenance is
+ * retried by the next caller.
+ */
+int history_db_shared_maintain(const char *path, unsigned int retention_days,
+                               size_t max_rows, int64_t now_ms);
+
 #endif /* IRCD_HISTORY_DB_H */
