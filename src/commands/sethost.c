@@ -50,8 +50,8 @@ CommandResult command_sethost(Server *server, Client *client, char *params) {
 
     (void)snprintf(old_host, sizeof(old_host), "%s", target->display_host);
     (void)snprintf(target->display_host, sizeof(target->display_host), "%s", host);
+    /* +t supersedes +x but must not erase the latent cloak preference. */
     target->modes = client_mode_add(target->modes, CLIENT_MODE_VHOST);
-    target->modes = client_mode_remove(target->modes, CLIENT_MODE_CLOAKED);
 
     client_sendf(client, ":%s NOTICE %s :SETHOST %s -> %s",
                  server->config.server_name, client->nick,
