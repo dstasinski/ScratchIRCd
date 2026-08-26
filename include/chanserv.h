@@ -6,8 +6,15 @@
 /** Process a command addressed to the virtual ChanServ service. */
 void chanserv_handle_message(Server *server, Client *client, char *text);
 
-/** Restore service-controlled registration, mode-lock, topic, and runtime state. */
+/**
+ * Restore service-controlled registration, mode-lock, topic, and runtime state.
+ * The first lookup result (including an unregistered channel) is cached for the
+ * lifetime of the live Channel object.
+ */
 void chanserv_restore_channel(Server *server, Channel *channel);
+
+/** Force a fresh ChanServ DB lookup after an explicit service mutation. */
+void chanserv_refresh_channel(Server *server, Channel *channel);
 
 /** True when this authenticated client owns the enabled channel registration. */
 int chanserv_client_is_founder(Server *server, const Client *client, const char *channel_name);
