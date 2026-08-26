@@ -91,6 +91,7 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         return command_mode_policy_core(server, client, params);
     }
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
     filtered_modes[0] = '\0';
     for (i = 0U; modes[i] != '\0'; ++i) {
