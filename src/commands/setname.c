@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -14,6 +15,7 @@ CommandResult command_setname(Server *server, Client *client, char *params) {
     char *nick;
     char *realname;
     Client *target;
+    char old_realname[IRC_REALNAME_MAX + 1U];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_OVERRIDE)) {
@@ -39,10 +41,15 @@ CommandResult command_setname(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    (void)snprintf(old_realname, sizeof(old_realname), "%s", target->realname);
     (void)snprintf(target->realname, sizeof(target->realname), "%s", realname);
     client_sendf(client, ":%s NOTICE %s :SETNAME completed for %s",
                  server->config.server_name, client->nick, target->nick);
     client_sendf(target, ":%s NOTICE %s :Your real name is now %s",
                  server->config.server_name, target->nick, target->realname);
+    snotice_broadcast(server, SNOTICE_IDENTITY,
+                      "SETNAME by %s: %s '%s' -> '%s' [real_ip=%s]",
+                      client->nick, target->nick, old_realname,
+                      target->realname, target->real_ip);
     return COMMAND_KEEP_CLIENT;
 }
