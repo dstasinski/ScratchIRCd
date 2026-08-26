@@ -10,6 +10,7 @@
 
 #include "commands.h"
 #include "channel_log.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -22,6 +23,9 @@ CommandResult command_restart(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    snotice_broadcast(server, SNOTICE_ADMIN,
+                      "RESTART requested by %s from %s",
+                      client->nick, client->real_ip);
     client_sendf(client, ":%s NOTICE %s :Restarting ScratchIRCd",
                  server->config.server_name, client->nick);
     channel_log_flush_all(server);
