@@ -50,6 +50,11 @@ typedef struct Client {
     int output_want_read;
     int output_overflowed;
 
+    /* Token budget used only for expensive/read-amplifying commands. */
+    unsigned int command_budget_tokens;
+    time_t command_budget_updated;
+    time_t command_throttle_notice_time;
+
     OperPermissionSet oper_permissions;
     char oper_name[IRCD_OPER_NAME_MAX + 1U];
     SnoticeMask snotice_mask;
