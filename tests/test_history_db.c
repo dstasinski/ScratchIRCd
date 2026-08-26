@@ -8,13 +8,18 @@
 
 int main(void) {
     char path[256];
+    char path2[256];
     HistoryDb db = {0};
+    HistoryDb *shared1;
+    HistoryDb *shared2;
     HistoryRecord record;
     HistoryRecord rows[4];
     size_t count = 0U;
 
     (void)snprintf(path, sizeof(path), "/tmp/scratchircd-history-%ld.db", (long)getpid());
+    (void)snprintf(path2, sizeof(path2), "/tmp/scratchircd-history2-%ld.db", (long)getpid());
     (void)unlink(path);
+    (void)unlink(path2);
     assert(history_db_open(&db, path) == 0);
 
     memset(&record, 0, sizeof(record));
@@ -45,8 +50,26 @@ int main(void) {
     assert(strcmp(rows[0].command, "NOTICE") == 0);
     assert(strcmp(rows[1].text, "third") == 0);
     assert(rows[0].created_at_ms < rows[1].created_at_ms);
-
     history_db_close(&db);
+
+    /* The shared API keeps one open handle for repeated hot-path calls. */
+    shared1 = history_db_shared(path);
+    assert(shared1 != NULL && shared1->handle != NULL);
+    shared2 = history_db_shared(path);
+    assert(shared2 == shared1);
+    memset(rows, 0, sizeof(rows));
+    count = 0U;
+    assert(history_db_latest(shared2, "#test", 3U, rows, 4U, &count) == 0);
+    assert(count == 3U);
+
+    /* A restart selecting another history path transparently replaces it. */
+    shared2 = history_db_shared(path2);
+    assert(shared2 == shared1 && shared2->handle != NULL);
+    count = 99U;
+    assert(history_db_latest(shared2, "#test", 3U, rows, 4U, &count) == 0);
+    assert(count == 0U);
+
     (void)unlink(path);
+    (void)unlink(path2);
     return 0;
 }
