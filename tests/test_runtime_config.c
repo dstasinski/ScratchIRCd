@@ -19,6 +19,8 @@ int main(void) {
     assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
     assert(fputs("registration_timeout_seconds = 75\n", file) >= 0);
+    assert(fputs("cloak_prefix = dru\n", file) >= 0);
+    assert(fputs("cloak_key = runtime-test-cloak-key-0123456789\n", file) >= 0);
     assert(fputs("dnsbl_timeout_seconds = 9\n", file) >= 0);
     assert(fputs("dnsbl = Primary dnsbl.example.test\n", file) >= 0);
     assert(fputs("dnsbl = Secondary dnsbl2.example.test\n", file) >= 0);
@@ -45,6 +47,8 @@ int main(void) {
     assert(strcmp(config.connection_limit_exempt_ips[0], "192.0.2.10") == 0);
     assert(strcmp(config.connection_limit_exempt_ips[1], "2001:db8::10") == 0);
     assert(config.registration_timeout_seconds == 75U);
+    assert(strcmp(config.cloak_prefix, "dru") == 0);
+    assert(strcmp(config.cloak_key, "runtime-test-cloak-key-0123456789") == 0);
     assert(config.dnsbl_timeout_seconds == 9U);
     assert(config.dnsbl_count == 2U);
     assert(strcmp(config.dnsbls[0].name, "Primary") == 0);
