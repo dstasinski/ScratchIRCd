@@ -69,7 +69,7 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
             client_sendf(target, RPL_TOPIC, server->config.server_name,
                          target->nick, channel->name, channel->topic);
         }
-        command_send_names(channel, target);
+        command_send_names(server, channel, target);
     }
 
     client_sendf(client, ":%s NOTICE %s :SAJOIN completed for %s",
