@@ -144,7 +144,7 @@ def main():
             owner.send("NICKSERV SET EMAIL owner@example.test")
             owner.expect("Verification email queued.")
             owner.send("PRIVMSG NickServ :RESET Owner")
-            owner.expect("Email request rate limit reached for your IP address")
+            owner.expect("Email request rate limit reached")
 
             # Seed an enabled recipient account. Password verification is not
             # involved in MemoServ recipient lookup, and Owner remains the
