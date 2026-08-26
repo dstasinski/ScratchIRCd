@@ -238,8 +238,17 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
         client->dnsbl_state = CLIENT_DNSBL_LISTED;
         (void)snprintf(reason, sizeof(reason), "DNSBL %s (%s)", result->name[0] != '\0' ? result->name : "listed", result->zone[0] != '\0' ? result->zone : "unknown");
         (void)snprintf(set_by, sizeof(set_by), "DNSBL:%s", result->name[0] != '\0' ? result->name : "automatic");
-        if (ban_db_open(&db, server->config.bans_db) == 0) { (void)ban_db_add(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by); ban_db_close(&db); }
-        snotice_broadcast(server, SNOTICE_DNS | SNOTICE_BANS, "DNSBL listed %s in %s (%s); automatic exact-IP ZLINE created", client->real_ip, result->zone[0] != '\0' ? result->zone : "unknown", result->name[0] != '\0' ? result->name : "listed");
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_db_purge_expired(&db);
+            (void)ban_db_add_timed(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by,
+                                   server->config.zline_default_duration_seconds);
+            ban_db_close(&db);
+        }
+        snotice_broadcast(server, SNOTICE_DNS | SNOTICE_BANS,
+                          "DNSBL listed %s in %s (%s); automatic exact-IP ZLINE created for %u seconds",
+                          client->real_ip, result->zone[0] != '\0' ? result->zone : "unknown",
+                          result->name[0] != '\0' ? result->name : "listed",
+                          server->config.zline_default_duration_seconds);
         client_sendf(client, ERR_YOUREBANNEDCREEP, server->config.server_name, client->nick[0] != '\0' ? client->nick : "*", server->config.admin_email);
         (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", reason);
         (void)shutdown(client->fd, SHUT_RDWR);
