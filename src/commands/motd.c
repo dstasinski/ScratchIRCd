@@ -24,9 +24,8 @@ static void send_cached_motd_lines(Server *server, Client *client,
         line[chunk] = '\0';
         if (chunk > 0U && line[chunk - 1U] == '\r') line[chunk - 1U] = '\0';
         client_sendf(client, RPL_MOTD, server->config.server_name, client->nick, line);
-        offset += chunk;
-        if (chunk == logical && newline != NULL) ++offset;
-        if (logical == 0U && newline != NULL) ++offset;
+        if (chunk == logical) offset += chunk + (newline != NULL ? 1U : 0U);
+        else offset += chunk;
     }
 }
 
