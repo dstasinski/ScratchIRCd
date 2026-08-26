@@ -43,10 +43,14 @@ def read_registration(sock, nick):
             if not chunk:
                 break
             data += chunk
-            if f" 005 {nick} ".encode() in data and data.count(f" 005 {nick} ".encode()) >= 2:
-                break
+            # Registration may contain more than two 005 replies when a large
+            # PCHANNELS token has to be split to respect the IRC wire limit.
+            if f" 005 {nick} ".encode() in data and b" :are supported by this server\r\n" in data:
+                # Give the server a brief chance to deliver any immediately
+                # following 005 continuation line before returning.
+                time.sleep(0.05)
         except socket.timeout:
-            pass
+            break
     return [line.rstrip(b"\r").decode(errors="replace")
             for line in data.split(b"\n") if line]
 
@@ -68,10 +72,28 @@ def stop_server(proc):
         proc.wait(timeout=2)
 
 
+def irc_fold(value):
+    table = str.maketrans("{}|~", "[]\\^")
+    return value.lower().translate(table)
+
+
+def irc_nocase(left, right):
+    a, b = irc_fold(left), irc_fold(right)
+    return (a > b) - (a < b)
+
+
+def open_chanserv_db(path):
+    db = sqlite3.connect(path)
+    db.create_collation("IRCNOCASE", irc_nocase)
+    return db
+
+
 def assert_base_isupport(lines, nick):
     replies = [line for line in lines if f" 005 {nick} " in line]
-    assert len(replies) == 2, replies
+    assert len(replies) >= 2, replies
     for line in replies:
+        # 512 bytes total on the wire, including CRLF.
+        assert len((line + "\r\n").encode()) <= 512, line
         payload = line.split(f" 005 {nick} ", 1)[1]
         payload = payload.rsplit(" :are supported by this server", 1)[0]
         assert len(payload.split()) <= 13, line
@@ -89,7 +111,20 @@ def assert_base_isupport(lines, nick):
         assert token in joined, (token, replies)
     assert "STATUSMSG=" not in joined, replies
     assert "MAXLIST=" not in joined, replies
-    return joined
+    return replies
+
+
+def pchannels_from_replies(replies, nick):
+    names = []
+    pchannel_lines = 0
+    for line in replies:
+        payload = line.split(f" 005 {nick} ", 1)[1]
+        payload = payload.rsplit(" :are supported by this server", 1)[0]
+        for part in payload.split():
+            if part.startswith("PCHANNELS="):
+                pchannel_lines += 1
+                names.extend(name for name in part.split("=", 1)[1].split(",") if name)
+    return names, pchannel_lines
 
 
 def main():
@@ -125,21 +160,23 @@ def main():
         try:
             wait_listen(port, proc)
             sock, lines = register_and_read(port, "Support")
-            joined = assert_base_isupport(lines, "Support")
-            assert "PCHANNELS=" in joined
+            replies = assert_base_isupport(lines, "Support")
+            names, pchannel_lines = pchannels_from_replies(replies, "Support")
+            assert names == [], names
+            assert pchannel_lines == 1, replies
         finally:
             if sock is not None:
                 try: sock.close()
                 except OSError: pass
             stop_server(proc)
 
-        # Seed more registered channels than PCHANNELS is allowed to enumerate.
-        db = sqlite3.connect(chanserv_db)
+        # Seed enough channels to require PCHANNELS continuation by wire size.
+        db = open_chanserv_db(chanserv_db)
         try:
-            for i in range(40):
+            for i in range(80):
                 db.execute(
                     "INSERT INTO channels(name,founder,description,enabled) VALUES(?,?,?,1)",
-                    (f"#P{i:02d}", "founder", "test"))
+                    (f"#PersistentChannel{i:03d}", "founder", "test"))
             db.commit()
         finally:
             db.close()
@@ -150,13 +187,12 @@ def main():
         try:
             wait_listen(port, proc)
             sock, lines = register_and_read(port, "Bounded")
-            joined = assert_base_isupport(lines, "Bounded")
-            token = next(part for part in joined.split() if part.startswith("PCHANNELS="))
-            names = [name for name in token.split("=", 1)[1].split(",") if name]
-            assert len(names) == 32, names
-            assert names == [f"#P{i:02d}" for i in range(32)], names
+            replies = assert_base_isupport(lines, "Bounded")
+            names, pchannel_lines = pchannels_from_replies(replies, "Bounded")
+            assert names == [f"#PersistentChannel{i:03d}" for i in range(80)], names
+            assert pchannel_lines > 1, replies
 
-            db = sqlite3.connect(chanserv_db)
+            db = open_chanserv_db(chanserv_db)
             try:
                 indexes = {row[1] for row in db.execute("PRAGMA index_list(channels)")}
             finally:
