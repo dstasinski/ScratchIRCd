@@ -23,6 +23,7 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
     Channel *channel;
     ChannelMember *membership;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
+    int invite_rc;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
@@ -90,7 +91,14 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (channel_invite_add(channel, target->id) != 0) return COMMAND_KEEP_CLIENT;
+    invite_rc = channel_invite_add(channel, target->id);
+    if (invite_rc == -2) {
+        client_sendf(client, ":%s NOTICE %s :Channel %s pending invite list is full (maximum %u)",
+                     server->config.server_name, client->nick, channel->name,
+                     (unsigned)IRC_CHANNEL_INVITE_MAX);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (invite_rc != 0) return COMMAND_KEEP_CLIENT;
 
     client_sendf(client, RPL_INVITING,
                  server->config.server_name, client->nick,
