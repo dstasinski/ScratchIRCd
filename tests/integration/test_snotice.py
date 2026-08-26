@@ -37,7 +37,7 @@ def main():
         p=port();h=subprocess.check_output([mk,"adminpass"],text=True).strip();conf=os.path.join(td,"ircd.conf")
         with open(conf,"w") as f:
             f.write(f"server_name = test.local\nnetwork_name = TestNet\nbind_address = 127.0.0.1\nport = {p}\nmax_clients = 20\ndns_timeout_seconds = 1\noperators_db = {td}/operators.db\nbans_db = {td}/bans.db\nnickserv_db = {td}/nickserv.db\nchanserv_db = {td}/chanserv.db\nmemoserv_db = {td}/memoserv.db\nhistory_db = {td}/history.db\ngeoip_city_db = \ngeoip_asn_db = \nnetadmin_name = root\nnetadmin_password_hash = {h}\nnetadmin_hostmask = *!*@127.0.0.1\n")
-        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);admin=other=None
+        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);admin=other=newbie=bad=None
         try:
             end=time.monotonic()+5
             while time.monotonic()<end:
@@ -47,6 +47,7 @@ def main():
             admin=IRC(p);admin.send("NICK Admin");admin.send("USER admin 0 * :Admin");admin.expect(" 001 Admin ");admin.send("OPER root adminpass");admin.expect(" 381 Admin ")
             admin.send("SNOTICE +*");admin.expect("SNOTICE mask now: +cokbgwdsavrxmf")
             other=IRC(p);other.send("NICK Other");other.send("USER other 0 * :Other");other.expect(" 001 Other ")
+            admin.expect("Client registered: Other!")
             other.send("SNOTICE +o");other.expect(" 481 Other ")
             other.send("OPER root wrong");admin.expect("Failed OPER:")
             admin.send("SNOTICE -o");admin.expect("SNOTICE mask now:")
@@ -60,9 +61,17 @@ def main():
             assert "s" not in mode_token.lstrip("+"),mode_line
             other.send("OPER root wrong")
             assert not any("Failed OPER:" in x for x in admin.lines(1.0)),"SNOTICE delivered with user mode -s"
+
+            admin.send("SNOTICE +cs");admin.expect("SNOTICE mask now:")
+            newbie=IRC(p);newbie.send("NICK Newbie");newbie.send("USER newbie 0 * :Newbie");newbie.expect(" 001 Newbie ")
+            admin.expect("Client registered: Newbie!")
+            bad=IRC(p);bad.send(":spoofed.example PING :x")
+            admin.expect("Protocol violation: client-supplied prefix")
         finally:
-            if admin:admin.close()
-            if other:other.close()
+            for c in (admin,other,newbie,bad):
+                if c:
+                    try:c.close()
+                    except OSError:pass
             if proc.poll() is None:proc.terminate()
             try:proc.wait(timeout=3)
             except subprocess.TimeoutExpired:proc.kill();proc.wait()
