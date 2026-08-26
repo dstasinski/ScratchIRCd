@@ -64,6 +64,8 @@ typedef struct ServerConfig {
     unsigned int memoserv_retention_days;
     unsigned int nickserv_registrations_per_ip;
     unsigned int nickserv_registration_window_seconds;
+    unsigned int nickserv_mail_requests_per_ip;
+    unsigned int nickserv_mail_window_seconds;
     unsigned int chanserv_max_channels_per_account;
 
     unsigned int kline_default_duration_seconds;
