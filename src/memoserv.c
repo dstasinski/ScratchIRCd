@@ -17,6 +17,8 @@
 #include <strings.h>
 #include <time.h>
 
+#define MEMOSERV_PURGE_INTERVAL_SECONDS 300
+
 static void ms_notice(Server *server, Client *client, const char *text) {
     client_sendf(client, ":MemoServ!service@%s NOTICE %s :%s",
                  server->config.server_name, client->nick, text);
@@ -39,11 +41,31 @@ static int parse_id(const char *text, long long *value) {
     return 0;
 }
 
+/* Retention is maintenance work, not part of the semantics of each individual
+ * MemoServ command. Run the global DELETE at most once every five minutes per
+ * configured database/retention policy. A path or retention change forces an
+ * immediate pass. Failed purges are not cached, so the next operation retries. */
 static void purge_expired(Server *server, MemoServDb *db) {
+    static time_t last_purge;
+    static unsigned int last_retention_days;
+    static char last_db_path[IRCD_CONFIG_PATH_MAX + 1U];
     long long cutoff;
+    time_t now;
+
     if (server == NULL || db == NULL || server->config.memoserv_retention_days == 0U) return;
-    cutoff = (long long)time(NULL) - (long long)server->config.memoserv_retention_days * 86400LL;
-    (void)memoserv_db_purge_before(db, NULL, cutoff, NULL);
+    now = time(NULL);
+    if (last_purge != (time_t)0 && now >= last_purge &&
+        (now - last_purge) < MEMOSERV_PURGE_INTERVAL_SECONDS &&
+        last_retention_days == server->config.memoserv_retention_days &&
+        strcmp(last_db_path, server->config.memoserv_db) == 0)
+        return;
+
+    cutoff = (long long)now - (long long)server->config.memoserv_retention_days * 86400LL;
+    if (memoserv_db_purge_before(db, NULL, cutoff, NULL) == 0) {
+        last_purge = now;
+        last_retention_days = server->config.memoserv_retention_days;
+        (void)snprintf(last_db_path, sizeof(last_db_path), "%s", server->config.memoserv_db);
+    }
 }
 
 static int load_enabled_account(Server *server, const char *name, NickServAccount *account) {
