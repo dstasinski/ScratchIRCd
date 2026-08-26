@@ -52,7 +52,6 @@ static NickServRegistrationThrottle *registration_slot(Server *server,
                                                         const char *ip,
                                                         time_t now) {
     NickServRegistrationThrottle *free_slot = NULL;
-    NickServRegistrationThrottle *oldest = NULL;
     size_t i;
     unsigned int window;
     if (server == NULL || ip == NULL || *ip == '\0') return NULL;
@@ -69,8 +68,6 @@ static NickServRegistrationThrottle *registration_slot(Server *server,
         if (slot->ip[0] == '\0' || slot->window_start == 0 ||
             now - slot->window_start >= (time_t)window) {
             if (free_slot == NULL) free_slot = slot;
-        } else if (oldest == NULL || slot->window_start < oldest->window_start) {
-            oldest = slot;
         }
     }
     if (free_slot == NULL) return NULL;
