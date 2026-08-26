@@ -31,6 +31,31 @@ static int founder_matches(const ChanServChannel *record, const Client *client) 
            strcasecmp(record->founder, client->account_name) == 0;
 }
 
+static int cached_founder_matches(const Channel *channel, const Client *client) {
+    return channel != NULL && channel->chanserv_policy_valid && client != NULL &&
+           client->account_name[0] != '\0' &&
+           strcasecmp(channel->chanserv_founder, client->account_name) == 0;
+}
+
+static void clear_cached_policy(Channel *channel) {
+    if (channel == NULL) return;
+    channel->chanserv_policy_valid = 0;
+    channel->chanserv_founder[0] = '\0';
+    channel->chanserv_mode_lock = 0U;
+    channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_REGISTERED);
+}
+
+static void cache_policy(Channel *channel, const ChanServChannel *record) {
+    if (channel == NULL || record == NULL || !record->enabled) {
+        clear_cached_policy(channel);
+        return;
+    }
+    channel->chanserv_policy_valid = 1;
+    (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder),
+                   "%s", record->founder);
+    channel->chanserv_mode_lock = (ChannelModeSet)record->mode_lock;
+}
+
 static ChannelModeSet persistent_mode_bit(char letter) {
     switch (letter) {
         case 'A': return CHANNEL_MODE_ADMIN_ONLY;
@@ -94,37 +119,33 @@ static ChanServAccessLevel parse_access(const char *text) {
 void chanserv_restore_channel(Server *server, Channel *channel) {
     ChanServDb db = {0};
     ChanServChannel record;
+    int found;
     if (server == NULL || channel == NULL) return;
-    if (chanserv_db_open(&db, server->config.chanserv_db) == 0) {
-        if (chanserv_db_get(&db, channel->name, &record) == 1 && record.enabled) {
-            channel->modes = (ChannelModeSet)record.mode_lock;
-            channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
-            (void)snprintf(channel->topic, sizeof(channel->topic), "%s", record.topic);
-            (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter), "%s", record.topic_setter);
-            channel->topic_time = (time_t)record.topic_time;
-            (void)chanserv_persist_restore(server->config.chanserv_db, channel);
-        }
-        chanserv_db_close(&db);
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
+    found = chanserv_db_get(&db, channel->name, &record);
+    if (found == 1 && record.enabled) {
+        cache_policy(channel, &record);
+        channel->modes = (ChannelModeSet)record.mode_lock;
+        channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
+        (void)snprintf(channel->topic, sizeof(channel->topic), "%s", record.topic);
+        (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter), "%s", record.topic_setter);
+        channel->topic_time = (time_t)record.topic_time;
+        (void)chanserv_persist_restore(server->config.chanserv_db, channel);
+    } else if (found == 0 || (found == 1 && !record.enabled)) {
+        clear_cached_policy(channel);
     }
+    chanserv_db_close(&db);
 }
 
 int chanserv_mode_change_allowed(Server *server, const Channel *channel,
                                  ChannelModeSet bit, int adding) {
-    ChanServDb db = {0};
-    ChanServChannel record;
     int desired;
-    int result = 1;
-
-    if (server == NULL || channel == NULL || bit == 0U ||
+    (void)server;
+    if (channel == NULL || bit == 0U ||
         !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)) return 1;
-
-    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0;
-    if (chanserv_db_get(&db, channel->name, &record) == 1 && record.enabled) {
-        desired = (((ChannelModeSet)record.mode_lock & bit) != 0U) ? 1 : 0;
-        result = desired == (adding ? 1 : 0);
-    }
-    chanserv_db_close(&db);
-    return result;
+    if (!channel->chanserv_policy_valid) return 0;
+    desired = (channel->chanserv_mode_lock & bit) != 0U ? 1 : 0;
+    return desired == (adding ? 1 : 0);
 }
 
 void chanserv_persist_channel(Server *server, const Channel *channel) {
@@ -134,10 +155,14 @@ void chanserv_persist_channel(Server *server, const Channel *channel) {
 }
 
 int chanserv_client_is_founder(Server *server, const Client *client, const char *channel_name) {
+    Channel *channel;
     ChanServDb db = {0};
     ChanServChannel record;
     int result = 0;
     if (server == NULL || client == NULL || channel_name == NULL || client->account_name[0] == '\0') return 0;
+    channel = hash_get(&server->channels_by_name, channel_name);
+    if (channel != NULL && channel->chanserv_policy_valid)
+        return cached_founder_matches(channel, client);
     if (chanserv_db_open(&db, server->config.chanserv_db) == 0) {
         if (chanserv_db_get(&db, channel_name, &record) == 1 && record.enabled)
             result = founder_matches(&record, client);
@@ -148,17 +173,34 @@ int chanserv_client_is_founder(Server *server, const Client *client, const char 
 
 ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *client,
                                                const char *channel_name) {
+    Channel *channel;
     ChanServDb db = {0};
     ChanServChannel channel_record;
     ChanServAccess access;
     ChannelPrivilegeSet privileges = 0U;
+    int live_policy = 0;
     if (server == NULL || client == NULL || channel_name == NULL || client->account_name[0] == '\0') return 0U;
-    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0U;
-    if (chanserv_db_get(&db, channel_name, &channel_record) != 1 || !channel_record.enabled) {
-        chanserv_db_close(&db); return 0U;
+
+    channel = hash_get(&server->channels_by_name, channel_name);
+    if (channel != NULL && channel->chanserv_policy_valid) {
+        live_policy = 1;
+        if (cached_founder_matches(channel, client))
+            return CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
     }
-    if (founder_matches(&channel_record, client)) privileges = CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
-    else if (chanserv_db_access_get(&db, channel_name, client->account_name, &access) == 1) {
+
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0U;
+    if (!live_policy) {
+        if (chanserv_db_get(&db, channel_name, &channel_record) != 1 || !channel_record.enabled) {
+            chanserv_db_close(&db);
+            return 0U;
+        }
+        if (founder_matches(&channel_record, client)) {
+            chanserv_db_close(&db);
+            return CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
+        }
+    }
+
+    if (chanserv_db_access_get(&db, channel_name, client->account_name, &access) == 1) {
         switch (access.level) {
             case CHANSERV_ACCESS_OWNER: privileges = CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR; break;
             case CHANSERV_ACCESS_PROTECTED: privileges = CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OPERATOR; break;
@@ -198,7 +240,11 @@ static void command_register(Server *server, Client *client, char *params) {
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0 || chanserv_db_create(&db, channel->name, client->account_name, description != NULL ? description : "") != 0) {
         chanserv_db_close(&db); cs_notice(server, client, "Channel registration failed or the channel is already registered."); return;
     }
-    chanserv_db_close(&db); channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
+    chanserv_db_close(&db);
+    channel->chanserv_policy_valid = 1;
+    (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder), "%s", client->account_name);
+    channel->chanserv_mode_lock = 0U;
+    channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
     (void)channel_add_privileges(channel, client, CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
     chanserv_persist_channel(server, channel);
     cs_notice(server, client, "Channel registered successfully.");
@@ -221,7 +267,7 @@ static void command_drop(Server *server, Client *client, char *params) {
     if (!load_founder_channel(server,client,name,&db,&record)) return;
     if (chanserv_db_delete(&db,record.name)!=0) { chanserv_db_close(&db); cs_notice(server,client,"Channel drop failed."); return; }
     chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,record.name);
-    if(channel!=NULL) channel->modes=channel_mode_remove(channel->modes,CHANNEL_MODE_REGISTERED);
+    if(channel!=NULL) clear_cached_policy(channel);
     cs_notice(server,client,"Channel registration dropped.");
 }
 
