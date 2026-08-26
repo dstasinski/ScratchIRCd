@@ -21,16 +21,29 @@ typedef struct ChannelLogState {
 
 static ChannelLogState *states;
 static Server *active_server;
+static ChanServDb log_db;
+static char log_db_path[IRCD_PATH_MAX + 1U];
+
+static ChanServDb *shared_db(Server *server) {
+    if (server == NULL || server->config.chanserv_db[0] == '\0') return NULL;
+    if (log_db.db != NULL && strcmp(log_db_path, server->config.chanserv_db) == 0)
+        return &log_db;
+    if (log_db.db != NULL) {
+        chanserv_db_close(&log_db);
+        log_db_path[0] = '\0';
+    }
+    if (chanserv_db_open(&log_db, server->config.chanserv_db) != 0) return NULL;
+    (void)snprintf(log_db_path, sizeof(log_db_path), "%s", server->config.chanserv_db);
+    return &log_db;
+}
 
 int channel_log_init(Server *server) {
-    ChanServDb db = {0};
-    int rc;
+    ChanServDb *db;
     if (server == NULL) return -1;
     active_server = server;
-    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    rc = chanserv_db_logging_ensure_schema(&db);
-    chanserv_db_close(&db);
-    return rc;
+    db = shared_db(server);
+    if (db == NULL) return -1;
+    return chanserv_db_logging_ensure_schema(db);
 }
 
 static ChannelLogState *state_for(const char *name, int create) {
@@ -48,23 +61,17 @@ static ChannelLogState *state_for(const char *name, int create) {
 
 static int db_get_enabled(Server *server, const char *name,
                           int *registered, int *enabled) {
-    ChanServDb db = {0};
-    int rc;
+    ChanServDb *db;
     if (registered) *registered = 0;
     if (enabled) *enabled = 0;
-    if (!server || !name || chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    rc = chanserv_db_logging_get(&db, name, registered, enabled);
-    chanserv_db_close(&db);
-    return rc;
+    if (!server || !name || (db = shared_db(server)) == NULL) return -1;
+    return chanserv_db_logging_get(db, name, registered, enabled);
 }
 
 static int db_set_enabled(Server *server, const char *name, int enabled) {
-    ChanServDb db = {0};
-    int rc;
-    if (!server || !name || chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    rc = chanserv_db_logging_set(&db, name, enabled);
-    chanserv_db_close(&db);
-    return rc;
+    ChanServDb *db;
+    if (!server || !name || (db = shared_db(server)) == NULL) return -1;
+    return chanserv_db_logging_set(db, name, enabled);
 }
 
 static int state_enabled(Server *server, const char *name) {
@@ -141,72 +148,63 @@ static void ensure_file(ChannelLogState *state, time_t when) {
 }
 
 static int enqueue(Server *server, Channel *channel, time_t when, const char *body) {
-    ChanServDb db = {0};
-    int rc;
+    ChanServDb *db;
     if (!server || !channel || !body || !state_enabled(server, channel->name)) return 0;
-    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    rc = chanserv_db_logging_queue_add(&db, channel->name, (long long)when, body);
-    chanserv_db_close(&db);
-    return rc;
+    db = shared_db(server);
+    if (db == NULL) return -1;
+    return chanserv_db_logging_queue_add(db, channel->name, (long long)when, body);
 }
 
 static int flush_channel(Server *server, const char *name) {
-    ChanServDb db = {0};
+    ChanServDb *db;
     ChanServLogQueueRecord rows[128];
     ChannelLogState *state;
     size_t count;
     if (!server || !name) return -1;
     active_server = server;
     state = state_for(name, 1);
-    if (!state || chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
+    db = shared_db(server);
+    if (!state || db == NULL) return -1;
     for (;;) {
         size_t i;
         long long last_id = 0;
-        if (chanserv_db_logging_queue_fetch(&db, name, rows, 128, &count) != 0) { chanserv_db_close(&db); return -1; }
+        if (chanserv_db_logging_queue_fetch(db, name, rows, 128, &count) != 0) return -1;
         if (!count) break;
         for (i = 0; i < count; ++i) {
             time_t when = (time_t)rows[i].event_time;
             struct tm local;
             char suffix[32], stamp[16], path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
             FILE *file;
-            if (localtime_r(&when, &local) == NULL) { chanserv_db_close(&db); return -1; }
+            if (localtime_r(&when, &local) == NULL) return -1;
             ensure_file(state, when);
             suffix_for(&local, suffix, sizeof(suffix));
             log_path(name, suffix, path, sizeof(path));
             file = fopen(path, "a");
-            if (!file) { chanserv_db_close(&db); return -1; }
+            if (!file) return -1;
             (void)strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
-            if (fprintf(file, "[%s] %s\n", stamp, rows[i].body) < 0 || fclose(file) != 0) {
-                chanserv_db_close(&db); return -1;
-            }
+            if (fprintf(file, "[%s] %s\n", stamp, rows[i].body) < 0 || fclose(file) != 0)
+                return -1;
             last_id = rows[i].id;
         }
-        if (chanserv_db_logging_queue_delete_through(&db, name, last_id) != 0) {
-            chanserv_db_close(&db);
-            return -1;
-        }
+        if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) return -1;
     }
-    chanserv_db_close(&db);
     return 0;
 }
 
 static int list_queued(Server *server, char *buffer, size_t size) {
-    ChanServDb db = {0};
-    int rc;
-    if (!server || !buffer || !size || chanserv_db_open(&db, server->config.chanserv_db) != 0) return -1;
-    rc = chanserv_db_logging_queue_list_channels(&db, buffer, size);
-    chanserv_db_close(&db);
-    return rc;
+    ChanServDb *db;
+    if (!server || !buffer || !size || (db = shared_db(server)) == NULL) return -1;
+    return chanserv_db_logging_queue_list_channels(db, buffer, size);
 }
 
 static long long oldest_for(Server *server, const char *name) {
-    ChanServDb db = {0};
+    ChanServDb *db;
     ChanServLogQueueRecord row;
     size_t count = 0;
     long long when = 0;
-    if (!server || !name || chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0;
-    if (chanserv_db_logging_queue_fetch(&db, name, &row, 1, &count) == 0 && count == 1) when = row.event_time;
-    chanserv_db_close(&db);
+    if (!server || !name || (db = shared_db(server)) == NULL) return 0;
+    if (chanserv_db_logging_queue_fetch(db, name, &row, 1, &count) == 0 && count == 1)
+        when = row.event_time;
     return when;
 }
 
