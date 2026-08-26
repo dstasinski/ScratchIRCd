@@ -1,3 +1,5 @@
+#define IRCD_CHANSERV_REGISTRATION_HARD_MAX 2U
+#define IRCD_CHANSERV_ACCESS_HARD_MAX 2U
 #include "chanserv_db.h"
 #include "modes.h"
 #include <assert.h>
@@ -24,6 +26,13 @@ int main(void) {
     assert(chanserv_db_create(&db, "#Test", "Alice", "Example channel") == 0);
     assert(chanserv_db_pchannels_generation() != generation);
     generation = chanserv_db_pchannels_generation();
+
+    assert(chanserv_db_create(&db, "#Second", "Alice", "Second channel") == 0);
+    assert(chanserv_db_create(&db, "#Overflow", "Alice", "Must be refused") != 0);
+    assert(chanserv_db_get(&db, "#Overflow", &record) == 0);
+    assert(chanserv_db_delete(&db, "#Second") == 0);
+    generation = chanserv_db_pchannels_generation();
+
     assert(chanserv_db_get(&db, "#test", &record) == 1);
     assert(strcmp(record.name, "#Test") == 0);
     assert(strcmp(record.founder, "Alice") == 0);
@@ -60,14 +69,20 @@ int main(void) {
     assert(chanserv_db_access_get(&db, "#test", "carol", &access) == 1);
     assert(access.level == CHANSERV_ACCESS_PROTECTED);
 
+    assert(chanserv_db_access_set(&db, "#TEST", "Dave", CHANSERV_ACCESS_VOICE) != 0);
+    assert(chanserv_db_access_get(&db, "#test", "Dave", &access) == 0);
+
     assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
     assert(strstr(list, "Bob:3") != NULL);
     assert(strstr(list, "Carol:4") != NULL);
 
+    /* Existing entries remain updateable even when the access list is full. */
     assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
     assert(chanserv_db_access_get(&db, "#TEST", "BOB", &access) == 1);
     assert(access.level == CHANSERV_ACCESS_VOICE);
     assert(chanserv_db_access_delete(&db, "#test", "bob") == 0);
+    assert(chanserv_db_access_set(&db, "#TEST", "Dave", CHANSERV_ACCESS_VOICE) == 0);
+    assert(chanserv_db_access_delete(&db, "#test", "Dave") == 0);
     assert(chanserv_db_access_delete(&db, "#test", "carol") == 0);
     assert(chanserv_db_access_get(&db, "#test", "Bob", &access) == 0);
     assert(chanserv_db_pchannels_generation() == generation);
