@@ -133,14 +133,29 @@ int nickserv_db_get(NickServDb *db, const char *name, NickServAccount *account) 
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
+static int account_count(NickServDb *db, size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (count != NULL) *count = 0U;
+    if (db == NULL || db->handle == NULL || count == NULL) return -1;
+    if (sqlite3_prepare_v2(db->handle, "SELECT COUNT(*) FROM nickserv_accounts",
+                           -1, &stmt, NULL) != SQLITE_OK) return -1;
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *count = (size_t)sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
 int nickserv_db_add(NickServDb *db, const NickServAccount *account) {
     static const char sql[] =
         "INSERT INTO nickserv_accounts(name,password_hash,vhost,enabled,email,email_verified) "
         "VALUES(?1,?2,?3,?4,?5,?6)";
     sqlite3_stmt *stmt = NULL;
+    size_t count = 0U;
     int rc;
 
     if (db == NULL || db->handle == NULL || account == NULL) return -1;
+    if (account_count(db, &count) != 0 || count >= IRCD_NICKSERV_ACCOUNT_HARD_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, account->name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, account->password_hash, -1, SQLITE_TRANSIENT);
