@@ -123,13 +123,13 @@ def main():
             # A normal burst of inexpensive commands must be tolerated.
             for index in range(20):
                 client.send(f"PING :normal-{index}")
-            client.expect("PONG :normal-19")
+            client.expect("PONG test.local ::normal-19")
 
             # PONG is explicitly exempt because it answers server liveness probes.
             for index in range(100):
                 client.send(f"PONG :server-{index}")
             client.send("PING :after-pongs")
-            client.expect("PONG :after-pongs")
+            client.expect("PONG test.local ::after-pongs")
 
             # Unknown commands count against the same aggregate budget. Once the
             # bucket is exhausted, two commands are throttled and sustained abuse
