@@ -12,6 +12,8 @@
 
 #define COMMAND_BUDGET_BURST 20U
 #define COMMAND_BUDGET_REFILL_PER_SECOND 4U
+#define COMMAND_GLOBAL_BUDGET_BURST 200U
+#define COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND 40U
 #define COMMAND_THROTTLE_SNOTICE_SECONDS 5
 
 /* General event-loop flood budget. This is intentionally much more generous
@@ -110,45 +112,72 @@ static int general_flood_allow(Server *server, Client *client,
     return -1;
 }
 
+static void refill_weighted_budget(time_t now, time_t *updated,
+                                   unsigned int *tokens, unsigned int burst,
+                                   unsigned int refill_per_second) {
+    time_t elapsed;
+    unsigned long refill;
+    if (*updated == 0) {
+        *updated = now;
+        *tokens = burst;
+        return;
+    }
+    if (now <= *updated) return;
+    elapsed = now - *updated;
+    refill = (unsigned long)elapsed * refill_per_second;
+    if (*tokens >= burst || refill >= (unsigned long)(burst - *tokens))
+        *tokens = burst;
+    else
+        *tokens += (unsigned int)refill;
+    *updated = now;
+}
+
 int command_expensive_allow(Server *server, Client *client,
                             const char *command, unsigned int cost) {
     time_t now;
-    time_t elapsed;
-    unsigned long refill;
 
     if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN))
         return 1;
 
     now = time(NULL);
-    if (client->command_budget_updated == 0) {
-        client->command_budget_updated = now;
-        client->command_budget_tokens = COMMAND_BUDGET_BURST;
-    } else if (now > client->command_budget_updated) {
-        elapsed = now - client->command_budget_updated;
-        refill = (unsigned long)elapsed * COMMAND_BUDGET_REFILL_PER_SECOND;
-        if (refill >= COMMAND_BUDGET_BURST - client->command_budget_tokens)
-            client->command_budget_tokens = COMMAND_BUDGET_BURST;
-        else
-            client->command_budget_tokens += (unsigned int)refill;
-        client->command_budget_updated = now;
+    refill_weighted_budget(now, &client->command_budget_updated,
+                           &client->command_budget_tokens,
+                           COMMAND_BUDGET_BURST,
+                           COMMAND_BUDGET_REFILL_PER_SECOND);
+    refill_weighted_budget(now, &server->command_global_budget_updated,
+                           &server->command_global_budget_tokens,
+                           COMMAND_GLOBAL_BUDGET_BURST,
+                           COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND);
+
+    if (client->command_budget_tokens < cost) {
+        client_sendf(client, ":%s 263 %s %s :Please wait before repeating this command",
+                     server->config.server_name, command_reply_nick(client), command);
+        if (client->command_throttle_notice_time == 0 ||
+            now - client->command_throttle_notice_time >= COMMAND_THROTTLE_SNOTICE_SECONDS) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Expensive command throttled: nick=%s real_ip=%s command=%s",
+                              command_reply_nick(client), client->real_ip, command);
+            client->command_throttle_notice_time = now;
+        }
+        return 0;
     }
 
-    if (client->command_budget_tokens >= cost) {
-        client->command_budget_tokens -= cost;
-        return 1;
+    if (server->command_global_budget_tokens < cost) {
+        client_sendf(client, ":%s 263 %s %s :Server busy - please retry this expensive command shortly",
+                     server->config.server_name, command_reply_nick(client), command);
+        if (server->command_global_throttle_notice_time == 0 ||
+            now - server->command_global_throttle_notice_time >= COMMAND_THROTTLE_SNOTICE_SECONDS) {
+            snotice_broadcast(server, SNOTICE_FLOOD,
+                              "Global expensive-command budget exhausted: nick=%s real_ip=%s command=%s",
+                              command_reply_nick(client), client->real_ip, command);
+            server->command_global_throttle_notice_time = now;
+        }
+        return 0;
     }
 
-    client_sendf(client, ":%s 263 %s %s :Please wait before repeating this command",
-                 server->config.server_name, command_reply_nick(client), command);
-
-    if (client->command_throttle_notice_time == 0 ||
-        now - client->command_throttle_notice_time >= COMMAND_THROTTLE_SNOTICE_SECONDS) {
-        snotice_broadcast(server, SNOTICE_FLOOD,
-                          "Expensive command throttled: nick=%s real_ip=%s command=%s",
-                          command_reply_nick(client), client->real_ip, command);
-        client->command_throttle_notice_time = now;
-    }
-    return 0;
+    client->command_budget_tokens -= cost;
+    server->command_global_budget_tokens -= cost;
+    return 1;
 }
 
 CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){
