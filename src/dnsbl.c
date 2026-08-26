@@ -8,10 +8,17 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+/* ScratchIRCd targets Linux. Keep fixed-size request/result writes atomic so a
+ * saturated nonblocking pipe can fail a whole submission without corrupting
+ * the record stream with a partial request. */
+_Static_assert(sizeof(DnsblRequest) <= PIPE_BUF, "DnsblRequest must fit in one atomic pipe write");
+_Static_assert(sizeof(DnsblResult) <= PIPE_BUF, "DnsblResult must fit in one atomic pipe write");
 
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -72,14 +79,6 @@ static int reverse_ip(const char *ip, char *buffer, size_t size) {
     return -1;
 }
 
-/**
- * Return non-zero only for a conventional DNSBL positive A response.
- *
- * DNSBLs normally return an address in 127/8 for listed clients. The
- * 127.255.255/24 range is commonly used for query/rate-limit errors and must
- * never cause an automatic ZLINE. Non-loopback answers are also ignored so a
- * broken/wildcard resolver cannot turn arbitrary DNS answers into bans.
- */
 static int positive_answer(const struct addrinfo *answers) {
     const struct addrinfo *candidate;
     for (candidate = answers; candidate != NULL; candidate = candidate->ai_next) {
