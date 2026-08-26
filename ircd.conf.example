@@ -92,6 +92,17 @@ channel_log_queue_max_rows = 250000
 memoserv_quota = 100
 memoserv_retention_days = 90
 
+# Service fair-share limits. A value of 0 disables the corresponding fair-share
+# limit, but the compile-time global database ceilings remain enforced.
+# NickServ registration throttles use the final real client IP (including the
+# end-user IP supplied by an authorized WebIRC gateway) and are kept only in
+# bounded process memory; registration IPs are not persisted in NickServ DB.
+nickserv_registrations_per_ip = 5
+nickserv_registration_window_seconds = 3600
+# Maximum ChanServ channel registrations founded by one authenticated account.
+# Network administrators bypass this per-account quota for administration.
+chanserv_max_channels_per_account = 20
+
 sendmail_path =
 mail_from =
 nickserv_reset_seconds = 1800
