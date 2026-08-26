@@ -51,7 +51,6 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     char resolved_mask[IRC_IP_MAX + 1U];
     BanDb db = {0};
     size_t i = 0U;
-    char notice[IRCD_MESSAGE_BUFFER_SIZE];
     int shorthand = 0;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
@@ -85,8 +84,8 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         ban_db_close(&db);
         client_sendf(client, ":%s NOTICE %s :ZLINE removed: %s",
                      server->config.server_name, client->nick, mask);
-        (void)snprintf(notice, sizeof(notice), "%s removed ZLINE %s", client->nick, mask);
-        server_notice_broadcast(server, notice);
+        snotice_broadcast(server, SNOTICE_BANS, "%s removed ZLINE %s",
+                          client->nick, mask);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -130,6 +129,10 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         BanRecord match;
         if (target != client && ban_db_match(&db, BAN_TYPE_ZLINE,
                                              target->real_ip, NULL, &match) == 1) {
+            snotice_broadcast(server, SNOTICE_BANS,
+                              "ZLINE matched %s (%s@%s) [real_ip=%s] by %s",
+                              command_reply_nick(target), target->user,
+                              target->display_host, target->real_ip, mask);
             client_sendf(target, ERR_YOUREBANNEDCREEP,
                          server->config.server_name,
                          command_reply_nick(target), server->config.admin_email);
@@ -144,14 +147,15 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         client_sendf(client, ":%s NOTICE %s :ZLINE added: %s (%us, %s)",
                      server->config.server_name, client->nick, mask,
                      server->config.zline_default_duration_seconds, reason);
-        (void)snprintf(notice, sizeof(notice), "%s added temporary ZLINE %s for %us (%s)",
-                       client->nick, mask, server->config.zline_default_duration_seconds, reason);
+        snotice_broadcast(server, SNOTICE_BANS,
+                          "%s added temporary ZLINE %s for %us (%s)",
+                          client->nick, mask,
+                          server->config.zline_default_duration_seconds, reason);
     } else {
         client_sendf(client, ":%s NOTICE %s :ZLINE added: %s",
                      server->config.server_name, client->nick, mask);
-        (void)snprintf(notice, sizeof(notice), "%s added ZLINE %s (%s)",
-                       client->nick, mask, reason);
+        snotice_broadcast(server, SNOTICE_BANS, "%s added ZLINE %s (%s)",
+                          client->nick, mask, reason);
     }
-    server_notice_broadcast(server, notice);
     return COMMAND_KEEP_CLIENT;
 }
