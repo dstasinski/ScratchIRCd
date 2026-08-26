@@ -29,7 +29,7 @@
 static void store_channel_history(Server *server, Client *client,
                                   const char *target, const char *command,
                                   const char *text) {
-    HistoryDb db = {0};
+    HistoryDb *db;
     HistoryRecord record;
     struct timespec now;
 
@@ -47,10 +47,8 @@ static void store_channel_history(Server *server, Client *client,
     else
         record.created_at_ms = (int64_t)time(NULL) * 1000;
 
-    if (history_db_open(&db, server->config.history_db) == 0) {
-        (void)history_db_add(&db, &record);
-        history_db_close(&db);
-    }
+    db = history_db_shared(server->config.history_db);
+    if (db != NULL) (void)history_db_add(db, &record);
 }
 
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
