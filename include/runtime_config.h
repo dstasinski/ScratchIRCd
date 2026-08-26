@@ -70,6 +70,7 @@ typedef struct ServerConfig {
     unsigned int argon2_ops_per_ip;
     unsigned int argon2_window_seconds;
     unsigned int argon2_global_ops_per_minute;
+    unsigned int argon2_global_burst_per_second;
     unsigned int chanserv_max_channels_per_account;
 
     unsigned int kline_default_duration_seconds;
