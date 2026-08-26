@@ -61,6 +61,9 @@ typedef struct ServerConfig {
     size_t channel_log_queue_max_rows;
     size_t memoserv_quota;
     unsigned int memoserv_retention_days;
+    unsigned int nickserv_registrations_per_ip;
+    unsigned int nickserv_registration_window_seconds;
+    unsigned int chanserv_max_channels_per_account;
 
     unsigned int kline_default_duration_seconds;
     unsigned int zline_default_duration_seconds;
