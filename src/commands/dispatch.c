@@ -5,12 +5,22 @@
 #include "nospoof.h"
 #include "oper.h"
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 #include <strings.h>
 #include <time.h>
 
 #define COMMAND_BUDGET_BURST 20U
 #define COMMAND_BUDGET_REFILL_PER_SECOND 4U
 #define COMMAND_THROTTLE_SNOTICE_SECONDS 5
+
+/* General event-loop flood budget. This is intentionally much more generous
+ * than the expensive-command bucket: normal IRC bursts should pass, while a
+ * sustained cheap-command/message flood is eventually disconnected. */
+#define FLOOD_BUDGET_BURST 80U
+#define FLOOD_BUDGET_REFILL_PER_SECOND 20U
+#define FLOOD_VIOLATION_WINDOW_SECONDS 5
+#define FLOOD_VIOLATIONS_BEFORE_DISCONNECT 3U
 
 typedef struct CommandEntry {
     const char *name;
@@ -25,6 +35,80 @@ typedef struct CommandEntry {
  */
 static const CommandEntry command_table[] = {
 {"ADMIN",command_admin,1},{"AUTHENTICATE",command_authenticate,5},{"AWAY",command_away,0},{"CAP",command_cap,0},{"CHANSERV",command_chanserv,2},{"CHATHISTORY",command_chathistory,5},{"CSDROP",command_csdrop,3},{"CSINFO",command_csinfo,3},{"CSSET",command_csset,3},{"DEAF",command_deaf,0},{"DIE",command_die,0},{"GEOBAN",command_geoban,0},{"GLOBOPS",command_globops,0},{"IDENTIFY",command_identify,5},{"INFO",command_info,2},{"INVITE",command_invite,0},{"ISON",command_ison,1},{"JOIN",command_join,0},{"KICK",command_kick,0},{"KILL",command_kill,0},{"KLINE",command_kline,0},{"KNOCK",command_knock,0},{"LINKS",command_links,2},{"LIST",command_list,5},{"LOCOPS",command_locops,0},{"LUSERS",command_lusers,1},{"MEMOSERV",command_memoserv,2},{"MODE",command_mode,0},{"MOTD",command_motd,1},{"MSINFO",command_msinfo,3},{"MSPURGE",command_mspurge,3},{"MUTE",command_mute,0},{"NAMES",command_names,3},{"NICK",command_nick,0},{"NICKSERV",command_nickserv,2},{"NOTICE",command_notice,0},{"NSDROP",command_nsdrop,3},{"NSINFO",command_nsinfo,3},{"NSSET",command_nsset,3},{"OPER",command_oper,5},{"OPERADD",command_operadd,0},{"OPERDEL",command_operdel,0},{"OPERLIST",command_operlist,2},{"OPERSET",command_operset,0},{"PART",command_part,0},{"PASS",command_pass,0},{"PING",command_ping,0},{"PONG",command_pong,0},{"PRIVMSG",command_privmsg,0},{"QUIT",command_quit,0},{"REHASH",command_rehash,0},{"RESTART",command_restart,0},{"RULES",command_rules,1},{"SAJOIN",command_sajoin,0},{"SAMODE",command_samode,0},{"SAPART",command_sapart,0},{"SETHOST",command_sethost,0},{"SETIDENT",command_setident,0},{"SETNAME",command_setname,0},{"SILENCE",command_silence,1},{"SNOTICE",command_snotice,0},{"STATS",command_stats,1},{"TIME",command_time,1},{"TOPIC",command_topic,0},{"UNGEOBAN",command_ungeoban,0},{"USER",command_user,0},{"USERHOST",command_userhost,1},{"USERIP",command_userip,1},{"VERSION",command_version,1},{"WALLOPS",command_wallops,0},{"WATCH",command_watch,1},{"WEBIRC",command_webirc,0},{"WHO",command_who,4},{"WHOIS",command_whois,2},{"WHOWAS",command_whowas,2},{"ZLINE",command_zline,0}};
+
+static unsigned int general_flood_cost(const char *command) {
+    if (command == NULL) return 1U;
+    /* QUIT must always be accepted, and PONG must never be delayed because it
+     * is the client's response to server liveness checks. */
+    if (strcasecmp(command, "QUIT") == 0 || strcasecmp(command, "PONG") == 0)
+        return 0U;
+
+    /* These commands can fan out to users/channels or cause substantial
+     * membership churn, so charge two ordinary tokens. */
+    if (strcasecmp(command, "PRIVMSG") == 0 || strcasecmp(command, "NOTICE") == 0 ||
+        strcasecmp(command, "JOIN") == 0 || strcasecmp(command, "PART") == 0 ||
+        strcasecmp(command, "NICK") == 0 || strcasecmp(command, "MODE") == 0 ||
+        strcasecmp(command, "TOPIC") == 0 || strcasecmp(command, "KICK") == 0 ||
+        strcasecmp(command, "INVITE") == 0 || strcasecmp(command, "KNOCK") == 0)
+        return 2U;
+
+    /* Unknown commands also reach this function and therefore cost one token. */
+    return 1U;
+}
+
+static int general_flood_allow(Server *server, Client *client,
+                               const char *command, unsigned int cost) {
+    time_t now;
+    time_t elapsed;
+    unsigned long refill;
+
+    if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN))
+        return 1;
+
+    now = time(NULL);
+    if (client->flood_budget_updated == 0) {
+        client->flood_budget_updated = now;
+        client->flood_budget_tokens = FLOOD_BUDGET_BURST;
+    } else if (now > client->flood_budget_updated) {
+        elapsed = now - client->flood_budget_updated;
+        refill = (unsigned long)elapsed * FLOOD_BUDGET_REFILL_PER_SECOND;
+        if (refill >= FLOOD_BUDGET_BURST - client->flood_budget_tokens)
+            client->flood_budget_tokens = FLOOD_BUDGET_BURST;
+        else
+            client->flood_budget_tokens += (unsigned int)refill;
+        client->flood_budget_updated = now;
+    }
+
+    if (client->flood_budget_tokens >= cost) {
+        client->flood_budget_tokens -= cost;
+        return 1;
+    }
+
+    if (client->flood_violation_window == 0 ||
+        now - client->flood_violation_window >= FLOOD_VIOLATION_WINDOW_SECONDS) {
+        client->flood_violation_window = now;
+        client->flood_violation_count = 1U;
+    } else {
+        ++client->flood_violation_count;
+    }
+
+    if (client->flood_violation_count >= FLOOD_VIOLATIONS_BEFORE_DISCONNECT) {
+        snotice_broadcast(server, SNOTICE_FLOOD,
+                          "Client flood disconnected: nick=%s real_ip=%s command=%s",
+                          command_reply_nick(client), client->real_ip,
+                          command != NULL ? command : "-");
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason),
+                       "Excess flood");
+        client_sendf(client, ":%s ERROR :Excess flood",
+                     server->config.server_name);
+        return 0;
+    }
+
+    client_sendf(client, ":%s 263 %s %s :Flood protection - please slow down",
+                 server->config.server_name, command_reply_nick(client),
+                 command != NULL ? command : "*");
+    return -1;
+}
 
 static int command_budget_allow(Server *server, Client *client,
                                 const char *command, unsigned int cost) {
@@ -69,12 +153,19 @@ static int command_budget_allow(Server *server, Client *client,
 
 CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){
     size_t index;
+    int flood_result;
     if(server==NULL||client==NULL||command==NULL)return COMMAND_KEEP_CLIENT;
     if(server->config.nospoof_enabled&&client->nospoof_started&&!client->nospoof_verified&&time(NULL)>=client->nospoof_deadline){
         snotice_broadcast(server,SNOTICE_SECURITY,"No-spoof timeout: %s [real_ip=%s]",command_reply_nick(client),client->real_ip);
         client_sendf(client,":%s ERROR :No-spoof PING timeout",server->config.server_name);
         return COMMAND_DISCONNECT_CLIENT;
     }
+
+    flood_result = general_flood_allow(server, client, command,
+                                       general_flood_cost(command));
+    if (flood_result == 0) return COMMAND_DISCONNECT_CLIENT;
+    if (flood_result < 0) return COMMAND_KEEP_CLIENT;
+
     for(index=0U;index<sizeof(command_table)/sizeof(command_table[0]);++index){
         if(strcasecmp(command,command_table[index].name)==0){
             if(!command_budget_allow(server,client,command,command_table[index].cost))
