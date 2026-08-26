@@ -7,6 +7,7 @@
 #include "channel_log.h"
 #include "chanserv.h"
 #include "config.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -61,6 +62,9 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
                        target->nick, target->user, target->display_host, channel->name);
         channel_broadcast(channel, NULL, message);
         channel_log_join(server, channel, target);
+        snotice_broadcast(server, SNOTICE_MODERATION,
+                          "SAJOIN by %s: %s -> %s [real_ip=%s]",
+                          client->nick, target->nick, channel->name, target->real_ip);
         if (channel->topic[0] != '\0') {
             client_sendf(target, RPL_TOPIC, server->config.server_name,
                          target->nick, channel->name, channel->topic);
