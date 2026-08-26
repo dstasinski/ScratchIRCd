@@ -1,17 +1,11 @@
 /**
  * @file chanserv_admin.c
  * @brief Network-administrator management of registered ChanServ channels.
- *
- * Commands:
- *   CSINFO <channel>
- *   CSSET <channel> DESCRIPTION <text>
- *   CSSET <channel> FOUNDER <NickServ-account>
- *   CSSET <channel> ENABLED <0|1>
- *   CSDROP <channel>
  */
 #include "commands.h"
 #include "chanserv.h"
 #include "chanserv_db.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "nickserv_db.h"
 #include "numerics.h"
@@ -107,6 +101,9 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
             else
                 chanserv_restore_channel(server, channel);
         }
+        snotice_broadcast(server, SNOTICE_SERVICES,
+                          "CSSET by %s: channel=%s field=%s value=%s",
+                          client->nick, name, field, value);
     }
     notice(server, client, rc == 0 ? "ChanServ channel updated." : "CSSET failed.");
     return COMMAND_KEEP_CLIENT;
@@ -132,6 +129,8 @@ CommandResult command_csdrop(Server *server, Client *client, char *params) {
         Channel *channel = hash_get(&server->channels_by_name, name);
         if (channel != NULL)
             channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_REGISTERED);
+        snotice_broadcast(server, SNOTICE_SERVICES,
+                          "CSDROP by %s: channel=%s", client->nick, name);
     }
     notice(server, client, rc == 0 ? "ChanServ channel deleted." : "CSDROP failed.");
     return COMMAND_KEEP_CLIENT;
