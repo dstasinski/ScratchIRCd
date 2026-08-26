@@ -39,6 +39,7 @@ int main(void) {
     assert(config.nickserv_registration_window_seconds == IRCD_DEFAULT_NICKSERV_REGISTRATION_WINDOW_SECONDS);
     assert(config.nickserv_mail_requests_per_ip == IRCD_DEFAULT_NICKSERV_MAIL_REQUESTS_PER_IP);
     assert(config.nickserv_mail_window_seconds == IRCD_DEFAULT_NICKSERV_MAIL_WINDOW_SECONDS);
+    assert(config.nickserv_mail_global_per_minute == IRCD_DEFAULT_NICKSERV_MAIL_GLOBAL_PER_MINUTE);
     assert(config.chanserv_max_channels_per_account == IRCD_DEFAULT_CHANSERV_MAX_CHANNELS_PER_ACCOUNT);
 
     assert(fd >= 0);
@@ -69,6 +70,7 @@ int main(void) {
     assert(fputs("nickserv_registration_window_seconds = 7200\n", file) >= 0);
     assert(fputs("nickserv_mail_requests_per_ip = 9\n", file) >= 0);
     assert(fputs("nickserv_mail_window_seconds = 1800\n", file) >= 0);
+    assert(fputs("nickserv_mail_global_per_minute = 120\n", file) >= 0);
     assert(fputs("chanserv_max_channels_per_account = 30\n", file) >= 0);
     assert(fputs("kline_default_duration_seconds = 1800\n", file) >= 0);
     assert(fputs("kline_default_reason = default kline reason\n", file) >= 0);
@@ -111,6 +113,7 @@ int main(void) {
     assert(config.nickserv_registration_window_seconds == 7200U);
     assert(config.nickserv_mail_requests_per_ip == 9U);
     assert(config.nickserv_mail_window_seconds == 1800U);
+    assert(config.nickserv_mail_global_per_minute == 120U);
     assert(config.chanserv_max_channels_per_account == 30U);
     assert(config.kline_default_duration_seconds == 1800U);
     assert(strcmp(config.kline_default_reason, "default kline reason") == 0);
@@ -145,6 +148,9 @@ int main(void) {
     assert(load_single_option("nickserv_mail_window_seconds = 59\n") != 0);
     assert(load_single_option("nickserv_mail_window_seconds = 86401\n") != 0);
     assert(load_single_option("nickserv_mail_window_seconds = 86400\n") == 0);
+    assert(load_single_option("nickserv_mail_global_per_minute = 0\n") != 0);
+    assert(load_single_option("nickserv_mail_global_per_minute = 1001\n") != 0);
+    assert(load_single_option("nickserv_mail_global_per_minute = 1000\n") == 0);
     assert(load_single_option("chanserv_max_channels_per_account = 0\n") == 0);
     assert(load_single_option("chanserv_max_channels_per_account = 1001\n") != 0);
     assert(load_single_option("chanserv_max_channels_per_account = 1000\n") == 0);
