@@ -12,21 +12,9 @@
 
 struct Channel;
 
-typedef struct ClientChannelLink {
-    struct Channel *channel;
-    struct ClientChannelLink *next;
-} ClientChannelLink;
-
-typedef struct ClientSilenceEntry {
-    char mask[IRC_CHANNEL_MASK_MAX + 1U];
-    struct ClientSilenceEntry *next;
-} ClientSilenceEntry;
-
-typedef struct ClientWatchEntry {
-    char nick[IRC_NICK_MAX + 1U];
-    struct ClientWatchEntry *next;
-} ClientWatchEntry;
-
+typedef struct ClientChannelLink { struct Channel *channel; struct ClientChannelLink *next; } ClientChannelLink;
+typedef struct ClientSilenceEntry { char mask[IRC_CHANNEL_MASK_MAX + 1U]; struct ClientSilenceEntry *next; } ClientSilenceEntry;
+typedef struct ClientWatchEntry { char nick[IRC_NICK_MAX + 1U]; struct ClientWatchEntry *next; } ClientWatchEntry;
 typedef enum ClientDnsState { CLIENT_DNS_NONE = 0, CLIENT_DNS_PENDING, CLIENT_DNS_VERIFIED, CLIENT_DNS_FAILED, CLIENT_DNS_TIMEOUT } ClientDnsState;
 typedef enum ClientDnsblState { CLIENT_DNSBL_NONE = 0, CLIENT_DNSBL_PENDING, CLIENT_DNSBL_CLEAR, CLIENT_DNSBL_LISTED, CLIENT_DNSBL_TIMEOUT, CLIENT_DNSBL_ERROR } ClientDnsblState;
 typedef enum ClientTlsState { CLIENT_TLS_NONE = 0, CLIENT_TLS_HANDSHAKE, CLIENT_TLS_ESTABLISHED } ClientTlsState;
@@ -39,12 +27,7 @@ typedef uint64_t ClientCapabilitySet;
 #define CLIENT_CAP_SERVER_TIME      (UINT64_C(1) << 3)
 #define CLIENT_CAP_CHATHISTORY      (UINT64_C(1) << 4)
 
-typedef struct ClientWebIrc {
-    int active;
-    char gateway_ip[IRC_IP_MAX + 1U];
-    char gateway_name[IRCD_WEBIRC_GATEWAY_NAME_MAX + 1U];
-    char supplied_host[IRC_HOST_MAX + 1U];
-} ClientWebIrc;
+typedef struct ClientWebIrc { int active; char gateway_ip[IRC_IP_MAX + 1U]; char gateway_name[IRCD_WEBIRC_GATEWAY_NAME_MAX + 1U]; char supplied_host[IRC_HOST_MAX + 1U]; } ClientWebIrc;
 
 typedef struct Client {
     uint64_t id;
@@ -57,6 +40,15 @@ typedef struct Client {
     SSL *ssl;
     ClientTlsState tls_state;
     int tls_want_write;
+
+    /* Bounded nonblocking output queue. */
+    char *outbuf;
+    size_t outbuf_start;
+    size_t outbuf_len;
+    size_t outbuf_capacity;
+    size_t outbuf_limit;
+    int output_want_read;
+    int output_overflowed;
 
     OperPermissionSet oper_permissions;
     char oper_name[IRCD_OPER_NAME_MAX + 1U];
@@ -75,10 +67,8 @@ typedef struct Client {
     char real_ip[IRC_IP_MAX + 1U];
     char real_host[IRC_HOST_MAX + 1U];
     char display_host[IRC_HOST_MAX + 1U];
-
     ClientWebIrc webirc;
 
-    /* Connection anti-spoofing and optional CTCP client metadata. */
     int nospoof_started;
     int nospoof_verified;
     time_t nospoof_deadline;
@@ -92,12 +82,10 @@ typedef struct Client {
 
     ClientGeoIP geoip;
     int geoip_complete;
-
     ClientDnsState dns_state;
     time_t dns_deadline;
     ClientDnsblState dnsbl_state;
     time_t dnsbl_deadline;
-
     time_t signon_time;
     time_t last_activity;
 
@@ -117,6 +105,9 @@ typedef void (*ClientFreeHook)(Client *client);
 
 Client *client_create(int fd, uint64_t id, int address_family, const char *ip);
 void client_set_free_hook(ClientFreeHook hook);
+void client_set_output_limit(Client *client, size_t limit);
+int client_output_pending(const Client *client);
+int client_flush_output(Client *client);
 void client_free(void *ptr);
 int client_send_raw(Client *client, const char *data, size_t length);
 int client_sendf(Client *client, const char *fmt, ...);
