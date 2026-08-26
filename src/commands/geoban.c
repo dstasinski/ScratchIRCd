@@ -25,10 +25,6 @@ static char *skip_space(char *p) {
     return p;
 }
 
-/**
- * Consume one IRC parameter, with Tcl-style braces accepted for values that
- * contain spaces. The braces are grouping syntax and are not stored.
- */
 static char *next_field(char **cursor, char *output, size_t output_size) {
     char *p, *start;
     size_t used = 0U;
@@ -94,6 +90,10 @@ static void disconnect_matches(Server *server, Client *setter, const char *reaso
         GeoBanRecord match;
         if (target != setter && target->registered && target->geoip_complete &&
             geoban_db_match(&db, &target->geoip, &match) == 1) {
+            snotice_broadcast(server, SNOTICE_GEOBANS,
+                              "GeoBAN matched %s [real_ip=%s] by %s {%s}",
+                              command_reply_nick(target), target->real_ip,
+                              geoban_type_name(match.type), match.value);
             client_sendf(target, ERR_YOUREBANNEDCREEP,
                          server->config.server_name, command_reply_nick(target),
                          server->config.admin_email);
@@ -116,7 +116,6 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
     unsigned int duration;
     char *cursor = params;
     char *reason;
-    char notice[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!require_geoban(client, server)) return COMMAND_KEEP_CLIENT;
@@ -175,9 +174,9 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
                  server->config.server_name, client->nick,
                  geoban_type_name(type), value,
                  duration == 0U ? "permanent" : duration_text);
-    (void)snprintf(notice, sizeof(notice), "%s added GEOBAN %s {%s} (%s)",
-                   client->nick, geoban_type_name(type), value, reason);
-    server_notice_broadcast(server, notice);
+    snotice_broadcast(server, SNOTICE_GEOBANS,
+                      "%s added GEOBAN %s {%s} (%s)", client->nick,
+                      geoban_type_name(type), value, reason);
     disconnect_matches(server, client, reason);
     return COMMAND_KEEP_CLIENT;
 }
@@ -189,7 +188,6 @@ CommandResult command_ungeoban(Server *server, Client *client, char *params) {
     char value_raw[IRCD_GEOIP_ORG_MAX + 1U];
     char value[IRCD_GEOIP_ORG_MAX + 1U];
     char *cursor = params;
-    char notice[IRCD_MESSAGE_BUFFER_SIZE];
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!require_geoban(client, server)) return COMMAND_KEEP_CLIENT;
@@ -214,8 +212,8 @@ CommandResult command_ungeoban(Server *server, Client *client, char *params) {
     client_sendf(client, ":%s NOTICE %s :GEOBAN removed: %s {%s}",
                  server->config.server_name, client->nick,
                  geoban_type_name(type), value);
-    (void)snprintf(notice, sizeof(notice), "%s removed GEOBAN %s {%s}",
-                   client->nick, geoban_type_name(type), value);
-    server_notice_broadcast(server, notice);
+    snotice_broadcast(server, SNOTICE_GEOBANS,
+                      "%s removed GEOBAN %s {%s}", client->nick,
+                      geoban_type_name(type), value);
     return COMMAND_KEEP_CLIENT;
 }
