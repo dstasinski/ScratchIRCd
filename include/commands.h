@@ -13,4 +13,7 @@ void command_maybe_register(Server *server, Client *client);
 void command_send_names(Server *server, Channel *channel, Client *client);
 void command_nickserv_message(Server *server, Client *client, char *text);
 void command_memoserv_message(Server *server, Client *client, char *text);
+/** Charge the shared weighted budget used for database/enumeration work. */
+int command_expensive_allow(Server *server, Client *client,
+                            const char *command, unsigned int cost);
 #endif
