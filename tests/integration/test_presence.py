@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration coverage for WATCH, ISON, USERHOST/USERIP, NAMES, and WHOWAS."""
+"""End-to-end coverage for SILENCE, WATCH, WHOWAS, and public identity visibility."""
 
 import os
 import socket
@@ -19,23 +19,24 @@ class IRCClient:
     def send(self, line):
         self.sock.sendall((line + "\r\n").encode())
 
-    def _pump(self):
+    def _lines(self):
+        out = self.pending
+        self.pending = []
         while b"\n" in self.buffer:
             raw, self.buffer = self.buffer.split(b"\n", 1)
-            self.pending.append(raw.rstrip(b"\r").decode(errors="replace"))
+            out.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return out
 
-    def expect(self, needle, duration=4.0):
+    def expect(self, needle, duration=5.0):
         deadline = time.monotonic() + duration
-        seen = []
+        got = []
         while time.monotonic() < deadline:
-            self._pump()
-            for i, line in enumerate(self.pending):
+            lines = self._lines()
+            for index, line in enumerate(lines):
+                got.append(line)
                 if needle in line:
-                    seen.extend(self.pending[:i + 1])
-                    del self.pending[:i + 1]
+                    self.pending.extend(lines[index + 1:])
                     return line
-            seen.extend(self.pending)
-            self.pending.clear()
             try:
                 data = self.sock.recv(4096)
                 if not data:
@@ -43,18 +44,17 @@ class IRCClient:
                 self.buffer += data
             except socket.timeout:
                 pass
-        raise AssertionError(f"expected {needle!r}; got {seen!r}")
+        raise AssertionError(f"expected {needle!r}; got {got!r}")
 
-    def expect_not(self, needle, duration=0.5):
+    def expect_not(self, needle, duration=0.75):
         deadline = time.monotonic() + duration
-        seen = []
+        got = []
         while time.monotonic() < deadline:
-            self._pump()
-            for line in self.pending:
+            lines = self._lines()
+            for line in lines:
+                got.append(line)
                 if needle in line:
-                    raise AssertionError(f"unexpected {needle!r}; got {seen + self.pending!r}")
-            seen.extend(self.pending)
-            self.pending.clear()
+                    raise AssertionError(f"unexpected {needle!r}; got {got!r}")
             try:
                 data = self.sock.recv(4096)
                 if not data:
@@ -62,6 +62,7 @@ class IRCClient:
                 self.buffer += data
             except socket.timeout:
                 pass
+        return got
 
     def close(self):
         try:
@@ -71,10 +72,10 @@ class IRCClient:
 
 
 def free_port():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
     return port
 
 
@@ -94,8 +95,18 @@ def wait_listen(port, proc):
 
 def register(client, nick):
     client.send(f"NICK {nick}")
-    client.send(f"USER {nick.lower()} 0 * :{nick} User")
+    client.send(f"USER {nick.lower()} 0 * :{nick} Real Name")
     client.expect(f" 001 {nick} ")
+
+
+def stop(proc):
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3.0)
 
 
 def main():
@@ -128,6 +139,7 @@ def main():
             watcher = IRCClient(port)
             register(watcher, "Watcher")
 
+            # WATCH must store only syntactically valid IRC nicknames.
             watcher.send("WATCH +123bad +Bad,Nick +Subject +Renamed +Temp")
             watcher.expect(" 605 Watcher Subject ")
             watcher.expect(" 605 Watcher Renamed ")
@@ -178,24 +190,56 @@ def main():
             watcher.expect(" 600 Watcher Renamed ")
             watcher.send("WHOWAS Subject")
             historical = watcher.expect(" 314 Watcher Subject subject ")
-            assert "127.0.0.1" not in historical, historical
+            assert "dru-" in historical and "127.0.0.1" not in historical, historical
+            watcher.expect(" 369 Watcher Subject :End of WHOWAS")
 
+            # Control-bearing SILENCE masks are ignored and never enter list state.
+            subject.send("SILENCE +bad\x01mask")
+            subject.send("SILENCE +Watcher!*@*")
+            subject.send("SILENCE")
+            subject.expect(" 271 Renamed Renamed Watcher!*@*")
+            silence_end = subject.expect(" 272 Renamed :End of Silence List")
+            assert "bad" not in silence_end
+            watcher.send("PRIVMSG Renamed :this must be blocked")
+            subject.expect_not("this must be blocked")
+            watcher.send("NOTICE Renamed :this notice must also be blocked")
+            subject.expect_not("this notice must also be blocked")
+
+            subject.send("SILENCE -Watcher!*@*")
+            subject.send("SILENCE")
+            subject.expect(" 272 Renamed :End of Silence List")
+            watcher.send("PRIVMSG Renamed :delivery restored")
+            subject.expect("PRIVMSG Renamed :delivery restored")
+
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 2  Max: 2")
             temp = IRCClient(port)
             register(temp, "Temp")
             watcher.expect(" 600 Watcher Temp ")
-            temp.send("QUIT :gone")
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 3  Max: 3")
+
+            temp.close()
+            temp = None
             watcher.expect(" 601 Watcher Temp ")
-            temp.close(); temp = None
+            watcher.send("LUSERS")
+            watcher.expect(" 265 Watcher :Current Local Users: 2  Max: 3")
+            watcher.send("WHOWAS Temp")
+            watcher.expect(" 314 Watcher Temp temp ")
+
+            watcher.send("WATCH")
+            watcher.expect(" 606 Watcher :")
+            watcher.expect(" 607 Watcher :End of WATCH L")
         finally:
-            for client in (watcher, subject, temp, pending):
-                if client is not None:
-                    client.close()
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    proc.kill(); proc.wait(timeout=3.0)
+            if watcher is not None:
+                watcher.close()
+            if subject is not None:
+                subject.close()
+            if temp is not None:
+                temp.close()
+            if pending is not None:
+                pending.close()
+            stop(proc)
 
 
 if __name__ == "__main__":
