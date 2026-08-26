@@ -37,13 +37,13 @@ static int restart_required(const ServerConfig *current,
     if (updated->nospoof_enabled != current->nospoof_enabled ||
         updated->nospoof_timeout_seconds != current->nospoof_timeout_seconds ||
         updated->registration_timeout_seconds != current->registration_timeout_seconds ||
+        updated->output_queue_max_bytes != current->output_queue_max_bytes ||
         strcmp(updated->server_password, current->server_password) != 0 ||
         strcmp(updated->cloak_prefix, current->cloak_prefix) != 0 ||
         strcmp(updated->cloak_key, current->cloak_key) != 0)
         return 1;
 
     if (updated->max_clients < live_clients) return 1;
-
     return 0;
 }
 
@@ -53,44 +53,30 @@ CommandResult command_rehash(Server *server, Client *client, char *params) {
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_REHASH)) {
-        client_sendf(client, ERR_NOPRIVILEGES,
-                     server->config.server_name, client->nick);
+        client_sendf(client, ERR_NOPRIVILEGES, server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
     if (server->config.source_path[0] == '\0') {
-        client_sendf(client, ":%s NOTICE %s :REHASH unavailable: no configuration source path",
-                     server->config.server_name, client->nick);
-        snotice_broadcast(server, SNOTICE_ADMIN,
-                          "REHASH unavailable for %s: no configuration source path",
-                          client->nick);
+        client_sendf(client, ":%s NOTICE %s :REHASH unavailable: no configuration source path", server->config.server_name, client->nick);
+        snotice_broadcast(server, SNOTICE_ADMIN, "REHASH unavailable for %s: no configuration source path", client->nick);
         return COMMAND_KEEP_CLIENT;
     }
 
     runtime_config_defaults(&updated);
     if (runtime_config_load(&updated, server->config.source_path) != 0) {
-        client_sendf(client, ":%s NOTICE %s :REHASH failed: configuration error",
-                     server->config.server_name, client->nick);
-        snotice_broadcast(server, SNOTICE_ADMIN,
-                          "REHASH failed for %s: configuration error",
-                          client->nick);
+        client_sendf(client, ":%s NOTICE %s :REHASH failed: configuration error", server->config.server_name, client->nick);
+        snotice_broadcast(server, SNOTICE_ADMIN, "REHASH failed for %s: configuration error", client->nick);
         return COMMAND_KEEP_CLIENT;
     }
 
     if (restart_required(&server->config, &updated, server->client_count)) {
-        client_sendf(client,
-                     ":%s NOTICE %s :REHASH rejected: startup-bound, persistent-store, or registration-gate change requires RESTART",
-                     server->config.server_name, client->nick);
-        snotice_broadcast(server, SNOTICE_ADMIN,
-                          "REHASH rejected for %s: configuration change requires RESTART",
-                          client->nick);
+        client_sendf(client, ":%s NOTICE %s :REHASH rejected: startup-bound, persistent-store, or registration-gate change requires RESTART", server->config.server_name, client->nick);
+        snotice_broadcast(server, SNOTICE_ADMIN, "REHASH rejected for %s: configuration change requires RESTART", client->nick);
         return COMMAND_KEEP_CLIENT;
     }
 
     server->config = updated;
-    client_sendf(client, RPL_REHASHING,
-                 server->config.server_name, client->nick, server->config.source_path);
-    snotice_broadcast(server, SNOTICE_ADMIN,
-                      "REHASH completed by %s from %s",
-                      client->nick, client->real_ip);
+    client_sendf(client, RPL_REHASHING, server->config.server_name, client->nick, server->config.source_path);
+    snotice_broadcast(server, SNOTICE_ADMIN, "REHASH completed by %s from %s", client->nick, client->real_ip);
     return COMMAND_KEEP_CLIENT;
 }
