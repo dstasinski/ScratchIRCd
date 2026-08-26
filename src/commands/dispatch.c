@@ -110,8 +110,8 @@ static int general_flood_allow(Server *server, Client *client,
     return -1;
 }
 
-static int command_budget_allow(Server *server, Client *client,
-                                const char *command, unsigned int cost) {
+int command_expensive_allow(Server *server, Client *client,
+                            const char *command, unsigned int cost) {
     time_t now;
     time_t elapsed;
     unsigned long refill;
@@ -168,7 +168,7 @@ CommandResult command_dispatch(Server *server,Client *client,const char *command
 
     for(index=0U;index<sizeof(command_table)/sizeof(command_table[0]);++index){
         if(strcasecmp(command,command_table[index].name)==0){
-            if(!command_budget_allow(server,client,command,command_table[index].cost))
+            if(!command_expensive_allow(server,client,command,command_table[index].cost))
                 return COMMAND_KEEP_CLIENT;
             return command_table[index].handler(server,client,params);
         }
