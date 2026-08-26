@@ -3,6 +3,16 @@
 #include <stdio.h>
 #include <string.h>
 
+static uint64_t pchannels_generation = 1U;
+
+uint64_t chanserv_db_pchannels_generation(void) {
+    return pchannels_generation;
+}
+
+static void pchannels_changed(void) {
+    if (++pchannels_generation == 0U) pchannels_generation = 1U;
+}
+
 static unsigned char irc_fold(unsigned char ch) {
     if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
     switch (ch) {
@@ -70,37 +80,20 @@ static int ensure_channel_columns(sqlite3 *db) {
     return 0;
 }
 
-/**
- * Return non-zero when the existing access table accepts the new PROTECTED
- * value 5. ScratchIRCd 0.19 created the table with CHECK(level BETWEEN 1 AND 4),
- * so CREATE TABLE IF NOT EXISTS alone cannot upgrade an existing database.
- */
 static int access_table_supports_protected(sqlite3 *db) {
     sqlite3_stmt *stmt = NULL;
     int supported = 0;
-
     if (sqlite3_prepare_v2(db,
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='access'",
-        -1, &stmt, NULL) != SQLITE_OK) {
-        return 0;
-    }
-
+        -1, &stmt, NULL) != SQLITE_OK) return 0;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *sql = (const char *)sqlite3_column_text(stmt, 0);
-        if (sql != NULL && strstr(sql, "BETWEEN 1 AND 5") != NULL)
-            supported = 1;
+        if (sql != NULL && strstr(sql, "BETWEEN 1 AND 5") != NULL) supported = 1;
     }
     sqlite3_finalize(stmt);
     return supported;
 }
 
-/**
- * Upgrade the 0.19 access table without renumbering existing rows.
- *
- * OWNER was stored as level 4 in 0.19 and remains level 4. PROTECTED is the
- * new level 5. Rebuilding the table only widens its CHECK constraint, so all
- * existing account access semantics remain unchanged.
- */
 static int ensure_access_schema(sqlite3 *db) {
     static const char migration[] =
         "BEGIN IMMEDIATE;"
@@ -118,7 +111,6 @@ static int ensure_access_schema(sqlite3 *db) {
         "DROP TABLE access;"
         "ALTER TABLE access_new RENAME TO access;"
         "COMMIT;";
-
     if (access_table_supports_protected(db)) return 0;
     return exec_sql(db, migration);
 }
@@ -138,6 +130,7 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
         ");"
         "CREATE INDEX IF NOT EXISTS channels_founder_idx ON channels(founder);"
+        "CREATE INDEX IF NOT EXISTS channels_enabled_name_idx ON channels(enabled,name COLLATE IRCNOCASE);"
         "CREATE TABLE IF NOT EXISTS access ("
         "channel TEXT COLLATE IRCNOCASE NOT NULL,"
         "account TEXT COLLATE NOCASE NOT NULL,"
@@ -174,8 +167,8 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
     if (db == NULL || db->db == NULL || name == NULL || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
     if (sqlite3_prepare_v2(db->db,
-        "SELECT name,founder,description,enabled,mode_lock,topic,topic_setter,topic_time,created_at,updated_at "
-        "FROM channels WHERE name=?1", -1, &stmt, NULL) != SQLITE_OK) return -1;
+        "SELECT name,founder,description,enabled,mode_lock,topic,topic_setter,topic_time,created_at,updated_at FROM channels WHERE name=?1",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
@@ -189,21 +182,26 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
         record->topic_time = sqlite3_column_int64(stmt, 7);
         record->created_at = sqlite3_column_int64(stmt, 8);
         record->updated_at = sqlite3_column_int64(stmt, 9);
-        sqlite3_finalize(stmt); return 1;
+        sqlite3_finalize(stmt);
+        return 1;
     }
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int chanserv_db_create(ChanServDb *db, const char *name, const char *founder, const char *description) {
-    sqlite3_stmt *stmt = NULL; int rc;
+    sqlite3_stmt *stmt = NULL;
+    int rc;
     if (db == NULL || db->db == NULL || name == NULL || founder == NULL) return -1;
     if (sqlite3_prepare_v2(db->db,
         "INSERT INTO channels(name,founder,description) VALUES(?1,?2,?3)", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,2,founder,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,3,description != NULL ? description : "",-1,SQLITE_TRANSIENT);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE ? 0 : -1;
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc == SQLITE_DONE) { pchannels_changed(); return 0; }
+    return -1;
 }
 
 static int update_text(ChanServDb *db, const char *name, const char *column, const char *value) {
@@ -219,11 +217,14 @@ int chanserv_db_set_description(ChanServDb *db,const char *name,const char *desc
 int chanserv_db_set_founder(ChanServDb *db,const char *name,const char *founder){return update_text(db,name,"founder",founder);}
 
 int chanserv_db_set_enabled(ChanServDb *db, const char *name, int enabled) {
-    sqlite3_stmt *stmt=NULL; int rc;
+    sqlite3_stmt *stmt=NULL;
+    int rc, changed;
     if(db==NULL||db->db==NULL||name==NULL)return -1;
     if(sqlite3_prepare_v2(db->db,"UPDATE channels SET enabled=?1,updated_at=unixepoch() WHERE name=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_int(stmt,1,enabled?1:0); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
-    rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
+    rc=sqlite3_step(stmt); changed=sqlite3_changes(db->db); sqlite3_finalize(stmt);
+    if(rc==SQLITE_DONE && changed>0){pchannels_changed();return 0;}
+    return -1;
 }
 
 int chanserv_db_set_mode_lock(ChanServDb *db, const char *name, uint64_t mode_lock) {
@@ -247,11 +248,14 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
 }
 
 int chanserv_db_delete(ChanServDb *db, const char *name) {
-    sqlite3_stmt *stmt=NULL; int rc;
+    sqlite3_stmt *stmt=NULL;
+    int rc, changed;
     if(db==NULL||db->db==NULL||name==NULL)return -1;
     if(sqlite3_prepare_v2(db->db,"DELETE FROM channels WHERE name=?1",-1,&stmt,NULL)!=SQLITE_OK)return -1;
-    sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT); rc=sqlite3_step(stmt); sqlite3_finalize(stmt);
-    return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
+    sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
+    rc=sqlite3_step(stmt); changed=sqlite3_changes(db->db); sqlite3_finalize(stmt);
+    if(rc==SQLITE_DONE && changed>0){pchannels_changed();return 0;}
+    return -1;
 }
 
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
@@ -273,8 +277,7 @@ int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *acco
        level<CHANSERV_ACCESS_VOICE||
        (level>CHANSERV_ACCESS_OWNER && level!=CHANSERV_ACCESS_PROTECTED)) return -1;
     if(sqlite3_prepare_v2(db->db,
-        "INSERT INTO access(channel,account,level) VALUES(?1,?2,?3) "
-        "ON CONFLICT(channel,account) DO UPDATE SET level=excluded.level,updated_at=unixepoch()",
+        "INSERT INTO access(channel,account,level) VALUES(?1,?2,?3) ON CONFLICT(channel,account) DO UPDATE SET level=excluded.level,updated_at=unixepoch()",
         -1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT); sqlite3_bind_int(stmt,3,(int)level);
     rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE?0:-1;
