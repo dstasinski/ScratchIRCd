@@ -1,14 +1,11 @@
 /**
  * @file memoserv_admin.c
  * @brief Network-administrator inspection and retention controls for MemoServ.
- *
- * Commands:
- *   MSINFO <account>
- *   MSPURGE <account|*>
  */
 
 #include "commands.h"
 #include "memoserv_db.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "numerics.h"
 
@@ -83,5 +80,8 @@ CommandResult command_mspurge(Server *server, Client *client, char *params) {
     (void)snprintf(line, sizeof(line), "MemoServ purge deleted %zu expired memo%s.",
                    deleted, deleted == 1U ? "" : "s");
     notice(server, client, line);
+    snotice_broadcast(server, SNOTICE_SERVICES,
+                      "MemoServ purge by %s: target=%s deleted=%zu",
+                      client->nick, account, deleted);
     return COMMAND_KEEP_CLIENT;
 }
