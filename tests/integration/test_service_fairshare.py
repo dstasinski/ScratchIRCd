@@ -104,6 +104,9 @@ def main():
             f.write("nickserv_registration_window_seconds = 3600\n")
             f.write("nickserv_mail_requests_per_ip = 1\n")
             f.write("nickserv_mail_window_seconds = 3600\n")
+            f.write("argon2_ops_per_ip = 2\n")
+            f.write("argon2_window_seconds = 3600\n")
+            f.write("argon2_global_ops_per_minute = 100\n")
             f.write("chanserv_max_channels_per_account = 1\n")
             f.write("memoserv_quota = 10\n")
             f.write("memoserv_sender_quota = 1\n")
@@ -128,6 +131,13 @@ def main():
             register_irc(second, "Second")
             second.send("NICKSERV REGISTER secret2")
             second.expect("Registration rate limit reached for your IP address")
+
+            # REGISTER consumed one Argon2 work unit. One password change is
+            # allowed; changing service syntax cannot obtain a third work unit.
+            owner.send("NICKSERV SET PASSWORD secret2")
+            owner.expect("Password changed.")
+            owner.send("PRIVMSG NickServ :SET PASSWORD secret3")
+            owner.expect("Password hashing rate limit reached")
 
             # One founder cannot consume the whole registered-channel namespace.
             owner.send("JOIN #one")
