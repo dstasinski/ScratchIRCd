@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 static Client *recover_target_before(Server *server, const char *params,
                                      char *old_nick, size_t old_nick_size) {
@@ -47,9 +48,55 @@ static void recover_presence_after(Server *server, Client *target,
     presence_watch_online(server, target);
 }
 
+static NickServRegistrationThrottle *registration_slot(Server *server,
+                                                        const char *ip,
+                                                        time_t now) {
+    NickServRegistrationThrottle *free_slot = NULL;
+    NickServRegistrationThrottle *oldest = NULL;
+    size_t i;
+    unsigned int window;
+    if (server == NULL || ip == NULL || *ip == '\0') return NULL;
+    window = server->config.nickserv_registration_window_seconds;
+    for (i = 0U; i < IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS; ++i) {
+        NickServRegistrationThrottle *slot = &server->nickserv_registration_throttles[i];
+        if (slot->ip[0] != '\0' && strcmp(slot->ip, ip) == 0) {
+            if (slot->window_start == 0 || now - slot->window_start >= (time_t)window) {
+                slot->window_start = now;
+                slot->count = 0U;
+            }
+            return slot;
+        }
+        if (slot->ip[0] == '\0' || slot->window_start == 0 ||
+            now - slot->window_start >= (time_t)window) {
+            if (free_slot == NULL) free_slot = slot;
+        } else if (oldest == NULL || slot->window_start < oldest->window_start) {
+            oldest = slot;
+        }
+    }
+    if (free_slot == NULL) return NULL;
+    memset(free_slot, 0, sizeof(*free_slot));
+    (void)snprintf(free_slot->ip, sizeof(free_slot->ip), "%s", ip);
+    free_slot->window_start = now;
+    return free_slot;
+}
+
+int server_nickserv_registration_allowed(Server *server, const char *ip,
+                                         time_t now, int consume) {
+    NickServRegistrationThrottle *slot;
+    unsigned int limit;
+    if (server == NULL || ip == NULL || *ip == '\0') return 0;
+    limit = server->config.nickserv_registrations_per_ip;
+    if (limit == 0U) return 1;
+    slot = registration_slot(server, ip, now);
+    if (slot == NULL || slot->count >= limit) return 0;
+    if (consume) ++slot->count;
+    return 1;
+}
+
 void command_nickserv_message(Server *server, Client *client, char *text) {
     int was_identified;
     int registering = 0;
+    time_t now;
     char old_nick[IRC_NICK_MAX + 1U] = "";
     char command_copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *service_command;
@@ -59,6 +106,19 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
     (void)snprintf(command_copy, sizeof(command_copy), "%s", text);
     service_command = strtok(command_copy, " ");
     registering = service_command != NULL && strcasecmp(service_command, "REGISTER") == 0;
+    now = time(NULL);
+    if (registering && client->account_name[0] == '\0' &&
+        !client_mode_has(client->modes, CLIENT_MODE_NETADMIN) &&
+        !server_nickserv_registration_allowed(server, client->real_ip, now, 0)) {
+        client_sendf(client, ":NickServ!service@%s NOTICE %s :Registration rate limit reached for your IP address; try again later.",
+                     server->config.server_name, client->nick);
+        snotice_broadcast(server, SNOTICE_REGISTRATIONS | SNOTICE_FLOOD,
+                          "NickServ registration throttled: nick=%s real_ip=%s limit=%u/%us",
+                          client->nick, client->real_ip,
+                          server->config.nickserv_registrations_per_ip,
+                          server->config.nickserv_registration_window_seconds);
+        return;
+    }
     was_identified = client->account_name[0] != '\0';
     recover_target = recover_target_before(server, text, old_nick, sizeof(old_nick));
     nickserv_handle_message(server, client, text);
@@ -67,6 +127,8 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
         ircv3_account_notify(client);
         memoserv_notify_unread(server, client);
         if (registering) {
+            if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN))
+                (void)server_nickserv_registration_allowed(server, client->real_ip, now, 1);
             snotice_broadcast(server, SNOTICE_REGISTRATIONS,
                               "NickServ registration: account=%s nick=%s real_ip=%s",
                               client->account_name, client->nick, client->real_ip);
