@@ -1,11 +1,6 @@
 /**
  * @file history_db.c
  * @brief SQLite persistence for IRCv3 channel message history.
- *
- * History is intentionally stored independently of live Channel objects so a
- * future persistent ChanServ channel can restore policy/state without changing
- * the storage format. This first iteration stores accepted channel PRIVMSG and
- * NOTICE events only.
  */
 
 #include "history_db.h"
@@ -29,7 +24,9 @@ static const char *schema_sql =
     "created_at_ms INTEGER NOT NULL"
     ");"
     "CREATE INDEX IF NOT EXISTS history_target_time "
-    "ON history(target, created_at_ms, id);";
+    "ON history(target, created_at_ms, id);"
+    "CREATE INDEX IF NOT EXISTS history_created_time "
+    "ON history(created_at_ms, id);";
 
 static HistoryDb shared_db = {0};
 static char shared_path[IRCD_CONFIG_PATH_MAX + 1U];
@@ -39,7 +36,6 @@ static int ensure_parent_directory(const char *path) {
     char parent[IRCD_CONFIG_PATH_MAX + 1U];
     char *slash;
     size_t length;
-
     if (path == NULL) return -1;
     length = strlen(path);
     if (length == 0U || length >= sizeof(parent)) return -1;
@@ -82,16 +78,14 @@ static void shared_history_cleanup(void) {
 HistoryDb *history_db_shared(const char *path) {
     if (path == NULL || *path == '\0' || strlen(path) > IRCD_CONFIG_PATH_MAX) return NULL;
     if (shared_db.handle != NULL && strcmp(shared_path, path) == 0) return &shared_db;
-
     if (shared_db.handle != NULL) shared_history_cleanup();
     if (history_db_open(&shared_db, path) != 0) {
         shared_path[0] = '\0';
         return NULL;
     }
     (void)snprintf(shared_path, sizeof(shared_path), "%s", path);
-    if (!shared_cleanup_registered) {
-        if (atexit(shared_history_cleanup) == 0) shared_cleanup_registered = 1;
-    }
+    if (!shared_cleanup_registered && atexit(shared_history_cleanup) == 0)
+        shared_cleanup_registered = 1;
     return &shared_db;
 }
 
@@ -101,10 +95,8 @@ int history_db_add(HistoryDb *db, const HistoryRecord *record) {
         "VALUES(?,?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     int rc;
-
     if (db == NULL || db->handle == NULL || record == NULL) return -1;
-    if (strcmp(record->command, "PRIVMSG") != 0 &&
-        strcmp(record->command, "NOTICE") != 0) return -1;
+    if (strcmp(record->command, "PRIVMSG") != 0 && strcmp(record->command, "NOTICE") != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, record->target, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, record->command, -1, SQLITE_TRANSIENT);
@@ -117,6 +109,35 @@ int history_db_add(HistoryDb *db, const HistoryRecord *record) {
     rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : -1;
     sqlite3_finalize(stmt);
     return rc;
+}
+
+int history_db_prune(HistoryDb *db, unsigned int retention_days,
+                     size_t max_rows, int64_t now_ms) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || max_rows == 0U || now_ms < 0) return -1;
+
+    if (retention_days != 0U) {
+        const int64_t cutoff = now_ms - (int64_t)retention_days * 86400000LL;
+        if (sqlite3_prepare_v2(db->handle,
+                "DELETE FROM history WHERE created_at_ms < ?1", -1, &stmt, NULL) != SQLITE_OK)
+            return -1;
+        sqlite3_bind_int64(stmt, 1, cutoff);
+        rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+        if (rc != SQLITE_DONE) return -1;
+    }
+
+    if (sqlite3_prepare_v2(db->handle,
+            "DELETE FROM history WHERE id <= ("
+            "SELECT id FROM history ORDER BY id DESC LIMIT 1 OFFSET ?1)",
+            -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_int64(stmt, 1, (sqlite3_int64)max_rows);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 static void copy_column(char *dest, size_t size, sqlite3_stmt *stmt, int column) {
@@ -134,7 +155,6 @@ int history_db_latest(HistoryDb *db, const char *target, size_t limit,
     sqlite3_stmt *stmt = NULL;
     size_t used = 0U;
     int step;
-
     if (count != NULL) *count = 0U;
     if (db == NULL || db->handle == NULL || target == NULL || records == NULL ||
         capacity == 0U || limit == 0U) return -1;
@@ -142,7 +162,6 @@ int history_db_latest(HistoryDb *db, const char *target, size_t limit,
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, target, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)limit);
-
     while ((step = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity) {
         HistoryRecord *record = &records[used++];
         memset(record, 0, sizeof(*record));
