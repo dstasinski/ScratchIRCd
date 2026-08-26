@@ -94,7 +94,7 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "MemoServ") == 0) {
-        memoserv_handle_message(server, client, text);
+        command_memoserv_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
     }
 
