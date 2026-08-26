@@ -57,8 +57,9 @@ typedef struct Server {
     size_t whowas_next;
     size_t whowas_count;
 
-    /** Bounded ephemeral anti-abuse state; no registration IP is persisted. */
+    /** Bounded ephemeral anti-abuse state; service request IPs are not persisted. */
     NickServRegistrationThrottle nickserv_registration_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
+    NickServRegistrationThrottle nickserv_mail_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
 
     /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
     int restart_requested;
