@@ -107,6 +107,7 @@ def main():
             f.write("argon2_ops_per_ip = 2\n")
             f.write("argon2_window_seconds = 3600\n")
             f.write("argon2_global_ops_per_minute = 100\n")
+            f.write("argon2_global_burst_per_second = 100\n")
             f.write("chanserv_max_channels_per_account = 1\n")
             f.write("memoserv_quota = 10\n")
             f.write("memoserv_sender_quota = 1\n")
@@ -174,6 +175,15 @@ def main():
             owner.expect("Memo #1 sent to Recipient.")
             owner.send("PRIVMSG MemoServ :SEND Recipient :second memo")
             owner.expect("outstanding sent-memo limit of 1")
+
+            # A service reached through PRIVMSG must consume the same weighted
+            # database-work budget as the direct service command. Ordinary
+            # PRIVMSG remains outside this smaller expensive-command bucket.
+            budget = IRCClient(port); clients.append(budget)
+            register_irc(budget, "Budget")
+            for _ in range(12):
+                budget.send("PRIVMSG NickServ :HELP")
+            budget.expect(" 263 Budget NICKSERV :Please wait before repeating this command")
         finally:
             for client in clients:
                 client.close()
