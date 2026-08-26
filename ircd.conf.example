@@ -12,6 +12,11 @@ tls_key_file =
 
 max_clients = 1024
 
+# Maximum number of live channels. Empty channels are destroyed immediately,
+# returning capacity to this pool. Valid range: 1-262144. Changing it requires
+# RESTART so the resource ceiling cannot shift underneath live channel state.
+max_channels = 4096
+
 # Maximum simultaneous connections sharing one real client IP. Set to 0 to
 # disable the per-IP limit. Trusted WebIRC gateway source IPs are automatically
 # exempt so the gateway itself is never treated as one end user. After WEBIRC
