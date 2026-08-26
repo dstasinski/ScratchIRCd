@@ -22,14 +22,9 @@ static int read_file(const char *path, char *buffer, size_t size) {
     return 0;
 }
 
-static long long queue_count(ChanServDb *db) {
-    sqlite3_stmt *stmt = NULL;
-    long long count = -1;
-    assert(sqlite3_prepare_v2(db->db, "SELECT COUNT(*) FROM channel_log_queue",
-                              -1, &stmt, NULL) == SQLITE_OK);
-    assert(sqlite3_step(stmt) == SQLITE_ROW);
-    count = sqlite3_column_int64(stmt, 0);
-    sqlite3_finalize(stmt);
+static size_t queue_count(ChanServDb *db) {
+    size_t count = 0U;
+    assert(chanserv_db_logging_queue_count(db, &count) == 0);
     return count;
 }
 
@@ -55,6 +50,7 @@ int main(void) {
     memset(&server, 0, sizeof(server));
     memset(&channel, 0, sizeof(channel));
     memset(&client, 0, sizeof(client));
+    server.config.channel_log_queue_max_rows = IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS;
     (void)snprintf(db_path, sizeof(db_path), "%s/chanserv.db", tmp);
     (void)snprintf(server.config.chanserv_db, sizeof(server.config.chanserv_db), "%s", db_path);
     (void)snprintf(channel.name, sizeof(channel.name), "#Rotate");
@@ -65,8 +61,10 @@ int main(void) {
     assert(chanserv_db_open(&db, db_path) == 0);
     assert(chanserv_db_create(&db, channel.name, "Alice", "rotation test") == 0);
     assert(chanserv_db_logging_set(&db, channel.name, 1) == 0);
+    assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
 
+    assert(channel_log_init(&server) == 0);
     now = time(NULL);
     assert(localtime_r(&now, &now_tm) != NULL);
     (void)strftime(old_suffix, sizeof(old_suffix), "%d%b%Y", &now_tm);
@@ -76,7 +74,7 @@ int main(void) {
 
     /* The event is durable immediately but not appended to the text log yet. */
     assert(chanserv_db_open(&db, db_path) == 0);
-    assert(queue_count(&db) == 1);
+    assert(queue_count(&db) == 1U);
     chanserv_db_close(&db);
     assert(access(old_path, F_OK) != 0);
 
@@ -104,7 +102,7 @@ int main(void) {
     assert(strncmp(new_text, expected_boundary, strlen(expected_boundary)) == 0);
 
     assert(chanserv_db_open(&db, db_path) == 0);
-    assert(queue_count(&db) == 0);
+    assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
 
     assert(chdir(original) == 0);
