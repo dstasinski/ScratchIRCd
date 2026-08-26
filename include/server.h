@@ -68,6 +68,11 @@ typedef struct Server {
     time_t argon2_burst_window_start;
     unsigned int argon2_burst_count;
 
+    /** Aggregate weighted database/enumeration work budget. */
+    time_t command_global_budget_updated;
+    unsigned int command_global_budget_tokens;
+    time_t command_global_throttle_notice_time;
+
     /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
     int restart_requested;
     int shutdown_requested;
