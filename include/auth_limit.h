@@ -19,6 +19,7 @@ static inline int auth_limit_consume(Server *server, Client *client,
     NickServRegistrationThrottle *free_slot = NULL;
     unsigned int per_ip;
     unsigned int global;
+    unsigned int burst;
     unsigned int window;
     time_t now;
     size_t i;
@@ -26,10 +27,29 @@ static inline int auth_limit_consume(Server *server, Client *client,
     if (server == NULL || client == NULL || client->real_ip[0] == '\0') return 0;
     per_ip = server->config.argon2_ops_per_ip;
     global = server->config.argon2_global_ops_per_minute;
+    burst = server->config.argon2_global_burst_per_second;
     window = server->config.argon2_window_seconds;
-    if (per_ip == 0U && global == 0U) return 1;
+    if (per_ip == 0U && global == 0U && burst == 0U) return 1;
 
     now = time(NULL);
+
+    if (burst != 0U) {
+        if (server->argon2_burst_window_start == 0 ||
+            now < server->argon2_burst_window_start ||
+            now - server->argon2_burst_window_start >= 1) {
+            server->argon2_burst_window_start = now;
+            server->argon2_burst_count = 0U;
+        }
+        if (server->argon2_burst_count >= burst) {
+            snotice_broadcast(server, SNOTICE_SECURITY | SNOTICE_FLOOD,
+                              "Argon2 work burst throttled: nick=%s real_ip=%s operation=%s limit=%u/sec",
+                              client->nick[0] != '\0' ? client->nick : "*",
+                              client->real_ip,
+                              operation != NULL ? operation : "password",
+                              burst);
+            return 0;
+        }
+    }
 
     if (global != 0U) {
         if (server->argon2_global_window_start == 0 ||
@@ -86,6 +106,7 @@ static inline int auth_limit_consume(Server *server, Client *client,
 
     if (slot != NULL) ++slot->count;
     if (global != 0U) ++server->argon2_global_count;
+    if (burst != 0U) ++server->argon2_burst_count;
     return 1;
 }
 
