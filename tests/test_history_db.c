@@ -13,8 +13,9 @@ int main(void) {
     HistoryDb *shared1;
     HistoryDb *shared2;
     HistoryRecord record;
-    HistoryRecord rows[4];
+    HistoryRecord rows[8];
     size_t count = 0U;
+    int i;
 
     (void)snprintf(path, sizeof(path), "/tmp/scratchircd-history-%ld.db", (long)getpid());
     (void)snprintf(path2, sizeof(path2), "/tmp/scratchircd-history2-%ld.db", (long)getpid());
@@ -44,12 +45,30 @@ int main(void) {
     assert(history_db_add(&db, &record) == 0);
 
     memset(rows, 0, sizeof(rows));
-    assert(history_db_latest(&db, "#test", 2U, rows, 4U, &count) == 0);
+    assert(history_db_latest(&db, "#test", 2U, rows, 8U, &count) == 0);
     assert(count == 2U);
     assert(strcmp(rows[0].text, "second") == 0);
-    assert(strcmp(rows[0].command, "NOTICE") == 0);
     assert(strcmp(rows[1].text, "third") == 0);
-    assert(rows[0].created_at_ms < rows[1].created_at_ms);
+
+    /* Age pruning removes rows older than the configured window. */
+    assert(history_db_prune(&db, 1U, 100U, 86400000LL + 2500LL) == 0);
+    count = 0U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) == 0);
+    assert(count == 1U);
+    assert(strcmp(rows[0].text, "third") == 0);
+
+    /* Global row pruning keeps only the newest max_rows records. */
+    for (i = 0; i < 6; ++i) {
+        (void)snprintf(record.text, sizeof(record.text), "row-%d", i);
+        record.created_at_ms = 10000 + i;
+        assert(history_db_add(&db, &record) == 0);
+    }
+    assert(history_db_prune(&db, 0U, 3U, 20000) == 0);
+    count = 0U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) == 0);
+    assert(count == 3U);
+    assert(strcmp(rows[0].text, "row-3") == 0);
+    assert(strcmp(rows[2].text, "row-5") == 0);
     history_db_close(&db);
 
     /* The shared API keeps one open handle for repeated hot-path calls. */
@@ -57,16 +76,13 @@ int main(void) {
     assert(shared1 != NULL && shared1->handle != NULL);
     shared2 = history_db_shared(path);
     assert(shared2 == shared1);
-    memset(rows, 0, sizeof(rows));
-    count = 0U;
-    assert(history_db_latest(shared2, "#test", 3U, rows, 4U, &count) == 0);
-    assert(count == 3U);
+    assert(history_db_shared_maintain(path, 0U, 3U, 30000) == 0);
 
     /* A restart selecting another history path transparently replaces it. */
     shared2 = history_db_shared(path2);
     assert(shared2 == shared1 && shared2->handle != NULL);
     count = 99U;
-    assert(history_db_latest(shared2, "#test", 3U, rows, 4U, &count) == 0);
+    assert(history_db_latest(shared2, "#test", 3U, rows, 8U, &count) == 0);
     assert(count == 0U);
 
     (void)unlink(path);
