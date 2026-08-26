@@ -6,15 +6,36 @@
 #include <string.h>
 #include <unistd.h>
 
+static int load_single_option(const char *line) {
+    char path[] = "/tmp/scratchircd-config-limit-XXXXXX";
+    int fd = mkstemp(path);
+    FILE *file;
+    ServerConfig config;
+    int rc;
+    assert(fd >= 0);
+    file = fdopen(fd, "w");
+    assert(file != NULL);
+    assert(fputs(line, file) >= 0);
+    assert(fclose(file) == 0);
+    runtime_config_defaults(&config);
+    rc = runtime_config_load(&config, path);
+    (void)unlink(path);
+    return rc;
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-config-XXXXXX";
     int fd = mkstemp(path);
     FILE *file;
     ServerConfig config;
 
+    runtime_config_defaults(&config);
+    assert(config.max_channels == IRCD_DEFAULT_MAX_CHANNELS);
+
     assert(fd >= 0);
     file = fdopen(fd, "w");
     assert(file != NULL);
+    assert(fputs("max_channels = 8192\n", file) >= 0);
     assert(fputs("max_connections_per_ip = 4\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
@@ -43,6 +64,7 @@ int main(void) {
 
     runtime_config_defaults(&config);
     assert(runtime_config_load(&config, path) == 0);
+    assert(config.max_channels == 8192U);
     assert(config.max_connections_per_ip == 4U);
     assert(config.connection_limit_exempt_ip_count == 2U);
     assert(strcmp(config.connection_limit_exempt_ips[0], "192.0.2.10") == 0);
@@ -71,6 +93,10 @@ int main(void) {
     assert(strcmp(config.mail_from, "services@example.test") == 0);
     assert(config.nickserv_reset_seconds == 1200U);
     assert(config.nickserv_verify_seconds == 7200U);
+
+    assert(load_single_option("max_channels = 0\n") != 0);
+    assert(load_single_option("max_channels = 262145\n") != 0);
+    assert(load_single_option("max_channels = 262144\n") == 0);
 
     (void)unlink(path);
     return 0;
