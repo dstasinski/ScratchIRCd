@@ -128,6 +128,8 @@ def main():
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 64\ndns_timeout_seconds = 1\n")
+            f.write("cloak_prefix = dru\n")
+            f.write("cloak_key = nickserv-test-cloak-key-0123456789abcdef\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
             f.write(f"nickserv_db = {td}/nickserv.db\n")
@@ -171,16 +173,12 @@ def main():
             alice.send(f"NICKSERV VERIFY {verify_token}")
             alice.expect("Email address verified.")
 
-            # Account identity follows the connection, not the current nickname.
             alice.send("NICK Owner")
             assert_current_nick(alice, "Owner")
             alice.send("WHOIS Owner")
             owner_whois = alice.expect(" 318 Owner Owner ")
             assert any("is logged in as Alice" in line for line in owner_whois), owner_whois
 
-            # Default RECOVER safely renames the squatter rather than disconnecting it.
-            # WATCH/WHOWAS must follow the same lifecycle as an ordinary NICK, and
-            # channel membership/authority must stay with the existing connection.
             watcher = IRCClient(port); clients.append(watcher)
             register(watcher, "Watcher")
             watcher.send("WATCH +Alice")
@@ -211,7 +209,6 @@ def main():
             alice.send("NICK Alice")
             assert_current_nick(alice, "Alice")
 
-            # RECOVER KILL disconnects the occupying session.
             alice.send("NICK Owner2")
             assert_current_nick(alice, "Owner2")
             squatter2 = IRCClient(port); clients.append(squatter2)
@@ -221,7 +218,6 @@ def main():
             squatter2.expect_closed()
             squatter2.close(); clients.remove(squatter2)
 
-            # GHOST is deliberately a KILL alias.
             squatter3 = IRCClient(port); clients.append(squatter3)
             register(squatter3, "Alice")
             alice.send("NICKSERV GHOST Alice")
@@ -259,10 +255,6 @@ def main():
             admin.send("NSSET Alice VHOST registered.example.test")
             admin.expect("NickServ account updated.")
 
-            # VHOST is applied on successful authentication, even when the client
-            # is already joined.  Everything that consumes public identity must
-            # switch immediately from the cloak to the vhost, while channel
-            # membership itself remains unchanged.
             requester.send("QUIT :replace with live vhost test")
             requester.close(); clients.remove(requester)
             user = IRCClient(port); clients.append(user)
@@ -273,8 +265,8 @@ def main():
             admin.expect(" 366 Admin #vhost ")
             user.send("JOIN #vhost")
             user.expect(" 366 Traveler #vhost ")
-            admin.send("MODE #vhost +b Traveler!*@cloak-*")
-            admin.expect(" MODE #vhost +b Traveler!*@cloak-*")
+            admin.send("MODE #vhost +b Traveler!*@dru-*")
+            admin.expect(" MODE #vhost +b Traveler!*@dru-*")
             user.send("PART #vhost :pre-identify ban check")
             user.expect(" PART #vhost :pre-identify ban check")
             user.send("JOIN #vhost")
@@ -293,8 +285,6 @@ def main():
             assert any(line.startswith(":Traveler!Traveler@registered.example.test ")
                        for line in prefixed if "PRIVMSG #vhost :vhost-prefix" in line), prefixed
 
-            # The vhost affects only display_host.  Operator WHOIS must still
-            # expose the unchanged end-user connection identity in numeric 378.
             admin.send("WHOIS Traveler")
             oper_whois = admin.expect(" 318 Admin Traveler ")
             assert any(" 311 Admin Traveler " in line and
