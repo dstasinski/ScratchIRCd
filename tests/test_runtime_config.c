@@ -34,6 +34,7 @@ int main(void) {
     assert(config.history_retention_days == IRCD_DEFAULT_HISTORY_RETENTION_DAYS);
     assert(config.history_max_rows == IRCD_DEFAULT_HISTORY_MAX_ROWS);
     assert(config.channel_log_queue_max_rows == IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS);
+    assert(config.memoserv_sender_quota == IRCD_DEFAULT_MEMOSERV_SENDER_QUOTA);
     assert(config.nickserv_registrations_per_ip == IRCD_DEFAULT_NICKSERV_REGISTRATIONS_PER_IP);
     assert(config.nickserv_registration_window_seconds == IRCD_DEFAULT_NICKSERV_REGISTRATION_WINDOW_SECONDS);
     assert(config.chanserv_max_channels_per_account == IRCD_DEFAULT_CHANSERV_MAX_CHANNELS_PER_ACCOUNT);
@@ -55,6 +56,7 @@ int main(void) {
     assert(fputs("chanserv_db = data/test-chanserv.db\n", file) >= 0);
     assert(fputs("memoserv_db = data/test-memoserv.db\n", file) >= 0);
     assert(fputs("memoserv_quota = 77\n", file) >= 0);
+    assert(fputs("memoserv_sender_quota = 333\n", file) >= 0);
     assert(fputs("memoserv_retention_days = 45\n", file) >= 0);
     assert(fputs("history_db = data/test-history.db\n", file) >= 0);
     assert(fputs("history_limit = 42\n", file) >= 0);
@@ -94,6 +96,7 @@ int main(void) {
     assert(strcmp(config.chanserv_db, "data/test-chanserv.db") == 0);
     assert(strcmp(config.memoserv_db, "data/test-memoserv.db") == 0);
     assert(config.memoserv_quota == 77U);
+    assert(config.memoserv_sender_quota == 333U);
     assert(config.memoserv_retention_days == 45U);
     assert(strcmp(config.history_db, "data/test-history.db") == 0);
     assert(config.history_limit == 42U);
@@ -123,6 +126,9 @@ int main(void) {
     assert(load_single_option("channel_log_queue_max_rows = 0\n") != 0);
     assert(load_single_option("channel_log_queue_max_rows = 5000001\n") != 0);
     assert(load_single_option("channel_log_queue_max_rows = 5000000\n") == 0);
+    assert(load_single_option("memoserv_sender_quota = 0\n") != 0);
+    assert(load_single_option("memoserv_sender_quota = 50001\n") != 0);
+    assert(load_single_option("memoserv_sender_quota = 50000\n") == 0);
     assert(load_single_option("nickserv_registrations_per_ip = 0\n") == 0);
     assert(load_single_option("nickserv_registrations_per_ip = 101\n") != 0);
     assert(load_single_option("nickserv_registration_window_seconds = 59\n") != 0);
