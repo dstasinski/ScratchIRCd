@@ -55,6 +55,12 @@ typedef struct Client {
     time_t command_budget_updated;
     time_t command_throttle_notice_time;
 
+    /* Independent budget for aggregate inbound command/event-loop pressure. */
+    unsigned int flood_budget_tokens;
+    time_t flood_budget_updated;
+    time_t flood_violation_window;
+    unsigned int flood_violation_count;
+
     OperPermissionSet oper_permissions;
     char oper_name[IRCD_OPER_NAME_MAX + 1U];
     SnoticeMask snotice_mask;
