@@ -89,7 +89,11 @@ history_max_rows = 250000
 # backlog flushes and IRCops receive rate-limited admin/flood SNOTICES.
 channel_log_queue_max_rows = 250000
 
+# Per-recipient mailbox quota and per-sender retained/outstanding quota.
+# The sender quota limits total retained memos across all recipients so one
+# account cannot monopolize the global memo database.
 memoserv_quota = 100
+memoserv_sender_quota = 500
 memoserv_retention_days = 90
 
 # Service fair-share limits. A value of 0 disables the corresponding fair-share
