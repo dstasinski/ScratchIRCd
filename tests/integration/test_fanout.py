@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fan-out regression coverage for large NAMES and shared-channel NICK delivery."""
+"""Fan-out regression coverage for large NAMES and shared-channel NICK/QUIT delivery."""
 
 import os
 import socket
@@ -125,6 +125,12 @@ def main():
             lines = observer.read_lines(0.8)
             nick_lines = [line for line in lines if " NICK :ActorRenamed" in line]
             assert len(nick_lines) == 1, nick_lines
+
+            observer.read_lines(0.2)
+            actor.send("QUIT :fanout-test")
+            lines = observer.read_lines(0.8)
+            quit_lines = [line for line in lines if "ActorRenamed!" in line and " QUIT :fanout-test" in line]
+            assert len(quit_lines) == 1, quit_lines
 
             # Build a channel large enough that its complete NAMES payload cannot
             # fit on one IRC line. All members must still be returned across
