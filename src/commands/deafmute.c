@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "message_policy.h"
 #include "modes.h"
 #include "numerics.h"
 
@@ -61,6 +62,10 @@ static CommandResult set_control_mode(Server *server, Client *client, char *para
                    target->nick, adding ? '+' : '-', mode);
     (void)client_send_line(target, line);
     if (target != client) (void)client_send_line(client, line);
+    snotice_broadcast(server, SNOTICE_MODERATION,
+                      "%s by %s: %c%s (%c%c) [real_ip=%s]",
+                      command, client->nick, adding ? '+' : '-', target->nick,
+                      adding ? '+' : '-', mode, target->real_ip);
 
     return COMMAND_KEEP_CLIENT;
 }
