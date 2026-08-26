@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,12 @@ def read_registration(sock, nick):
             for line in data.split(b"\n") if line]
 
 
+def register_and_read(port, nick):
+    sock = socket.create_connection(("127.0.0.1", port), timeout=3.0)
+    sock.sendall(f"NICK {nick}\r\nUSER {nick} 0 * :ISUPPORT Test\r\n".encode())
+    return sock, read_registration(sock, nick)
+
+
 def stop_server(proc):
     if proc.poll() is not None:
         return
@@ -59,6 +66,30 @@ def stop_server(proc):
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=2)
+
+
+def assert_base_isupport(lines, nick):
+    replies = [line for line in lines if f" 005 {nick} " in line]
+    assert len(replies) == 2, replies
+    for line in replies:
+        payload = line.split(f" 005 {nick} ", 1)[1]
+        payload = payload.rsplit(" :are supported by this server", 1)[0]
+        assert len(payload.split()) <= 13, line
+    joined = " ".join(replies)
+    expected = [
+        "CASEMAPPING=rfc1459", "CHANTYPES=#&", "PREFIX=(qaohv)~&@%+",
+        "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz", "CHANLIMIT=#&:32",
+        "NICKLEN=31", "USERLEN=31", "HOSTLEN=255", "CHANNELLEN=63",
+        "TOPICLEN=390", "KICKLEN=255", "MODES=32", "NETWORK=RuntimeNet",
+        "EXCEPTS=e", "INVEX=I", "WATCH=128", "SILENCE=64",
+        "TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1",
+        "MSGREFTYPES=timestamp", "CHATHISTORY=100", "PCHANNELS=",
+    ]
+    for token in expected:
+        assert token in joined, (token, replies)
+    assert "STATUSMSG=" not in joined, replies
+    assert "MAXLIST=" not in joined, replies
+    return joined
 
 
 def main():
@@ -72,6 +103,7 @@ def main():
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
         data_dir = os.path.join(tmp, "data")
+        chanserv_db = os.path.join(data_dir, "chanserv.db")
         os.mkdir(data_dir)
         open(motd, "w", encoding="utf-8").write("test\n")
         open(rules, "w", encoding="utf-8").write("test\n")
@@ -83,7 +115,7 @@ def main():
             f.write(f"operators_db = {data_dir}/operators.db\n")
             f.write(f"bans_db = {data_dir}/bans.db\n")
             f.write(f"nickserv_db = {data_dir}/nickserv.db\n")
-            f.write(f"chanserv_db = {data_dir}/chanserv.db\n")
+            f.write(f"chanserv_db = {chanserv_db}\n")
             f.write(f"memoserv_db = {data_dir}/memoserv.db\n")
             f.write(f"history_db = {data_dir}/history.db\n")
 
@@ -92,53 +124,48 @@ def main():
         sock = None
         try:
             wait_listen(port, proc)
-            sock = socket.create_connection(("127.0.0.1", port), timeout=3.0)
-            sock.sendall(b"NICK Support\r\nUSER Support 0 * :ISUPPORT Test\r\n")
-            lines = read_registration(sock, "Support")
-            replies = [line for line in lines if " 005 Support " in line]
-            assert len(replies) == 2, replies
-
-            # RFC limit: at most thirteen advertised tokens per 005 reply.
-            for line in replies:
-                payload = line.split(" 005 Support ", 1)[1]
-                payload = payload.rsplit(" :are supported by this server", 1)[0]
-                assert len(payload.split()) <= 13, line
-
-            joined = " ".join(replies)
-            expected = [
-                "CASEMAPPING=rfc1459",
-                "CHANTYPES=#&",
-                "PREFIX=(qaohv)~&@%+",
-                "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz",
-                "CHANLIMIT=#&:32",
-                "NICKLEN=31",
-                "USERLEN=31",
-                "HOSTLEN=255",
-                "CHANNELLEN=63",
-                "TOPICLEN=390",
-                "KICKLEN=255",
-                "MODES=32",
-                "NETWORK=RuntimeNet",
-                "EXCEPTS=e",
-                "INVEX=I",
-                "WATCH=128",
-                "SILENCE=64",
-                "TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1",
-                "MSGREFTYPES=timestamp",
-                "CHATHISTORY=100",
-                "PCHANNELS=",
-            ]
-            for token in expected:
-                assert token in joined, (token, replies)
-
-            assert "STATUSMSG=" not in joined, replies
-            assert "MAXLIST=" not in joined, replies
+            sock, lines = register_and_read(port, "Support")
+            joined = assert_base_isupport(lines, "Support")
+            assert "PCHANNELS=" in joined
         finally:
             if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
+                try: sock.close()
+                except OSError: pass
+            stop_server(proc)
+
+        # Seed more registered channels than PCHANNELS is allowed to enumerate.
+        db = sqlite3.connect(chanserv_db)
+        try:
+            for i in range(40):
+                db.execute(
+                    "INSERT INTO channels(name,founder,description,enabled) VALUES(?,?,?,1)",
+                    (f"#P{i:02d}", "founder", "test"))
+            db.commit()
+        finally:
+            db.close()
+
+        proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        sock = None
+        try:
+            wait_listen(port, proc)
+            sock, lines = register_and_read(port, "Bounded")
+            joined = assert_base_isupport(lines, "Bounded")
+            token = next(part for part in joined.split() if part.startswith("PCHANNELS="))
+            names = [name for name in token.split("=", 1)[1].split(",") if name]
+            assert len(names) == 32, names
+            assert names == [f"#P{i:02d}" for i in range(32)], names
+
+            db = sqlite3.connect(chanserv_db)
+            try:
+                indexes = {row[1] for row in db.execute("PRAGMA index_list(channels)")}
+            finally:
+                db.close()
+            assert "channels_enabled_name_idx" in indexes, indexes
+        finally:
+            if sock is not None:
+                try: sock.close()
+                except OSError: pass
             stop_server(proc)
 
 
