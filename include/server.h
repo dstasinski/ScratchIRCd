@@ -36,6 +36,7 @@ typedef struct Server {
     Client **clients;
     size_t client_count;
     size_t client_capacity;
+    size_t channel_count;
     uint64_t next_client_id;
     time_t started_at;
 
