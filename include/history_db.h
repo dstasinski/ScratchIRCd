@@ -30,6 +30,10 @@ int history_db_add(HistoryDb *db, const HistoryRecord *record);
 int history_db_latest(HistoryDb *db, const char *target, size_t limit,
                       HistoryRecord *records, size_t capacity, size_t *count);
 
+/** Delete history older than retention_days and then trim to newest max_rows. */
+int history_db_prune(HistoryDb *db, unsigned int retention_days,
+                     size_t max_rows, int64_t now_ms);
+
 /**
  * Return a process-reused history handle for path. The handle is opened lazily,
  * retained across commands, and automatically replaced if a restart selects a
