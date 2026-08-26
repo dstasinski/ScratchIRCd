@@ -48,7 +48,11 @@ static void store_channel_history(Server *server, Client *client,
         record.created_at_ms = (int64_t)time(NULL) * 1000;
 
     db = history_db_shared(server->config.history_db);
-    if (db != NULL) (void)history_db_add(db, &record);
+    if (db != NULL && history_db_add(db, &record) == 0)
+        (void)history_db_shared_maintain(server->config.history_db,
+                                        server->config.history_retention_days,
+                                        server->config.history_max_rows,
+                                        record.created_at_ms);
 }
 
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
