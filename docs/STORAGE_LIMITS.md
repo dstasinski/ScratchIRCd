@@ -70,6 +70,20 @@ nickserv_mail_global_per_minute = 60
 
 The per-IP limit prevents one source from repeatedly generating verification/reset mail, while the global per-minute ceiling bounds detached sendmail-worker creation even when requests come from many different addresses. The per-IP state is bounded and memory-only. Token verification and the token-consuming password-reset form do not generate mail and therefore do not consume this budget.
 
+## Password hashing and verification work
+
+Client-triggered Argon2 password work is protected by a shared fair-share budget because Argon2 is intentionally CPU- and memory-expensive and currently runs synchronously in the IRC process:
+
+```text
+argon2_ops_per_ip = 10
+argon2_window_seconds = 60
+argon2_global_ops_per_minute = 60
+```
+
+The same budget covers NickServ registration hashing, NickServ/IDENTIFY/SASL password verification, NickServ password changes, password-reset completion, and OPER password verification. This means alternate IRC command forms such as `PRIVMSG NickServ` cannot bypass the limiter. Unknown or disabled account/operator names are rejected before Argon2 work is charged.
+
+`argon2_ops_per_ip = 0` disables the per-IP layer, and `argon2_global_ops_per_minute = 0` disables the global layer. The per-IP state is bounded and memory-only and is keyed by the final client `real_ip`; it is not written to service databases. Throttling is reported through the security/flood SNOTICE categories.
+
 ## ChanServ registrations and access
 
 ChanServ has compile-time hard ceilings of:
@@ -101,7 +115,7 @@ Automatic DNSBL exact-IP ZLINEs are different. They use the configured `zline_de
 
 ## REHASH behavior
 
-The fair-share values above are runtime policy and may be changed by REHASH. Lowering a quota does not delete existing accounts, registered channels, or memos. It changes whether future allocations or mail-producing requests are accepted. Persistent database paths and other startup-bound identity/resource settings retain their existing RESTART requirements.
+The fair-share values above are runtime policy and may be changed by REHASH. Lowering a quota does not delete existing accounts, registered channels, or memos. It changes whether future allocations, mail-producing requests, or expensive password operations are accepted. Persistent database paths and other startup-bound identity/resource settings retain their existing RESTART requirements.
 
 ## Operational notes
 
