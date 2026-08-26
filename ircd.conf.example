@@ -103,8 +103,12 @@ memoserv_retention_days = 90
 # bounded process memory; registration IPs are not persisted in NickServ DB.
 nickserv_registrations_per_ip = 5
 nickserv_registration_window_seconds = 3600
+# Mail-producing SET EMAIL and RESET <account> requests have a separate IP
+# throttle. This also uses bounded process memory and the final real client IP.
+nickserv_mail_requests_per_ip = 5
+nickserv_mail_window_seconds = 900
 # Maximum ChanServ channel registrations founded by one authenticated account.
-# Network administrators bypass this per-account quota for administration.
+# Network administrators bypass these service fair-share quotas for recovery.
 chanserv_max_channels_per_account = 20
 
 sendmail_path =
