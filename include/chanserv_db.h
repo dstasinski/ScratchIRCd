@@ -57,6 +57,13 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
                           const char *setter, long long topic_time);
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size);
 
+/**
+ * Process-local generation for the enabled registered-channel set used by
+ * ISUPPORT PCHANNELS caching. It advances only after a successful create,
+ * delete, or enabled-state change.
+ */
+uint64_t chanserv_db_pchannels_generation(void);
+
 /* Optional per-channel logging persistence and durable queue. */
 int chanserv_db_logging_ensure_schema(ChanServDb *db);
 int chanserv_db_logging_get(ChanServDb *db, const char *name,
