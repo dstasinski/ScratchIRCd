@@ -30,7 +30,7 @@ endif()
 enable_testing()
 
 add_executable(scratchircd
-    src/main.c src/server.c src/client.c src/channel.c src/channel_policy.c src/channel_log.c
+    src/main.c src/server.c src/client.c src/cloak.c src/channel.c src/channel_policy.c src/channel_log.c
     src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/nospoof.c src/oper.c src/presence.c src/usermode_policy.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_db_logging.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
@@ -75,6 +75,11 @@ add_executable(test_client_identity tests/test_client_identity.c src/client.c)
 target_include_directories(test_client_identity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_link_libraries(test_client_identity PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME client_identity COMMAND test_client_identity)
+
+add_executable(test_cloak tests/test_cloak.c src/cloak.c src/client.c src/modes.c)
+target_include_directories(test_cloak PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_link_libraries(test_cloak PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+add_test(NAME cloak COMMAND test_cloak)
 
 add_executable(test_geoip tests/test_geoip.c src/geoip.c)
 target_include_directories(test_geoip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
@@ -223,7 +228,7 @@ add_test(NAME die_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOUR
 set_tests_properties(die_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
