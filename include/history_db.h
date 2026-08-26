@@ -30,4 +30,11 @@ int history_db_add(HistoryDb *db, const HistoryRecord *record);
 int history_db_latest(HistoryDb *db, const char *target, size_t limit,
                       HistoryRecord *records, size_t capacity, size_t *count);
 
+/**
+ * Return a process-reused history handle for path. The handle is opened lazily,
+ * retained across commands, and automatically replaced if a restart selects a
+ * different history_db path. A failed open is retried by the next caller.
+ */
+HistoryDb *history_db_shared(const char *path);
+
 #endif /* IRCD_HISTORY_DB_H */
