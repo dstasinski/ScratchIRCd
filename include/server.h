@@ -24,6 +24,12 @@ typedef struct WhowasRecord {
     time_t when;
 } WhowasRecord;
 
+typedef struct NickServRegistrationThrottle {
+    char ip[IRC_IP_MAX + 1U];
+    time_t window_start;
+    unsigned int count;
+} NickServRegistrationThrottle;
+
 /** Complete process-level IRC server state. */
 typedef struct Server {
     ServerConfig config;
@@ -51,6 +57,9 @@ typedef struct Server {
     size_t whowas_next;
     size_t whowas_count;
 
+    /** Bounded ephemeral anti-abuse state; no registration IP is persisted. */
+    NickServRegistrationThrottle nickserv_registration_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
+
     /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
     int restart_requested;
     int shutdown_requested;
@@ -74,5 +83,9 @@ int server_connection_limit_ip_exempt(const Server *server, const char *ip);
  */
 int server_connection_limit_reached(const Server *server, const char *ip,
                                     const Client *exclude);
+
+/** Return non-zero when another NickServ REGISTER is allowed for this IP. */
+int server_nickserv_registration_allowed(Server *server, const char *ip,
+                                         time_t now, int consume);
 
 #endif
