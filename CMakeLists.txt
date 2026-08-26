@@ -154,7 +154,7 @@ target_compile_definitions(test_chanserv_persist PRIVATE _POSIX_C_SOURCE=200809L
 target_link_libraries(test_chanserv_persist PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME chanserv_persistence COMMAND test_chanserv_persist)
 
-add_executable(test_channel_log tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/chanserv_db_logging.c src/client.c src/modes.c)
+add_executable(test_channel_log tests/test_channel_log.c src/channel_log.c src/chanserv_db.c src/chanserv_db_logging.c src/client.c src/modes.c src/oper.c)
 target_include_directories(test_channel_log PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(test_channel_log PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_channel_log PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
