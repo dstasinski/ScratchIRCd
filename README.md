@@ -34,7 +34,11 @@ Channel `PRIVMSG` and `NOTICE` history is persisted in:
 ```text
 history_db = data/history.db
 history_limit = 100
+history_retention_days = 30
+history_max_rows = 250000
 ```
+
+Age-based expiration may be disabled with `history_retention_days = 0`, but `history_max_rows` remains the global hard row ceiling. Maintenance is throttled rather than performed on every message.
 
 A client needs `draft/chathistory` to request:
 
@@ -71,7 +75,7 @@ Every IRC client has exactly three normal address/host identity fields:
 - `real_host` — FCrDNS-verified hostname for `real_ip`, when available.
 - `display_host` — the only hostname exposed through normal IRC protocol output.
 
-Channel bans and normal WHO/WHOIS/user prefixes use `display_host`. KLINE/ZLINE, DNSBL, GeoIP, and operator security inspection use the real fields. Vhosts (`+t`) and future cloaking (`+x`) change only `display_host`.
+Channel bans and normal WHO/WHOIS/user prefixes use `display_host`. KLINE/ZLINE, DNSBL, GeoIP, and operator security inspection use the real fields. Vhosts (`+t`) and cloaking (`+x`) change only `display_host`.
 
 History stores the displayed identity that was public when a channel message was sent; it never persists real IP/DNS identity in a replayable message record.
 
@@ -87,7 +91,7 @@ dnsbl = DroneBL dnsbl.dronebl.org
 
 ScratchIRCd supports up to eight configured lists. DNSBL queries run on a dedicated worker thread and never block the IRC event loop. The lookup begins only after the final direct/WebIRC `real_ip` has been established.
 
-A positive result immediately creates an exact-IP persistent ZLINE in `data/bans.db` and rejects the connection. Resolver/submission failure or timeout fails open. DNSBL-created ZLINEs are normal ZLINE records and may be removed with `ZLINE -<ip>` by an authorized operator.
+A positive result immediately creates an exact-IP timed ZLINE in `data/bans.db` and rejects the connection. The automatic ZLINE lifetime is `zline_default_duration_seconds`; expired rows are reclaimed by normal ban-database maintenance. Resolver/submission failure or timeout fails open. DNSBL-created ZLINEs may also be removed early with `ZLINE -<ip>` by an authorized operator.
 
 ## GeoIP / ASN enrichment
 
@@ -109,6 +113,8 @@ Registered nicknames/accounts are stored in:
 ```text
 nickserv_db = data/nickserv.db
 ```
+
+The NickServ account table has a compile-time hard ceiling of 100,000 rows. Existing accounts remain usable at the ceiling; only creation of additional accounts is refused until capacity is freed.
 
 NickServ is a virtual service identity, not a `Client`. It never joins channels and is never inserted into NAMES, WHO, ISON, LUSERS, or ordinary client hashes. `NickServ`, `ChanServ`, and `MemoServ` are reserved nicknames.
 
@@ -155,6 +161,8 @@ Registered channels are stored in:
 chanserv_db = data/chanserv.db
 ```
 
+Persistent ChanServ storage is capped at 50,000 registered channels globally and 256 explicit access entries per channel. Each persistent ban, exception, and invite-exception list also inherits the IRC live-list maximum of 100 entries.
+
 ChanServ is a virtual service with server authority. It never joins channels and never appears in ordinary client lists. Users may address it with either `CHANSERV ...` or `PRIVMSG ChanServ :...`.
 
 The initial service commands are:
@@ -172,21 +180,27 @@ Network administrators additionally have `CSINFO`, `CSSET`, and `CSDROP` managem
 
 See `docs/CHANSERV_GUIDE.md` for the complete current ChanServ behavior.
 
+## Persistent storage growth
+
+ScratchIRCd bounds client-amplifiable persistent data. In addition to the history and service limits above, the durable channel-log staging queue defaults to 250,000 rows and refuses new log events rather than deleting existing backlog when full. Daily channel log files are retained for 90 days. MemoServ uses both recipient quotas and age retention. Operator-created permanent KLINE/ZLINE/GeoBAN policy remains permanent by design.
+
+See `docs/STORAGE_LIMITS.md` for the complete storage-growth policy and operational notes.
+
 ## Runtime data
 
-All ScratchIRCd runtime databases and downloaded MaxMind files live under `data/`:
+All ScratchIRCd runtime databases and downloaded MaxMind files live under `data/`, while optional channel text logs live under `logs/`:
 
 ```text
 data/operators.db
 data/bans.db
 data/nickserv.db
 data/chanserv.db
+data/memoserv.db
 data/history.db
 data/GeoLite2-City.mmdb
 data/GeoLite2-ASN.mmdb
+logs/<channel>.log.<date>
 ```
-
-Future MemoServ data will use the same directory.
 
 ## Documentation
 
@@ -196,10 +210,11 @@ Future MemoServ data will use the same directory.
 - `docs/CHANSERV_GUIDE.md` — registered-channel persistence, founder authority, PCHANNELS, and administrator commands.
 - `docs/OPERATOR_GUIDE.md` — IRC operator authentication, permissions, identity access, and commands.
 - `docs/NETWORK_ADMIN_GUIDE.md` — bootstrap administration, operator/service management, bans, TLS, WebIRC, GeoIP, DNSBL, SASL/history, and configuration.
+- `docs/STORAGE_LIMITS.md` — persistent-storage ceilings, retention behavior, and disk-management notes.
 
 ## Currently implemented commands
 
-`ADMIN`, `AUTHENTICATE`, `AWAY`, `CAP`, `CHANSERV`, `CHATHISTORY`, `CSDROP`, `CSINFO`, `CSSET`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `LIST`, `LUSERS`, `MODE`, `MOTD`, `NAMES`, `NICK`, `NICKSERV`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `TOPIC`, `USER`, `USERHOST`, `USERIP` (operator-only), `WALLOPS`, `WEBIRC` (authorized gateways), `WHO`, `WHOIS`, and `ZLINE`.
+`ADMIN`, `AUTHENTICATE`, `AWAY`, `CAP`, `CHANSERV`, `CHATHISTORY`, `CSDROP`, `CSINFO`, `CSSET`, `DEAF`, `DIE`, `GEOBAN`, `GLOBOPS`, `IDENTIFY`, `INVITE`, `ISON`, `JOIN`, `KICK`, `KILL`, `KLINE`, `KNOCK`, `LINKS`, `LIST`, `LOCOPS`, `LUSERS`, `MEMOSERV`, `MODE`, `MOTD`, `MSINFO`, `MSPURGE`, `MUTE`, `NAMES`, `NICK`, `NICKSERV`, `NOTICE`, `NSDROP`, `NSINFO`, `NSSET`, `OPER`, `OPERADD`, `OPERDEL`, `OPERLIST`, `OPERSET`, `PART`, `PASS`, `PING`, `PONG`, `PRIVMSG`, `QUIT`, `REHASH`, `RESTART`, `RULES`, `SAJOIN`, `SAMODE`, `SAPART`, `SETHOST`, `SETIDENT`, `SETNAME`, `SILENCE`, `SNOTICE`, `STATS`, `TIME`, `TOPIC`, `UNGEOBAN`, `USER`, `USERHOST`, `USERIP`, `VERSION`, `WALLOPS`, `WATCH`, `WEBIRC`, `WHO`, `WHOIS`, `WHOWAS`, and `ZLINE`.
 
 ## Dependencies
 
@@ -218,11 +233,3 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
-
-CTest includes unit tests for client identity, GeoIP, DNSBL, runtime configuration, modes, channel policy, visibility, operator permissions/databases, persistent bans, NickServ persistence, ChanServ persistence, and history persistence. Socket-level integration tests cover core protocol behavior, operator actions/overrides, TLS, WebIRC, NickServ nickname/email recovery, IRCv3 SASL/capabilities, persistent history, and ChanServ persistence across a daemon restart.
-
-## Planned architecture
-
-The long-term daemon will add MemoServ, ChanServ access lists and persistent settings, hostname cloaking for `+x`, broader CHATHISTORY reference modes and message IDs, additional IRCv3 capabilities, GeoIP/ASN-based policy, complete client/channel mode behavior, full applicable ISUPPORT advertising, and the remaining planned standard command set.
-
-Services remain addressable virtual identities that never join channels or appear in ordinary client lists.
