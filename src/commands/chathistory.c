@@ -42,7 +42,7 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
     unsigned long requested;
     size_t limit;
     Channel *channel;
-    HistoryDb db = {0};
+    HistoryDb *db;
     HistoryRecord *records = NULL;
     size_t count = 0U;
     size_t i;
@@ -90,16 +90,15 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
     if (limit > server->config.history_limit) limit = server->config.history_limit;
     if (limit > IRCD_HISTORY_HARD_LIMIT) limit = IRCD_HISTORY_HARD_LIMIT;
 
+    db = history_db_shared(server->config.history_db);
     records = calloc(limit, sizeof(*records));
-    if (records == NULL || history_db_open(&db, server->config.history_db) != 0 ||
-        history_db_latest(&db, channel->name, limit, records, limit, &count) != 0) {
-        history_db_close(&db);
+    if (records == NULL || db == NULL ||
+        history_db_latest(db, channel->name, limit, records, limit, &count) != 0) {
         free(records);
         client_sendf(client, ERR_FILEERROR, server->config.server_name,
                      client->nick, "reading", server->config.history_db);
         return COMMAND_KEEP_CLIENT;
     }
-    history_db_close(&db);
 
     use_batch = (client->capabilities & CLIENT_CAP_BATCH) != 0U;
     if (use_batch) {
