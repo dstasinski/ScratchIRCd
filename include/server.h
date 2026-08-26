@@ -12,6 +12,7 @@
 #include "dnsbl.h"
 #include "geoip.h"
 #include "hash.h"
+#include "history_db.h"
 #include "runtime_config.h"
 
 /** One historical nickname identity retained for WHOWAS. */
@@ -23,6 +24,16 @@ typedef struct WhowasRecord {
     char server_name[IRC_HOST_MAX + 1U];
     time_t when;
 } WhowasRecord;
+
+/** Bounded read-mostly text file cached until its metadata changes. */
+typedef struct ServerTextCache {
+    char *data;
+    size_t length;
+    time_t mtime_sec;
+    long mtime_nsec;
+    long long file_size;
+    int valid;
+} ServerTextCache;
 
 /** Complete process-level IRC server state. */
 typedef struct Server {
@@ -45,6 +56,14 @@ typedef struct Server {
     DnsblResolver dnsbl;
     GeoIPContext geoip;
 
+    /** Reused SQLite handle for high-frequency channel history reads/writes. */
+    HistoryDb history_db;
+    int history_db_ready;
+
+    /** Read-mostly files cached in memory and refreshed after file changes. */
+    ServerTextCache motd_cache;
+    ServerTextCache rules_cache;
+
     /** Fixed-size in-memory ring; newest entries overwrite oldest entries. */
     WhowasRecord whowas[IRCD_WHOWAS_MAX];
     size_t whowas_next;
@@ -62,6 +81,13 @@ void server_disconnect(Server *server, Client *client, const char *reason);
 Channel *server_get_or_create_channel(Server *server, const char *name);
 void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
+
+/** Return the reusable history DB, retrying a failed open lazily. */
+HistoryDb *server_history_db(Server *server);
+
+/** Return cached MOTD/RULES text, refreshing only when file metadata changes. */
+const char *server_motd_text(Server *server, size_t *length);
+const char *server_rules_text(Server *server, size_t *length);
 
 /** Return non-zero when an IP is exempt from the concurrent per-IP limit. */
 int server_connection_limit_ip_exempt(const Server *server, const char *ip);
