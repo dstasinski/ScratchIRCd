@@ -39,6 +39,7 @@ static int cached_founder_matches(const Channel *channel, const Client *client) 
 
 static void clear_cached_policy(Channel *channel) {
     if (channel == NULL) return;
+    channel->chanserv_policy_loaded = 1;
     channel->chanserv_policy_valid = 0;
     channel->chanserv_founder[0] = '\0';
     channel->chanserv_mode_lock = 0U;
@@ -50,6 +51,7 @@ static void cache_policy(Channel *channel, const ChanServChannel *record) {
         clear_cached_policy(channel);
         return;
     }
+    channel->chanserv_policy_loaded = 1;
     channel->chanserv_policy_valid = 1;
     (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder),
                    "%s", record->founder);
@@ -116,11 +118,12 @@ static ChanServAccessLevel parse_access(const char *text) {
     return CHANSERV_ACCESS_NONE;
 }
 
-void chanserv_restore_channel(Server *server, Channel *channel) {
+static void load_channel_policy(Server *server, Channel *channel, int force) {
     ChanServDb db = {0};
     ChanServChannel record;
     int found;
     if (server == NULL || channel == NULL) return;
+    if (!force && channel->chanserv_policy_loaded) return;
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
     found = chanserv_db_get(&db, channel->name, &record);
     if (found == 1 && record.enabled) {
@@ -135,6 +138,14 @@ void chanserv_restore_channel(Server *server, Channel *channel) {
         clear_cached_policy(channel);
     }
     chanserv_db_close(&db);
+}
+
+void chanserv_restore_channel(Server *server, Channel *channel) {
+    load_channel_policy(server, channel, 0);
+}
+
+void chanserv_refresh_channel(Server *server, Channel *channel) {
+    load_channel_policy(server, channel, 1);
 }
 
 int chanserv_mode_change_allowed(Server *server, const Channel *channel,
@@ -161,7 +172,7 @@ int chanserv_client_is_founder(Server *server, const Client *client, const char 
     int result = 0;
     if (server == NULL || client == NULL || channel_name == NULL || client->account_name[0] == '\0') return 0;
     channel = hash_get(&server->channels_by_name, channel_name);
-    if (channel != NULL && channel->chanserv_policy_valid)
+    if (channel != NULL && channel->chanserv_policy_loaded)
         return cached_founder_matches(channel, client);
     if (chanserv_db_open(&db, server->config.chanserv_db) == 0) {
         if (chanserv_db_get(&db, channel_name, &record) == 1 && record.enabled)
@@ -182,7 +193,8 @@ ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *cli
     if (server == NULL || client == NULL || channel_name == NULL || client->account_name[0] == '\0') return 0U;
 
     channel = hash_get(&server->channels_by_name, channel_name);
-    if (channel != NULL && channel->chanserv_policy_valid) {
+    if (channel != NULL && channel->chanserv_policy_loaded) {
+        if (!channel->chanserv_policy_valid) return 0U;
         live_policy = 1;
         if (cached_founder_matches(channel, client))
             return CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
@@ -241,6 +253,7 @@ static void command_register(Server *server, Client *client, char *params) {
         chanserv_db_close(&db); cs_notice(server, client, "Channel registration failed or the channel is already registered."); return;
     }
     chanserv_db_close(&db);
+    channel->chanserv_policy_loaded = 1;
     channel->chanserv_policy_valid = 1;
     (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder), "%s", client->account_name);
     channel->chanserv_mode_lock = 0U;
@@ -315,7 +328,7 @@ static void command_set(Server *server, Client *client, char *params) {
             chanserv_db_close(&db); cs_notice(server,client,"Invalid persistent mode lock. Only boolean channel modes are supported."); return;
         }
         chanserv_db_close(&db);
-        { Channel *channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_restore_channel(server,channel); }
+        { Channel *channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_refresh_channel(server,channel); }
         cs_notice(server,client,"Persistent mode lock updated."); return;
     }
     if (strcasecmp(field,"TOPIC")==0) {
@@ -324,7 +337,7 @@ static void command_set(Server *server, Client *client, char *params) {
         if(strlen(value)>IRC_CHANNEL_TOPIC_MAX){chanserv_db_close(&db);cs_notice(server,client,"Topic is too long.");return;}
         (void)snprintf(setter,sizeof(setter),"%s!%s@%s",client->nick,client->user,client->display_host);
         if(chanserv_db_set_topic(&db,name,value,setter,now)!=0){chanserv_db_close(&db);cs_notice(server,client,"Failed to store persistent topic.");return;}
-        chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_restore_channel(server,channel);
+        chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_refresh_channel(server,channel);
         cs_notice(server,client,"Persistent topic updated."); return;
     }
     chanserv_db_close(&db); cs_notice(server,client,"Unknown SET field. Use MLOCK or TOPIC.");
