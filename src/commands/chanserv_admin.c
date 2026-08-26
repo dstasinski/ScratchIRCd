@@ -95,12 +95,8 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
     chanserv_db_close(&db);
     if (rc == 0) {
         Channel *channel = hash_get(&server->channels_by_name, name);
-        if (channel != NULL) {
-            if (strcasecmp(field, "ENABLED") == 0 && strcmp(value, "0") == 0)
-                channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_REGISTERED);
-            else
-                chanserv_restore_channel(server, channel);
-        }
+        if (channel != NULL)
+            chanserv_restore_channel(server, channel);
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "CSSET by %s: channel=%s field=%s value=%s",
                           client->nick, name, field, value);
@@ -128,7 +124,7 @@ CommandResult command_csdrop(Server *server, Client *client, char *params) {
     if (rc == 0) {
         Channel *channel = hash_get(&server->channels_by_name, name);
         if (channel != NULL)
-            channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_REGISTERED);
+            chanserv_restore_channel(server, channel);
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "CSDROP by %s: channel=%s", client->nick, name);
     }
