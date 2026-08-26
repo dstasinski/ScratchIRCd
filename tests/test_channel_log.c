@@ -78,6 +78,14 @@ int main(void) {
     chanserv_db_close(&db);
     assert(access(old_path, F_OK) != 0);
 
+    /* At the configured ceiling, new events are refused, never old backlog. */
+    server.config.channel_log_queue_max_rows = 1U;
+    channel_log_message(&server, &channel, &client, "must not displace durable backlog", 0);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1U);
+    chanserv_db_close(&db);
+    server.config.channel_log_queue_max_rows = IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS;
+
     next_tm = now_tm;
     next_tm.tm_mday += 1;
     next_tm.tm_hour = 0;
@@ -95,6 +103,7 @@ int main(void) {
     assert(read_file(old_path, old_text, sizeof(old_text)) == 0);
     assert(read_file(new_path, new_text, sizeof(new_text)) == 0);
     assert(strstr(old_text, "<Alice> before midnight") != NULL);
+    assert(strstr(old_text, "must not displace durable backlog") == NULL);
     assert(strstr(old_text, "[00:00:00] --- ") != NULL);
     (void)strftime(expected_boundary, sizeof(expected_boundary),
                    "[00:00:00] --- %B %d %Y 00:00:00.", &next_tm);
