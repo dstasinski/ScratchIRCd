@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -29,6 +30,10 @@ static const char *schema_sql =
     ");"
     "CREATE INDEX IF NOT EXISTS history_target_time "
     "ON history(target, created_at_ms, id);";
+
+static HistoryDb shared_db = {0};
+static char shared_path[IRCD_CONFIG_PATH_MAX + 1U];
+static int shared_cleanup_registered = 0;
 
 static int ensure_parent_directory(const char *path) {
     char parent[IRCD_CONFIG_PATH_MAX + 1U];
@@ -67,6 +72,27 @@ void history_db_close(HistoryDb *db) {
     if (db == NULL) return;
     if (db->handle != NULL) sqlite3_close(db->handle);
     db->handle = NULL;
+}
+
+static void shared_history_cleanup(void) {
+    history_db_close(&shared_db);
+    shared_path[0] = '\0';
+}
+
+HistoryDb *history_db_shared(const char *path) {
+    if (path == NULL || *path == '\0' || strlen(path) > IRCD_CONFIG_PATH_MAX) return NULL;
+    if (shared_db.handle != NULL && strcmp(shared_path, path) == 0) return &shared_db;
+
+    if (shared_db.handle != NULL) shared_history_cleanup();
+    if (history_db_open(&shared_db, path) != 0) {
+        shared_path[0] = '\0';
+        return NULL;
+    }
+    (void)snprintf(shared_path, sizeof(shared_path), "%s", path);
+    if (!shared_cleanup_registered) {
+        if (atexit(shared_history_cleanup) == 0) shared_cleanup_registered = 1;
+    }
+    return &shared_db;
 }
 
 int history_db_add(HistoryDb *db, const HistoryRecord *record) {
