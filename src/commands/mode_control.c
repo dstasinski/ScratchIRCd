@@ -1,13 +1,15 @@
 /**
  * @file mode_control.c
- * @brief Outer MODE wrapper for oper-controlled +D and +M user modes.
+ * @brief Outer MODE wrapper for controlled and identity-affecting user modes.
  *
  * mode_persist.c is compiled as command_mode_policy_core(). This wrapper keeps
  * ordinary MODE and ChanServ behavior intact while preventing clients from
- * changing +D/+M themselves and ensuring MODE <self> reports both flags.
+ * changing +D/+M themselves, owning +x display-host transitions, and ensuring
+ * MODE <self> reports all flags.
  */
 
 #include "commands.h"
+#include "cloak.h"
 #include "modes.h"
 #include "numerics.h"
 
@@ -71,7 +73,7 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
     size_t i;
     char sign = '+';
     char last_sign = '\0';
-    int blocked = 0;
+    int handled_x = 0;
 
     if (params == NULL) return command_mode_policy_core(server, client, params);
     (void)snprintf(copy, sizeof(copy), "%s", params);
@@ -98,9 +100,26 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
             continue;
         }
         if (letter == 'D' || letter == 'M') {
-            blocked = 1;
             client_sendf(client, ERR_NOPRIVILEGES,
                          server->config.server_name, client->nick);
+            continue;
+        }
+        if (letter == 'x') {
+            handled_x = 1;
+            if (sign == '+') {
+                char generated[IRC_HOST_MAX + 1U];
+                if (server->config.cloak_key[0] == '\0' ||
+                    cloak_generate(&server->config, client->real_ip, client->real_host,
+                                   generated, sizeof(generated)) != 0) {
+                    client_sendf(client, ":%s NOTICE %s :MODE +x unavailable: cloak_key is not configured",
+                                 server->config.server_name, client->nick);
+                    continue;
+                }
+                client->modes = client_mode_add(client->modes, CLIENT_MODE_CLOAKED);
+            } else {
+                client->modes = client_mode_remove(client->modes, CLIENT_MODE_CLOAKED);
+            }
+            cloak_refresh_display_host(&server->config, client);
             continue;
         }
         if (last_sign != sign && used + 1U < sizeof(filtered_modes)) {
@@ -111,11 +130,13 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         filtered_modes[used] = '\0';
     }
 
-    if (filtered_modes[0] == '\0') return COMMAND_KEEP_CLIENT;
-    if (rest != NULL && *rest != '\0')
-        (void)snprintf(rebuilt, sizeof(rebuilt), "%s %s %s", target, filtered_modes, rest);
-    else
-        (void)snprintf(rebuilt, sizeof(rebuilt), "%s %s", target, filtered_modes);
-    (void)blocked;
-    return command_mode_policy_core(server, client, rebuilt);
+    if (filtered_modes[0] != '\0') {
+        if (rest != NULL && *rest != '\0')
+            (void)snprintf(rebuilt, sizeof(rebuilt), "%s %s %s", target, filtered_modes, rest);
+        else
+            (void)snprintf(rebuilt, sizeof(rebuilt), "%s %s", target, filtered_modes);
+        (void)command_mode_policy_core(server, client, rebuilt);
+    }
+    if (handled_x) send_full_user_modes(server, client);
+    return COMMAND_KEEP_CLIENT;
 }
