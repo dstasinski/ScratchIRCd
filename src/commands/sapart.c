@@ -6,6 +6,7 @@
 #include "commands.h"
 #include "channel_log.h"
 #include "config.h"
+#include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -48,6 +49,9 @@ CommandResult command_sapart(Server *server, Client *client, char *params) {
                        channel->name, reason);
         channel_broadcast(channel, NULL, message);
         channel_log_part(server, channel, target, reason);
+        snotice_broadcast(server, SNOTICE_MODERATION,
+                          "SAPART by %s: %s <- %s [real_ip=%s]",
+                          client->nick, target->nick, channel->name, target->real_ip);
         channel_remove_client(channel, target);
         server_remove_channel_if_empty(server, channel);
     }
