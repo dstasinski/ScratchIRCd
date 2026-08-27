@@ -1,7 +1,10 @@
 /** @file chanserv_db.c @brief SQLite persistence for registered channels. */
 #include "chanserv_db.h"
+#include "sqlite_policy.h"
 #include <stdio.h>
 #include <string.h>
+
+#define CHANSERV_DB_SCHEMA_VERSION 1
 
 static uint64_t pchannels_generation = 1U;
 
@@ -115,6 +118,32 @@ static int ensure_access_schema(sqlite3 *db) {
     return exec_sql(db, migration);
 }
 
+static int schema_version(sqlite3 *db, int *version) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || version == NULL) return -1;
+    if (sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *version = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
+static int ensure_schema_version(sqlite3 *db) {
+    int version = 0;
+    if (schema_version(db, &version) != 0) return -1;
+    if (version > CHANSERV_DB_SCHEMA_VERSION) {
+        fprintf(stderr, "ChanServ DB: unsupported schema version %d (server supports %d)\n",
+                version, CHANSERV_DB_SCHEMA_VERSION);
+        return -1;
+    }
+    if (version == CHANSERV_DB_SCHEMA_VERSION) return 0;
+    if (ensure_channel_columns(db) != 0 || ensure_access_schema(db) != 0)
+        return -1;
+    return exec_sql(db, "PRAGMA user_version=1;");
+}
+
 int chanserv_db_open(ChanServDb *db, const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS channels ("
@@ -143,14 +172,13 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
     if (db == NULL || path == NULL) return -1;
     memset(db, 0, sizeof(*db));
     if (sqlite3_open(path, &db->db) != SQLITE_OK) { chanserv_db_close(db); return -1; }
+    if (ircd_sqlite_apply_policy(db->db) != 0) { chanserv_db_close(db); return -1; }
     if (sqlite3_create_collation(db->db, "IRCNOCASE", SQLITE_UTF8, NULL, irc_collation) != SQLITE_OK) {
         chanserv_db_close(db); return -1;
     }
-    sqlite3_busy_timeout(db->db, 2000);
     if (exec_sql(db->db, "PRAGMA foreign_keys=ON;") != 0 ||
         exec_sql(db->db, schema) != 0 ||
-        ensure_channel_columns(db->db) != 0 ||
-        ensure_access_schema(db->db) != 0) {
+        ensure_schema_version(db->db) != 0) {
         chanserv_db_close(db); return -1;
     }
     return 0;
