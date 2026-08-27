@@ -1,10 +1,21 @@
 #include "nickserv_db.h"
+#include "sqlite_policy.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+static int pragma_int(sqlite3 *db, const char *sql) {
+    sqlite3_stmt *stmt = NULL;
+    int value = -1;
+    assert(sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    value = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return value;
+}
 
 int main(void) {
     char path[] = "/tmp/scratchircd-nickserv-XXXXXX";
@@ -20,6 +31,9 @@ int main(void) {
     assert(unlink(path) == 0);
 
     assert(nickserv_db_open(&db, path) == 0);
+    assert(pragma_int(db.handle, "PRAGMA busy_timeout") == IRCD_SQLITE_BUSY_TIMEOUT_MS);
+    assert(pragma_int(db.handle, "PRAGMA synchronous") == 1);
+    assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
     memset(&account, 0, sizeof(account));
     snprintf(account.name, sizeof(account.name), "%s", "Daniel");
     snprintf(account.password_hash, sizeof(account.password_hash), "%s", "$argon2id$test");
@@ -82,6 +96,10 @@ int main(void) {
     assert(nickserv_db_add(&db, &third) == 0);
     assert(nickserv_db_delete(&db, "Alice") == 0);
     assert(nickserv_db_delete(&db, "Overflow") == 0);
+    nickserv_db_close(&db);
+
+    assert(nickserv_db_open(&db, path) == 0);
+    assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
     nickserv_db_close(&db);
     assert(unlink(path) == 0);
     return 0;
