@@ -229,10 +229,10 @@ int chanserv_db_create(ChanServDb *db, const char *name, const char *founder, co
     sqlite3_bind_text(stmt,2,founder,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,3,description != NULL ? description : "",-1,SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt,4,(sqlite3_int64)IRCD_CHANSERV_REGISTRATION_HARD_MAX);
-    rc = sqlite3_step(stmt);
-    changed = sqlite3_changes(db->db);
+    rc=sqlite3_step(stmt);
+    changed=sqlite3_changes(db->db);
     sqlite3_finalize(stmt);
-    if (rc == SQLITE_DONE && changed > 0) { pchannels_changed(); return 0; }
+    if(rc==SQLITE_DONE && changed>0){pchannels_changed();return 0;}
     return -1;
 }
 
@@ -346,8 +346,37 @@ int chanserv_db_access_get(ChanServDb *db, const char *channel, const char *acco
     sqlite3_finalize(stmt); return rc==SQLITE_DONE?0:-1;
 }
 
+int chanserv_db_access_foreach(ChanServDb *db, const char *channel,
+                               ChanServAccessCallback callback, void *context) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->db == NULL || channel == NULL || callback == NULL) return -1;
+    if (sqlite3_prepare_v2(db->db,
+        "SELECT channel,account,level FROM access WHERE channel=?1 "
+        "ORDER BY level DESC,account COLLATE NOCASE",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        ChanServAccess record;
+        int callback_rc;
+        memset(&record, 0, sizeof(record));
+        (void)snprintf(record.channel, sizeof(record.channel), "%s",
+                       sqlite3_column_text(stmt, 0));
+        (void)snprintf(record.account, sizeof(record.account), "%s",
+                       sqlite3_column_text(stmt, 1));
+        record.level = (ChanServAccessLevel)sqlite3_column_int(stmt, 2);
+        callback_rc = callback(&record, context);
+        if (callback_rc != 0) {
+            sqlite3_finalize(stmt);
+            return callback_rc;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 int chanserv_db_access_list(ChanServDb *db, const char *channel, char *buffer, size_t size) {
-    sqlite3_stmt *stmt=NULL; size_t used=0U; int rc;
+    sqlite3_stmt *stmt=NULL; size_t used=0U; int rc; int truncated=0;
     if(db==NULL||db->db==NULL||channel==NULL||buffer==NULL||size==0U)return -1;
     buffer[0]='\0';
     if(sqlite3_prepare_v2(db->db,"SELECT account,level FROM access WHERE channel=?1 ORDER BY level DESC,account COLLATE NOCASE",-1,&stmt,NULL)!=SQLITE_OK)return -1;
@@ -355,7 +384,10 @@ int chanserv_db_access_list(ChanServDb *db, const char *channel, char *buffer, s
     while((rc=sqlite3_step(stmt))==SQLITE_ROW){
         const char *account=(const char *)sqlite3_column_text(stmt,0); int level=sqlite3_column_int(stmt,1); char item[96];
         int written=snprintf(item,sizeof(item),"%s%s:%d",used?" ":"",account,level); size_t n=written>0?(size_t)written:0U;
-        if(written<0||n>=sizeof(item)||n>=size-used)break; memcpy(buffer+used,item,n); used+=n; buffer[used]='\0';
+        if(written<0||n>=sizeof(item)||n>=size-used){truncated=1;break;}
+        memcpy(buffer+used,item,n); used+=n; buffer[used]='\0';
     }
-    sqlite3_finalize(stmt); return rc==SQLITE_DONE||rc==SQLITE_ROW?0:-1;
+    sqlite3_finalize(stmt);
+    if (truncated) return -1;
+    return rc==SQLITE_DONE?0:-1;
 }
