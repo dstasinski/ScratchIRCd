@@ -56,6 +56,43 @@ static void test_tls_send_waits_for_input_retry(void) {
     close(fds[1]);
 }
 
+static void test_tagged_line_framing(void) {
+    int fds[2];
+    Client *client;
+    char untagged[IRC_LINE_CONTENT_MAX + 2U];
+    char tagged[IRCD_OUTPUT_BUFFER_SIZE];
+    static const char tag[] = "@time=2026-08-27T22:41:00.000Z ";
+    size_t tag_len = sizeof(tag) - 1U;
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+    nonblock(fds[0]);
+    nonblock(fds[1]);
+    client = client_create(fds[0], 4U, AF_UNIX, "127.0.0.1");
+    assert(client != NULL);
+
+    memset(untagged, 'U', IRC_LINE_CONTENT_MAX);
+    untagged[IRC_LINE_CONTENT_MAX] = '\0';
+    assert(client_send_line(client, untagged) >= 0);
+    untagged[IRC_LINE_CONTENT_MAX] = 'U';
+    untagged[IRC_LINE_CONTENT_MAX + 1U] = '\0';
+    assert(client_send_line(client, untagged) < 0);
+
+    assert(tag_len + IRC_LINE_CONTENT_MAX + 1U < sizeof(tagged));
+    memcpy(tagged, tag, tag_len);
+    memset(tagged + tag_len, 'T', IRC_LINE_CONTENT_MAX);
+    tagged[tag_len + IRC_LINE_CONTENT_MAX] = '\0';
+    assert(strlen(tagged) > IRC_LINE_CONTENT_MAX);
+    assert(client_send_line(client, tagged) >= 0);
+
+    tagged[tag_len + IRC_LINE_CONTENT_MAX] = 'T';
+    tagged[tag_len + IRC_LINE_CONTENT_MAX + 1U] = '\0';
+    assert(client_send_line(client, tagged) < 0);
+
+    client_free(client);
+    close(fds[0]);
+    close(fds[1]);
+}
+
 int main(void) {
     int fds[2];
     Client *client;
@@ -116,5 +153,6 @@ int main(void) {
     close(fds[1]);
 
     test_tls_send_waits_for_input_retry();
+    test_tagged_line_framing();
     return 0;
 }
