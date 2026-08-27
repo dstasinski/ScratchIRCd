@@ -10,6 +10,7 @@
 
 #include "commands.h"
 #include "config.h"
+#include "ircv3.h"
 #include "modes.h"
 #include "numerics.h"
 #include "visibility.h"
@@ -87,6 +88,17 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
     }
 
     if (*topic == ':') ++topic;
+
+    /* TOPICLEN is advertised as IRC_CHANNEL_TOPIC_MAX. Do not silently store a
+     * truncated value, and do not mutate channel state when adding the public
+     * nick!user@display_host prefix would make the broadcast unrepresentable. */
+    if (strlen(topic) > IRC_CHANNEL_TOPIC_MAX ||
+        !ircv3_message_wire_fits(client, "TOPIC", channel->name, topic)) {
+        client_sendf(client,
+                     ":%s 417 %s TOPIC :Topic would exceed the IRC line limit",
+                     server->config.server_name, client->nick);
+        return COMMAND_KEEP_CLIENT;
+    }
 
     (void)snprintf(channel->topic, sizeof(channel->topic), "%s", topic);
     (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter),
