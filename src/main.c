@@ -2,6 +2,7 @@
 #include "channel_log.h"
 #include "chanserv_db.h"
 #include "config.h"
+#include "history_db.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
@@ -123,6 +124,7 @@ int main(int argc, char **argv) {
          * any remaining backlog survives shutdown/restart and is recovered by
          * the normal oldest-first flusher instead of blocking here indefinitely. */
         channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
+        history_db_reset_shared();
 
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
