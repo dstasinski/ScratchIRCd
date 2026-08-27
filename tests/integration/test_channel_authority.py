@@ -93,9 +93,9 @@ def main():
             # A legal inbound MODE can still become too long once the sender's
             # nick!user@host prefix is added for channel broadcast. Reject the
             # whole request before any of its mask mutations are applied.
-            long_masks=[("a"*110)+str(i)+"!*@*" for i in range(4)]
+            long_masks=[("a"*116)+str(i)+"!*@*" for i in range(4)]
             oversized="MODE #authority +bbbb "+" ".join(long_masks)
-            assert len(oversized.encode()) <= 510, len(oversized.encode())
+            assert len(oversized.encode()) == 509, len(oversized.encode())
             owner.send(oversized);owner.expect(" 417 Owner MODE ")
             protect.expect_not(" MODE #authority +bbbb ")
             owner.send("MODE #authority b")
