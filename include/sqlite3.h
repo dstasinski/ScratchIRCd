@@ -1,6 +1,8 @@
 #ifndef IRCD_SQLITE3_WRAPPER_H
 #define IRCD_SQLITE3_WRAPPER_H
 
+#include <stddef.h>
+
 /* Pull in the platform SQLite API first, then wrap only the two entry points
  * ScratchIRCd uses to establish lock-wait policy. */
 #include_next <sqlite3.h>
