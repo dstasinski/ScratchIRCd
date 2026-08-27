@@ -40,6 +40,8 @@ typedef struct Client {
     SSL *ssl;
     ClientTlsState tls_state;
     int tls_want_write;
+    int input_retry_pending;
+    int input_want_write;
 
     /* Bounded nonblocking output queue. */
     char *outbuf;
@@ -47,6 +49,7 @@ typedef struct Client {
     size_t outbuf_len;
     size_t outbuf_capacity;
     size_t outbuf_limit;
+    int output_retry_pending;
     int output_want_read;
     int output_overflowed;
 
