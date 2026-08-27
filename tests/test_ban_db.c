@@ -1,6 +1,7 @@
 /** @file test_ban_db.c @brief Unit tests for bans.db persistence and matching. */
 
 #include "ban_db.h"
+#include "sqlite_policy.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -13,6 +14,16 @@ static int count_record(const BanRecord *record, void *context) {
     assert(record != NULL);
     ++count;
     return 0;
+}
+
+static int pragma_int(sqlite3 *db, const char *sql) {
+    sqlite3_stmt *stmt = NULL;
+    int value = -1;
+    assert(sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    value = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return value;
 }
 
 int main(void) {
@@ -28,6 +39,9 @@ int main(void) {
     unlink(path);
 
     assert(ban_db_open(&db, path) == 0);
+    assert(sqlite3_busy_timeout(db.handle, IRCD_SQLITE_BUSY_TIMEOUT_MS) == SQLITE_OK);
+    assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
+    assert(pragma_int(db.handle, "PRAGMA synchronous") == 1);
     assert(ban_db_add(&db, BAN_TYPE_KLINE, "bad*@example.test",
                       "testing kline", "root") == 0);
     assert(ban_db_add(&db, BAN_TYPE_ZLINE, "192.0.2.*",
@@ -120,6 +134,9 @@ int main(void) {
     assert(ban_db_match(&db, BAN_TYPE_KLINE,
                         "baduser@example.test", NULL, &match) == 0);
 
+    ban_db_close(&db);
+    assert(ban_db_open(&db, path) == 0);
+    assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
     ban_db_close(&db);
     unlink(path);
     return 0;
