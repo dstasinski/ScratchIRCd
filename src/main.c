@@ -135,6 +135,8 @@ int main(int argc, char **argv) {
         chanserv_persist_reset();
         history_db_reset_shared();
         command_common_reset_state();
+        command_motd_reset_cache();
+        command_rules_reset_cache();
         memoserv_reset_runtime_state();
 
         if (!restart) break;

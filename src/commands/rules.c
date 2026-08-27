@@ -11,6 +11,10 @@
 
 static TextFileCache rules_cache = {0};
 
+void command_rules_reset_cache(void) {
+    text_file_cache_clear(&rules_cache);
+}
+
 static void send_cached_rules_lines(Server *server, Client *client,
                                     const char *text, size_t length) {
     size_t offset = 0U;

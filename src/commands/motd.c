@@ -11,6 +11,10 @@
 
 static TextFileCache motd_cache = {0};
 
+void command_motd_reset_cache(void) {
+    text_file_cache_clear(&motd_cache);
+}
+
 static void send_cached_motd_lines(Server *server, Client *client,
                                    const char *text, size_t length) {
     size_t offset = 0U;

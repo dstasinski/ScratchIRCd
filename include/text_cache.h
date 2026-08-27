@@ -12,6 +12,7 @@
 #include <time.h>
 
 #define IRCD_TEXT_CACHE_MAX_BYTES 262144U
+#define IRCD_TEXT_CACHE_STAT_INTERVAL_SECONDS 1
 
 typedef struct TextFileCache {
     char *data;
@@ -20,6 +21,7 @@ typedef struct TextFileCache {
     time_t mtime_sec;
     long mtime_nsec;
     off_t file_size;
+    time_t next_stat_check;
     int valid;
 } TextFileCache;
 
@@ -29,10 +31,29 @@ static inline void text_file_cache_clear(TextFileCache *cache) {
     memset(cache, 0, sizeof(*cache));
 }
 
+static inline time_t text_file_cache_clock(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) return now.tv_sec;
+    return time(NULL);
+}
+
+static inline void text_file_cache_invalidate(TextFileCache *cache) {
+    if (cache == NULL) return;
+    free(cache->data);
+    cache->data = NULL;
+    cache->length = 0U;
+    cache->mtime_sec = (time_t)0;
+    cache->mtime_nsec = 0L;
+    cache->file_size = (off_t)0;
+    cache->valid = 0;
+}
+
 /**
- * Return a bounded in-memory copy of path. stat(2) is used as a cheap change
- * detector; the file is reopened only when path, size, or nanosecond mtime
- * changes. Missing/oversized/unreadable files invalidate the cached value.
+ * Return a bounded in-memory copy of path. stat(2) is throttled to at most
+ * once per second for the same path; the file is reopened only when path,
+ * size, or nanosecond mtime changes. Missing/oversized/unreadable files are
+ * negatively cached for the same short interval so command spam cannot turn
+ * filesystem metadata failures into an event-loop hotspot.
  */
 static inline const char *text_file_cache_get(TextFileCache *cache,
                                                const char *path,
@@ -42,18 +63,34 @@ static inline const char *text_file_cache_get(TextFileCache *cache,
     char *data;
     size_t wanted;
     size_t got;
+    time_t now;
+    int same_path;
 
     if (length != NULL) *length = 0U;
     if (cache == NULL || path == NULL || *path == '\0' ||
         strlen(path) > IRCD_CONFIG_PATH_MAX) return NULL;
 
+    now = text_file_cache_clock();
+    same_path = cache->path[0] != '\0' && strcmp(cache->path, path) == 0;
+    if (same_path && cache->next_stat_check != (time_t)0 &&
+        now < cache->next_stat_check) {
+        if (cache->valid && length != NULL) *length = cache->length;
+        return cache->valid ? cache->data : NULL;
+    }
+
+    if (!same_path) {
+        text_file_cache_clear(cache);
+        (void)snprintf(cache->path, sizeof(cache->path), "%s", path);
+    }
+    cache->next_stat_check = now + IRCD_TEXT_CACHE_STAT_INTERVAL_SECONDS;
+
     if (stat(path, &st) != 0 || st.st_size < 0 ||
         (uintmax_t)st.st_size > (uintmax_t)IRCD_TEXT_CACHE_MAX_BYTES) {
-        text_file_cache_clear(cache);
+        text_file_cache_invalidate(cache);
         return NULL;
     }
 
-    if (cache->valid && strcmp(cache->path, path) == 0 &&
+    if (cache->valid &&
         cache->file_size == st.st_size &&
         cache->mtime_sec == st.st_mtim.tv_sec &&
         cache->mtime_nsec == st.st_mtim.tv_nsec) {
@@ -64,19 +101,20 @@ static inline const char *text_file_cache_get(TextFileCache *cache,
     wanted = (size_t)st.st_size;
     file = fopen(path, "rb");
     if (file == NULL) {
-        text_file_cache_clear(cache);
+        text_file_cache_invalidate(cache);
         return NULL;
     }
     data = malloc(wanted + 1U);
     if (data == NULL) {
         fclose(file);
+        text_file_cache_invalidate(cache);
         return NULL;
     }
     got = wanted != 0U ? fread(data, 1U, wanted, file) : 0U;
     if (ferror(file) || got != wanted) {
         free(data);
         fclose(file);
-        text_file_cache_clear(cache);
+        text_file_cache_invalidate(cache);
         return NULL;
     }
     fclose(file);
@@ -89,7 +127,6 @@ static inline const char *text_file_cache_get(TextFileCache *cache,
     cache->mtime_sec = st.st_mtim.tv_sec;
     cache->mtime_nsec = st.st_mtim.tv_nsec;
     cache->valid = 1;
-    (void)snprintf(cache->path, sizeof(cache->path), "%s", path);
     if (length != NULL) *length = cache->length;
     return cache->data;
 }
