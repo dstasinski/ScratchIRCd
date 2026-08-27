@@ -35,6 +35,8 @@ typedef struct ChanServAccess {
     ChanServAccessLevel level;
 } ChanServAccess;
 
+typedef int (*ChanServAccessCallback)(const ChanServAccess *record, void *context);
+
 typedef struct ChanServLogQueueRecord {
     long long id;
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
@@ -91,6 +93,8 @@ int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *acco
 int chanserv_db_access_delete(ChanServDb *db, const char *channel, const char *account);
 int chanserv_db_access_get(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccess *record);
+int chanserv_db_access_foreach(ChanServDb *db, const char *channel,
+                               ChanServAccessCallback callback, void *context);
 int chanserv_db_access_list(ChanServDb *db, const char *channel, char *buffer, size_t size);
 
 #endif
