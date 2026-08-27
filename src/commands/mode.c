@@ -512,7 +512,12 @@ static CommandResult mode_channel(Server *server, Client *client,
     }
 
     if (changed[0] != '\0') {
-        char message[IRCD_MESSAGE_BUFFER_SIZE];
+        /* dispatch.c rejects any channel MODE whose fully prefixed wire form
+         * cannot fit IRC's 510-byte content limit before state mutation. The
+         * changed set here is only a subset of that request. This larger
+         * internal buffer lets the compiler model the formatter without
+         * introducing a second truncation policy at this late stage. */
+        char message[IRCD_MESSAGE_BUFFER_SIZE * 2U];
         (void)snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s%s%s\r\n",
                        client->nick, client->user, client->display_host,
                        channel->name, changed,
