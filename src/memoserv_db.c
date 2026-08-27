@@ -4,6 +4,7 @@
  */
 
 #include "memoserv_db.h"
+#include "sqlite_policy.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -43,7 +44,10 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         db->handle = NULL;
         return -1;
     }
-    sqlite3_busy_timeout(db->handle, 2000);
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
+        memoserv_db_close(db);
+        return -1;
+    }
     if (exec_sql(db->handle, schema) != 0) {
         memoserv_db_close(db);
         return -1;
