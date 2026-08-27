@@ -53,7 +53,18 @@ static void create_log_with_mtime(const char *path, time_t when) {
     assert(utimensat(AT_FDCWD, path, times, 0) == 0);
 }
 
+static size_t count_bulk_expired(size_t total) {
+    char path[128];
+    size_t i, count = 0U;
+    for (i = 0U; i < total; ++i) {
+        (void)snprintf(path, sizeof(path), "logs/Expired%03zu.log.01Jan2000", i);
+        if (access(path, F_OK) == 0) ++count;
+    }
+    return count;
+}
+
 int main(void) {
+    enum { BULK_EXPIRED_FILES = 300 };
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
     char original[1024];
@@ -61,7 +72,7 @@ int main(void) {
     char old_suffix[32], new_suffix[32];
     char old_path[128], new_path[128];
     char old_text[4096], new_text[4096], expected_boundary[128];
-    const char *expired_log = "logs/Expired.log.01Jan2000";
+    char bulk_path[128];
     const char *fresh_log = "logs/Fresh.log.01Jan2099";
     Server server;
     Channel channel;
@@ -69,6 +80,8 @@ int main(void) {
     ChanServDb db = {0};
     ChanServLogQueueRecord rows[8];
     size_t fetched = 0U;
+    size_t remaining;
+    size_t i;
     struct tm now_tm, next_tm;
     time_t now, next_midnight;
 
@@ -168,16 +181,37 @@ int main(void) {
     assert(strcmp(rows[1].body, "second inserted") == 0 && rows[1].event_time == 400);
     assert(chanserv_db_logging_queue_delete_through(&db, "#Clock", rows[1].id) == 0);
     assert(queue_count(&db) == 0U);
+
+    /* Simulate an in-process RESTART after the channel state has been cached as
+     * enabled. Reinitialization must discard that cache and honor DB changes. */
+    assert(chanserv_db_logging_set(&db, channel.name, 0) == 0);
+    chanserv_db_close(&db);
+    assert(channel_log_init(&server) == 0);
+    channel_log_message(&server, &channel, &client, "must remain disabled after restart", 0);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
 
-    /* Retention is based on actual file age, not trust in a filename date. */
-    create_log_with_mtime(expired_log,
-                          next_midnight - (time_t)(IRCD_CHANNEL_LOG_RETENTION_DAYS + 1U) * 86400);
+    /* Retention walks a bounded number of directory entries per event-loop
+     * pass, then resumes the same DIR cursor on subsequent passes. */
+    for (i = 0U; i < BULK_EXPIRED_FILES; ++i) {
+        (void)snprintf(bulk_path, sizeof(bulk_path),
+                       "logs/Expired%03zu.log.01Jan2000", i);
+        create_log_with_mtime(bulk_path,
+                              next_midnight - (time_t)(IRCD_CHANNEL_LOG_RETENTION_DAYS + 1U) * 86400);
+    }
     create_log_with_mtime(fresh_log, next_midnight - 3600);
-    assert(access(expired_log, F_OK) == 0);
+    assert(count_bulk_expired(BULK_EXPIRED_FILES) == BULK_EXPIRED_FILES);
     assert(access(fresh_log, F_OK) == 0);
+
     channel_log_rotate_all(next_midnight + 3600);
-    assert(access(expired_log, F_OK) != 0);
+    remaining = count_bulk_expired(BULK_EXPIRED_FILES);
+    assert(remaining > 0U && remaining < BULK_EXPIRED_FILES);
+    for (i = 0U; i < 10U && remaining != 0U; ++i) {
+        channel_log_rotate_all(next_midnight + 3600);
+        remaining = count_bulk_expired(BULK_EXPIRED_FILES);
+    }
+    assert(remaining == 0U);
     assert(access(fresh_log, F_OK) == 0);
 
     assert(chdir(original) == 0);
