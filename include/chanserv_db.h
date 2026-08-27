@@ -70,6 +70,12 @@ int chanserv_db_logging_queue_oldest(ChanServDb *db, long long *event_time);
 int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
                                     ChanServLogQueueRecord *records,
                                     size_t capacity, size_t *count);
+int chanserv_db_logging_queue_fetch_due(ChanServDb *db, long long cutoff,
+                                        ChanServLogQueueRecord *records,
+                                        size_t capacity, size_t *count);
+int chanserv_db_logging_queue_delete_ordered_through(ChanServDb *db,
+                                                      long long event_time,
+                                                      long long id);
 int chanserv_db_logging_queue_list_channels(ChanServDb *db, char *buffer,
                                             size_t size);
 int chanserv_db_logging_queue_delete_through(ChanServDb *db, const char *channel,
