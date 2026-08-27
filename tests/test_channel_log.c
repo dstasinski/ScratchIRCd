@@ -68,7 +68,7 @@ int main(void) {
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
     char original[1024];
-    char db_path[1200];
+    char db_path[IRCD_CONFIG_PATH_MAX + 1U];
     char old_suffix[32], new_suffix[32];
     char old_path[128], new_path[128];
     char old_text[4096], new_text[4096], expected_boundary[128];
