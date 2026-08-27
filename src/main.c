@@ -124,9 +124,14 @@ int main(int argc, char **argv) {
         server_run(&server);
         active_server = NULL;
         restart = server.restart_requested && !server.shutdown_requested;
-        channel_log_flush_all(&server);
         geoip_destroy(&server.geoip);
         server_destroy(&server);
+
+        /* Channel-log rows are already durable in SQLite. Make one bounded
+         * best-effort pass after disconnect-generated QUIT records are queued;
+         * any remaining backlog survives shutdown/restart and is recovered by
+         * the normal oldest-first flusher instead of blocking here indefinitely. */
+        channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
 
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
