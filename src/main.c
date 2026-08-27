@@ -4,6 +4,7 @@
 #include "commands.h"
 #include "config.h"
 #include "history_db.h"
+#include "memoserv.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
@@ -127,6 +128,7 @@ int main(int argc, char **argv) {
         channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
         history_db_reset_shared();
         command_common_reset_state();
+        memoserv_reset_runtime_state();
 
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
