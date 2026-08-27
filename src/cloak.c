@@ -5,18 +5,54 @@
 
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <openssl/opensslv.h>
 #include <openssl/evp.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/core_names.h>
+#include <openssl/params.h>
+#else
 #include <openssl/hmac.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 
 static int hmac32(const ServerConfig *config, const char *label,
                   const void *data, size_t data_len, unsigned int *value) {
     unsigned char digest[EVP_MAX_MD_SIZE];
-    unsigned int digest_len = 0U;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    EVP_MAC *mac = NULL;
+    EVP_MAC_CTX *ctx = NULL;
+    OSSL_PARAM params[2];
+    size_t digest_len = 0U;
+#else
     HMAC_CTX *ctx;
+    unsigned int digest_len = 0U;
+#endif
+
     if (config == NULL || label == NULL || data == NULL || value == NULL ||
         config->cloak_key[0] == '\0') return -1;
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    mac = EVP_MAC_fetch(NULL, "HMAC", NULL);
+    if (mac == NULL) return -1;
+    ctx = EVP_MAC_CTX_new(mac);
+    EVP_MAC_free(mac);
+    if (ctx == NULL) return -1;
+    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
+                                                  (char *)"SHA256", 0U);
+    params[1] = OSSL_PARAM_construct_end();
+    if (EVP_MAC_init(ctx, (const unsigned char *)config->cloak_key,
+                     strlen(config->cloak_key), params) != 1 ||
+        EVP_MAC_update(ctx, (const unsigned char *)label, strlen(label)) != 1 ||
+        EVP_MAC_update(ctx, (const unsigned char *)"|", 1U) != 1 ||
+        EVP_MAC_update(ctx, (const unsigned char *)data, data_len) != 1 ||
+        EVP_MAC_final(ctx, digest, &digest_len, sizeof(digest)) != 1 ||
+        digest_len < 4U) {
+        EVP_MAC_CTX_free(ctx);
+        return -1;
+    }
+    EVP_MAC_CTX_free(ctx);
+#else
     ctx = HMAC_CTX_new();
     if (ctx == NULL) return -1;
     if (HMAC_Init_ex(ctx, config->cloak_key, (int)strlen(config->cloak_key),
@@ -29,6 +65,8 @@ static int hmac32(const ServerConfig *config, const char *label,
         return -1;
     }
     HMAC_CTX_free(ctx);
+#endif
+
     *value = ((unsigned int)digest[0] << 24) |
              ((unsigned int)digest[1] << 16) |
              ((unsigned int)digest[2] << 8) |
