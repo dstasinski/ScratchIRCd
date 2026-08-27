@@ -165,6 +165,20 @@ int chanserv_db_logging_queue_oldest(ChanServDb *db, long long *event_time) {
     return rc == SQLITE_ROW ? 0 : -1;
 }
 
+static void queue_record_from_stmt(sqlite3_stmt *stmt,
+                                   ChanServLogQueueRecord *record) {
+    const unsigned char *value;
+    memset(record, 0, sizeof(*record));
+    record->id = sqlite3_column_int64(stmt, 0);
+    value = sqlite3_column_text(stmt, 1);
+    (void)snprintf(record->channel, sizeof(record->channel), "%s",
+                   value != NULL ? (const char *)value : "");
+    record->event_time = sqlite3_column_int64(stmt, 2);
+    value = sqlite3_column_text(stmt, 3);
+    (void)snprintf(record->body, sizeof(record->body), "%s",
+                   value != NULL ? (const char *)value : "");
+}
+
 int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
                                     ChanServLogQueueRecord *records,
                                     size_t capacity, size_t *count) {
@@ -181,23 +195,53 @@ int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity) {
-        ChanServLogQueueRecord *record = &records[used++];
-        const unsigned char *value;
-        memset(record, 0, sizeof(*record));
-        record->id = sqlite3_column_int64(stmt, 0);
-        value = sqlite3_column_text(stmt, 1);
-        (void)snprintf(record->channel, sizeof(record->channel), "%s",
-                       value != NULL ? (const char *)value : "");
-        record->event_time = sqlite3_column_int64(stmt, 2);
-        value = sqlite3_column_text(stmt, 3);
-        (void)snprintf(record->body, sizeof(record->body), "%s",
-                       value != NULL ? (const char *)value : "");
-    }
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity)
+        queue_record_from_stmt(stmt, &records[used++]);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
     if (count != NULL) *count = used;
     return 0;
+}
+
+int chanserv_db_logging_queue_fetch_due(ChanServDb *db, long long cutoff,
+                                        ChanServLogQueueRecord *records,
+                                        size_t capacity, size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    size_t used = 0U;
+    int rc;
+    if (count != NULL) *count = 0U;
+    if (db == NULL || db->db == NULL || records == NULL || capacity == 0U) return -1;
+    if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
+    if (sqlite3_prepare_v2(db->db,
+        "SELECT id,channel,event_time,body FROM channel_log_queue "
+        "WHERE event_time<=?1 ORDER BY event_time,id LIMIT ?2",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int64(stmt, 1, cutoff);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity)
+        queue_record_from_stmt(stmt, &records[used++]);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return -1;
+    if (count != NULL) *count = used;
+    return 0;
+}
+
+int chanserv_db_logging_queue_delete_ordered_through(ChanServDb *db,
+                                                      long long event_time,
+                                                      long long id) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->db == NULL || id <= 0) return -1;
+    if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
+    if (sqlite3_prepare_v2(db->db,
+        "DELETE FROM channel_log_queue WHERE event_time<?1 "
+        "OR (event_time=?1 AND id<=?2)", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_int64(stmt, 1, event_time);
+    sqlite3_bind_int64(stmt, 2, id);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int chanserv_db_logging_queue_list_channels(ChanServDb *db, char *buffer,
