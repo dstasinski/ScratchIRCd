@@ -23,6 +23,7 @@
 #define SERVER_DNS_RESULT_BUDGET 64U
 #define SERVER_DNSBL_RESULT_BUDGET 64U
 #define SERVER_DNSBL_LISTED_BUDGET 4U
+#define SERVER_TLS_HANDSHAKE_BUDGET 32U
 
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -372,16 +373,19 @@ void server_run(Server *server) {
         const size_t dns_index = server->listener_count;
         const size_t dnsbl_index = server->listener_count + 1U;
         const size_t client_base = server->listener_count + 2U;
-        const size_t total = client_base + server->client_count;
+        const size_t snapshot_count = server->client_count;
+        const size_t total = client_base + snapshot_count;
         struct pollfd *poll_fds = calloc(total, sizeof(*poll_fds));
-        Client **snapshot = calloc(server->client_count, sizeof(*snapshot));
+        Client **snapshot = calloc(snapshot_count, sizeof(*snapshot));
         size_t index;
+        size_t start_index = snapshot_count > 0U ? server->tls_handshake_cursor % snapshot_count : 0U;
+        size_t tls_handshakes = 0U;
         int ready;
-        if (poll_fds == NULL || (server->client_count > 0U && snapshot == NULL)) { snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop allocation failure; stopping server loop"); free(poll_fds); free(snapshot); return; }
+        if (poll_fds == NULL || (snapshot_count > 0U && snapshot == NULL)) { snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop allocation failure; stopping server loop"); free(poll_fds); free(snapshot); return; }
         for (index = 0U; index < server->listener_count; ++index) { poll_fds[index].fd = server->listen_fds[index]; poll_fds[index].events = POLLIN; }
         poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns); poll_fds[dns_index].events = POLLIN;
         poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl); poll_fds[dnsbl_index].events = POLLIN;
-        for (index = 0U; index < server->client_count; ++index) {
+        for (index = 0U; index < snapshot_count; ++index) {
             snapshot[index] = server->clients[index];
             poll_fds[client_base + index].fd = snapshot[index]->fd;
             poll_fds[client_base + index].events = POLLIN;
@@ -394,9 +398,10 @@ void server_run(Server *server) {
             for (index = 0U; index < server->listener_count; ++index) if ((poll_fds[index].revents & POLLIN) != 0) accept_clients(server, server->listen_fds[index], server->listener_tls[index] != 0U);
             if ((poll_fds[dns_index].revents & POLLIN) != 0) drain_dns_results(server);
             if ((poll_fds[dnsbl_index].revents & POLLIN) != 0) drain_dnsbl_results(server);
-            for (index = 0U; index + client_base < total; ++index) {
-                Client *client = snapshot[index];
-                short events = poll_fds[client_base + index].revents;
+            for (index = 0U; index < snapshot_count; ++index) {
+                size_t client_index = (start_index + index) % snapshot_count;
+                Client *client = snapshot[client_index];
+                short events = poll_fds[client_base + client_index].revents;
                 int disconnect = 0;
                 if (client == NULL || server_find_client_by_id(server, client->id) != client) continue;
                 if (client->output_overflowed) {
@@ -407,7 +412,10 @@ void server_run(Server *server) {
                 if (events == 0) continue;
                 if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) disconnect = 1;
                 else if (client->tls_state == CLIENT_TLS_HANDSHAKE) {
-                    if ((events & (POLLIN | POLLOUT)) != 0) disconnect = advance_tls_handshake(server, client);
+                    if ((events & (POLLIN | POLLOUT)) != 0 && tls_handshakes < SERVER_TLS_HANDSHAKE_BUDGET) {
+                        ++tls_handshakes;
+                        disconnect = advance_tls_handshake(server, client);
+                    }
                 } else {
                     if (client_output_pending(client) && (((events & POLLOUT) != 0) || (client->output_want_read && (events & POLLIN) != 0))) {
                         if (client_flush_output(client) < 0) disconnect = 1;
@@ -422,6 +430,10 @@ void server_run(Server *server) {
                 if (disconnect) server_disconnect(server, client, client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
             }
         }
+        if (snapshot_count > 0U)
+            server->tls_handshake_cursor = (start_index + SERVER_TLS_HANDSHAKE_BUDGET) % snapshot_count;
+        else
+            server->tls_handshake_cursor = 0U;
         free(snapshot); free(poll_fds);
         channel_log_rotate_all(time(NULL));
         if (!server->restart_requested) expire_connection_lookups(server);
