@@ -24,6 +24,7 @@
 #define SERVER_DNSBL_RESULT_BUDGET 64U
 #define SERVER_DNSBL_LISTED_BUDGET 4U
 #define SERVER_TLS_HANDSHAKE_BUDGET 32U
+#define SERVER_INPUT_LINE_BUDGET_PER_CLIENT 32U
 
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -178,27 +179,54 @@ static int advance_tls_handshake(Server *server, Client *client) {
     return 1;
 }
 
-static int process_buffered_lines(Server *server, Client *client) {
-    for (;;) {
-        char *newline = memchr(client->inbuf, '\n', client->inbuf_len);
+static int process_buffered_lines(Server *server, Client *client, int *pending) {
+    size_t offset = 0U;
+    size_t handled = 0U;
+
+    if (pending != NULL) *pending = 0;
+    while (handled < SERVER_INPUT_LINE_BUDGET_PER_CLIENT && offset < client->inbuf_len) {
+        char *base = client->inbuf + offset;
+        size_t remaining = client->inbuf_len - offset;
+        char *newline = memchr(base, '\n', remaining);
         size_t raw_length, line_length, consumed;
         char line[IRC_LINE_CONTENT_MAX + 1U];
-        if (newline == NULL) { if (client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U) { snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: overlong partial IRC line (%zu bytes)", client->real_ip, client->inbuf_len); return 1; } return 0; }
-        raw_length = (size_t)(newline - client->inbuf);
+        if (newline == NULL) break;
+        raw_length = (size_t)(newline - base);
         consumed = raw_length + 1U;
         line_length = raw_length;
-        if (line_length > 0U && client->inbuf[line_length - 1U] == '\r') --line_length;
-        if (line_length > IRC_LINE_CONTENT_MAX || memchr(client->inbuf, '\0', raw_length) != NULL || memchr(client->inbuf, '\r', line_length) != NULL) { snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: malformed or overlong IRC framing", client->real_ip); return 1; }
-        memcpy(line, client->inbuf, line_length); line[line_length] = '\0';
-        memmove(client->inbuf, client->inbuf + consumed, client->inbuf_len - consumed); client->inbuf_len -= consumed;
-        if (line[0] != '\0' && irc_handle_line(server, client, line) != 0) return 1;
+        if (line_length > 0U && base[line_length - 1U] == '\r') --line_length;
+        if (line_length > IRC_LINE_CONTENT_MAX || memchr(base, '\0', raw_length) != NULL || memchr(base, '\r', line_length) != NULL) {
+            snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: malformed or overlong IRC framing", client->real_ip);
+            return 1;
+        }
+        memcpy(line, base, line_length);
+        line[line_length] = '\0';
+        offset += consumed;
+        ++handled;
+        if (line[0] != '\0' && irc_handle_line(server, client, line) != 0) {
+            if (offset < client->inbuf_len) memmove(client->inbuf, client->inbuf + offset, client->inbuf_len - offset);
+            client->inbuf_len -= offset;
+            return 1;
+        }
     }
+
+    if (offset != 0U) {
+        if (offset < client->inbuf_len) memmove(client->inbuf, client->inbuf + offset, client->inbuf_len - offset);
+        client->inbuf_len -= offset;
+    }
+    if (client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U && memchr(client->inbuf, '\n', client->inbuf_len) == NULL) {
+        snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: overlong partial IRC line (%zu bytes)", client->real_ip, client->inbuf_len);
+        return 1;
+    }
+    if (pending != NULL && memchr(client->inbuf, '\n', client->inbuf_len) != NULL) *pending = 1;
+    return 0;
 }
 
 static int read_client(Server *server, Client *client) {
     int received;
     size_t available;
-    if (client->inbuf_len >= sizeof(client->inbuf) - 1U) { snotice_broadcast(server, SNOTICE_SECURITY | SNOTICE_FLOOD, "Input buffer exhausted by %s", client->real_ip); return 1; }
+    (void)server;
+    if (client->inbuf_len >= sizeof(client->inbuf) - 1U) return 1;
     available = sizeof(client->inbuf) - client->inbuf_len - 1U;
     if (client->ssl != NULL) {
         int error;
@@ -211,7 +239,34 @@ static int read_client(Server *server, Client *client) {
         received = (int)plain;
     }
     client->inbuf_len += (size_t)received;
-    return process_buffered_lines(server, client);
+    return 0;
+}
+
+static int drain_buffered_client_input(Server *server) {
+    size_t index = 0U;
+    int pending = 0;
+    while (index < server->client_count) {
+        Client *client = server->clients[index];
+        int client_pending = 0;
+        int disconnect;
+        if (client == NULL || client->tls_state == CLIENT_TLS_HANDSHAKE || client->inbuf_len == 0U) {
+            ++index;
+            continue;
+        }
+        disconnect = process_buffered_lines(server, client, &client_pending);
+        if (!disconnect && client->output_overflowed) {
+            snotice_broadcast(server, SNOTICE_FLOOD, "SendQ exceeded for %s (nick=%s limit=%zu bytes)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->outbuf_limit);
+            (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", "SendQ exceeded");
+            disconnect = 1;
+        }
+        if (disconnect) {
+            server_disconnect(server, client, client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
+            continue;
+        }
+        if (client_pending) pending = 1;
+        ++index;
+    }
+    return pending;
 }
 
 Client *server_find_client_by_id(Server *server, uint64_t id) { size_t index; if (server == NULL) return NULL; for (index = 0U; index < server->client_count; ++index) if (server->clients[index]->id == id) return server->clients[index]; return NULL; }
@@ -370,17 +425,23 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
 void server_run(Server *server) {
     if (server == NULL) return;
     while (!server->restart_requested) {
+        int buffered_pending = drain_buffered_client_input(server);
         const size_t dns_index = server->listener_count;
         const size_t dnsbl_index = server->listener_count + 1U;
         const size_t client_base = server->listener_count + 2U;
         const size_t snapshot_count = server->client_count;
         const size_t total = client_base + snapshot_count;
-        struct pollfd *poll_fds = calloc(total, sizeof(*poll_fds));
-        Client **snapshot = calloc(snapshot_count, sizeof(*snapshot));
+        struct pollfd *poll_fds;
+        Client **snapshot;
         size_t index;
-        size_t start_index = snapshot_count > 0U ? server->tls_handshake_cursor % snapshot_count : 0U;
+        size_t start_index;
         size_t tls_handshakes = 0U;
         int ready;
+
+        if (server->restart_requested) break;
+        poll_fds = calloc(total, sizeof(*poll_fds));
+        snapshot = calloc(snapshot_count, sizeof(*snapshot));
+        start_index = snapshot_count > 0U ? server->tls_handshake_cursor % snapshot_count : 0U;
         if (poll_fds == NULL || (snapshot_count > 0U && snapshot == NULL)) { snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop allocation failure; stopping server loop"); free(poll_fds); free(snapshot); return; }
         for (index = 0U; index < server->listener_count; ++index) { poll_fds[index].fd = server->listen_fds[index]; poll_fds[index].events = POLLIN; }
         poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns); poll_fds[dns_index].events = POLLIN;
@@ -392,7 +453,7 @@ void server_run(Server *server) {
             if (snapshot[index]->tls_state == CLIENT_TLS_HANDSHAKE && snapshot[index]->tls_want_write) poll_fds[client_base + index].events |= POLLOUT;
             else if (snapshot[index]->tls_state != CLIENT_TLS_HANDSHAKE && client_output_pending(snapshot[index]) && !snapshot[index]->output_want_read) poll_fds[client_base + index].events |= POLLOUT;
         }
-        ready = poll(poll_fds, (nfds_t)total, 1000);
+        ready = poll(poll_fds, (nfds_t)total, buffered_pending ? 0 : 1000);
         if (ready < 0 && errno != EINTR) { perror("poll"); free(snapshot); free(poll_fds); return; }
         if (ready > 0) {
             for (index = 0U; index < server->listener_count; ++index) if ((poll_fds[index].revents & POLLIN) != 0) accept_clients(server, server->listen_fds[index], server->listener_tls[index] != 0U);
