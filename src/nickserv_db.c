@@ -24,14 +24,19 @@ static const char *schema_sql =
     "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
     ");";
 
-static const char *migration_sql[] = {
-    "ALTER TABLE nickserv_accounts ADD COLUMN email TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE nickserv_accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE nickserv_accounts ADD COLUMN pending_email TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_token_hash TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_expires_at INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE nickserv_accounts ADD COLUMN reset_token_hash TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE nickserv_accounts ADD COLUMN reset_expires_at INTEGER NOT NULL DEFAULT 0"
+typedef struct NickServMigration {
+    const char *column;
+    const char *sql;
+} NickServMigration;
+
+static const NickServMigration migrations[] = {
+    {"email", "ALTER TABLE nickserv_accounts ADD COLUMN email TEXT NOT NULL DEFAULT ''"},
+    {"email_verified", "ALTER TABLE nickserv_accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"},
+    {"pending_email", "ALTER TABLE nickserv_accounts ADD COLUMN pending_email TEXT NOT NULL DEFAULT ''"},
+    {"email_verify_token_hash", "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_token_hash TEXT NOT NULL DEFAULT ''"},
+    {"email_verify_expires_at", "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_expires_at INTEGER NOT NULL DEFAULT 0"},
+    {"reset_token_hash", "ALTER TABLE nickserv_accounts ADD COLUMN reset_token_hash TEXT NOT NULL DEFAULT ''"},
+    {"reset_expires_at", "ALTER TABLE nickserv_accounts ADD COLUMN reset_expires_at INTEGER NOT NULL DEFAULT 0"}
 };
 
 static int ensure_parent_directory(const char *path) {
@@ -49,15 +54,34 @@ static int ensure_parent_directory(const char *path) {
     return mkdir(parent, 0750) == 0 || errno == EEXIST ? 0 : -1;
 }
 
+static int column_exists(sqlite3 *handle, const char *column) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    if (handle == NULL || column == NULL) return -1;
+    if (sqlite3_prepare_v2(handle, "PRAGMA table_info(nickserv_accounts)",
+                           -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp((const char *)name, column) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 static int apply_migrations(sqlite3 *handle) {
     size_t i;
-    for (i = 0U; i < sizeof(migration_sql) / sizeof(migration_sql[0]); ++i) {
-        char *error = NULL;
-        if (sqlite3_exec(handle, migration_sql[i], NULL, NULL, &error) != SQLITE_OK) {
-            int duplicate = error != NULL && strstr(error, "duplicate column name") != NULL;
-            sqlite3_free(error);
-            if (!duplicate) return -1;
-        }
+    for (i = 0U; i < sizeof(migrations) / sizeof(migrations[0]); ++i) {
+        int exists = column_exists(handle, migrations[i].column);
+        if (exists < 0) return -1;
+        if (exists == 0 && sqlite3_exec(handle, migrations[i].sql,
+                                        NULL, NULL, NULL) != SQLITE_OK)
+            return -1;
     }
     return 0;
 }
