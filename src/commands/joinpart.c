@@ -4,6 +4,7 @@
 #include "channel_policy.h"
 #include "chanserv.h"
 #include "config.h"
+#include "ircv3.h"
 #include "modes.h"
 #include "nospoof.h"
 #include "numerics.h"
@@ -193,6 +194,7 @@ CommandResult command_join(Server *server, Client *client, char *params) {
 CommandResult command_part(Server *server, Client *client, char *params) {
     char *name;
     char *reason;
+    const char *delivered_reason;
     Channel *channel;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
 
@@ -225,12 +227,16 @@ CommandResult command_part(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    channel_log_part(server, channel, client,
-                     reason != NULL ? reason : IRC_DEFAULT_PART_REASON);
+    delivered_reason = reason != NULL && *reason != '\0'
+                           ? reason : IRC_DEFAULT_PART_REASON;
+    if (!ircv3_message_wire_fits(client, "PART", channel->name,
+                                 delivered_reason))
+        delivered_reason = IRC_DEFAULT_PART_REASON;
+
+    channel_log_part(server, channel, client, delivered_reason);
     (void)snprintf(message, sizeof(message), ":%s!%s@%s PART %s :%s\r\n",
                    client->nick, client->user, client->display_host,
-                   channel->name,
-                   reason != NULL ? reason : IRC_DEFAULT_PART_REASON);
+                   channel->name, delivered_reason);
     channel_broadcast(channel, NULL, message);
     channel_remove_client(channel, client);
     server_remove_channel_if_empty(server, channel);
