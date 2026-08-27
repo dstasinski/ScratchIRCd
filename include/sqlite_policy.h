@@ -1,6 +1,7 @@
 #ifndef IRCD_SQLITE_POLICY_H
 #define IRCD_SQLITE_POLICY_H
 
+#include <stddef.h>
 #include <sqlite3.h>
 
 #define IRCD_SQLITE_BUSY_TIMEOUT_MS 250
