@@ -67,6 +67,8 @@ int main(void) {
     Channel channel;
     Client client;
     ChanServDb db = {0};
+    ChanServLogQueueRecord rows[8];
+    size_t fetched = 0U;
     struct tm now_tm, next_tm;
     time_t now, next_midnight;
 
@@ -138,6 +140,33 @@ int main(void) {
     assert(strncmp(new_text, expected_boundary, strlen(expected_boundary)) == 0);
 
     assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 0U);
+
+    /* Automatic paging is global by event age rather than channel name. */
+    assert(chanserv_db_logging_queue_add(&db, "#Later", 300, "later") == 0);
+    assert(chanserv_db_logging_queue_add(&db, "#Oldest", 100, "oldest") == 0);
+    assert(chanserv_db_logging_queue_add(&db, "#Middle", 200, "middle") == 0);
+    assert(chanserv_db_logging_queue_fetch_due(&db, 250, rows, 8, &fetched) == 0);
+    assert(fetched == 2U);
+    assert(strcmp(rows[0].channel, "#Oldest") == 0 && rows[0].event_time == 100);
+    assert(strcmp(rows[1].channel, "#Middle") == 0 && rows[1].event_time == 200);
+    assert(chanserv_db_logging_queue_delete_ordered_through(&db,
+            rows[1].event_time, rows[1].id) == 0);
+    assert(queue_count(&db) == 1U);
+    assert(chanserv_db_logging_queue_fetch_due(&db, 1000, rows, 8, &fetched) == 0);
+    assert(fetched == 1U && strcmp(rows[0].channel, "#Later") == 0);
+    assert(chanserv_db_logging_queue_delete_ordered_through(&db,
+            rows[0].event_time, rows[0].id) == 0);
+
+    /* Per-channel administrative drains use insertion order so id<=last_id
+     * deletion remains safe even when the wall clock moves backward. */
+    assert(chanserv_db_logging_queue_add(&db, "#Clock", 500, "first inserted") == 0);
+    assert(chanserv_db_logging_queue_add(&db, "#Clock", 400, "second inserted") == 0);
+    assert(chanserv_db_logging_queue_fetch(&db, "#Clock", rows, 8, &fetched) == 0);
+    assert(fetched == 2U);
+    assert(strcmp(rows[0].body, "first inserted") == 0 && rows[0].event_time == 500);
+    assert(strcmp(rows[1].body, "second inserted") == 0 && rows[1].event_time == 400);
+    assert(chanserv_db_logging_queue_delete_through(&db, "#Clock", rows[1].id) == 0);
     assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
 
