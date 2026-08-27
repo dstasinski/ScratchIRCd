@@ -15,6 +15,9 @@
 /** Ensure the companion persistence tables exist. */
 int chanserv_persist_init(const char *path);
 
+/** Reset the reusable persistence connection at shutdown or in-process restart. */
+void chanserv_persist_reset(void);
+
 /** Restore persistent parameter modes and +b/+e/+I lists into a live channel. */
 int chanserv_persist_restore(const char *path, Channel *channel);
 

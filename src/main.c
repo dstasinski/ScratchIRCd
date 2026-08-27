@@ -1,6 +1,7 @@
 #include "ban_db.h"
 #include "channel_log.h"
 #include "chanserv_db.h"
+#include "chanserv_persist.h"
 #include "commands.h"
 #include "config.h"
 #include "history_db.h"
@@ -71,6 +72,11 @@ static int ensure_databases(const ServerConfig *config) {
         return -1;
     }
     chanserv_db_close(&chanserv);
+    if (chanserv_persist_init(config->chanserv_db) != 0) {
+        fprintf(stderr, "Failed to initialize ChanServ persistence: %s\n",
+                config->chanserv_db);
+        return -1;
+    }
 
     if (memoserv_db_open(&memoserv, config->memoserv_db) != 0) {
         fprintf(stderr, "Failed to open MemoServ database: %s\n", config->memoserv_db);
@@ -126,6 +132,7 @@ int main(int argc, char **argv) {
          * any remaining backlog survives shutdown/restart and is recovered by
          * the normal oldest-first flusher instead of blocking here indefinitely. */
         channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
+        chanserv_persist_reset();
         history_db_reset_shared();
         command_common_reset_state();
         memoserv_reset_runtime_state();

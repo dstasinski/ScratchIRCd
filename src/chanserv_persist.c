@@ -9,8 +9,8 @@
  */
 
 #include "chanserv_persist.h"
+#include "sqlite_policy.h"
 
-#include <sqlite3.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,6 +20,10 @@ enum {
     CHANSERV_MASK_EXCEPTION = 2,
     CHANSERV_MASK_INVEX = 3
 };
+
+static sqlite3 *shared_db = NULL;
+static char shared_path[IRCD_CONFIG_PATH_MAX + 1U];
+static int shared_schema_ready = 0;
 
 static unsigned char irc_fold(unsigned char ch) {
     if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
@@ -59,25 +63,36 @@ static int exec_sql(sqlite3 *db, const char *sql) {
     return 0;
 }
 
-static int open_db(sqlite3 **out, const char *path) {
+static void close_shared(void) {
+    if (shared_db != NULL) sqlite3_close(shared_db);
+    shared_db = NULL;
+    shared_path[0] = '\0';
+    shared_schema_ready = 0;
+}
+
+void chanserv_persist_reset(void) {
+    close_shared();
+}
+
+static int open_shared(const char *path) {
     sqlite3 *db = NULL;
-    if (out == NULL || path == NULL) return -1;
-    *out = NULL;
+    if (path == NULL || *path == '\0' || strlen(path) >= sizeof(shared_path)) return -1;
+    if (shared_db != NULL && strcmp(shared_path, path) == 0) return 0;
+
+    close_shared();
     if (sqlite3_open(path, &db) != SQLITE_OK) {
         if (db != NULL) sqlite3_close(db);
         return -1;
     }
-    if (sqlite3_create_collation(db, "IRCNOCASE", SQLITE_UTF8, NULL,
-                                 irc_collation) != SQLITE_OK) {
+    if (ircd_sqlite_apply_policy(db) != 0 ||
+        sqlite3_create_collation(db, "IRCNOCASE", SQLITE_UTF8, NULL,
+                                 irc_collation) != SQLITE_OK ||
+        exec_sql(db, "PRAGMA foreign_keys=ON;") != 0) {
         sqlite3_close(db);
         return -1;
     }
-    sqlite3_busy_timeout(db, 2000);
-    if (exec_sql(db, "PRAGMA foreign_keys=ON;") != 0) {
-        sqlite3_close(db);
-        return -1;
-    }
-    *out = db;
+    shared_db = db;
+    (void)snprintf(shared_path, sizeof(shared_path), "%s", path);
     return 0;
 }
 
@@ -99,15 +114,7 @@ static int mask_schema_is_numeric(sqlite3 *db) {
     return numeric;
 }
 
-/**
- * Ensure the runtime persistence schema exists.
- *
- * Early 0.20 development builds used TEXT mode letters in channel_masks.type.
- * Because this project is still pre-release and those databases contain no
- * production state, that development-only table is rebuilt automatically if
- * encountered. Registered channels and access entries are untouched.
- */
-int chanserv_persist_init(const char *path) {
+static int ensure_schema(sqlite3 *db) {
     static const char runtime_schema[] =
         "CREATE TABLE IF NOT EXISTS channel_runtime ("
         "channel TEXT COLLATE IRCNOCASE PRIMARY KEY,"
@@ -128,30 +135,39 @@ int chanserv_persist_init(const char *path) {
         "PRIMARY KEY(channel,type,mask),"
         "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
         ");";
-    sqlite3 *db = NULL;
     sqlite3_stmt *stmt = NULL;
     int exists = 0;
     int rc = -1;
 
-    if (open_db(&db, path) != 0) return -1;
-    if (exec_sql(db, runtime_schema) != 0) goto done;
-
+    if (exec_sql(db, runtime_schema) != 0) return -1;
     if (sqlite3_prepare_v2(db,
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='channel_masks'",
-        -1, &stmt, NULL) != SQLITE_OK) goto done;
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
     exists = sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt); stmt = NULL;
 
     if (exists && !mask_schema_is_numeric(db)) {
-        if (exec_sql(db, "DROP TABLE channel_masks;") != 0) goto done;
+        if (exec_sql(db, "DROP TABLE channel_masks;") != 0) return -1;
     }
-    if (exec_sql(db, mask_schema) != 0) goto done;
-    rc = 0;
-
-done:
-    if (stmt != NULL) sqlite3_finalize(stmt);
-    sqlite3_close(db);
+    if (exec_sql(db, mask_schema) == 0) rc = 0;
     return rc;
+}
+
+/**
+ * Ensure the runtime persistence schema exists once for the active database.
+ * Early 0.20 development builds used TEXT mode letters in channel_masks.type;
+ * that development-only table is rebuilt once if encountered.
+ */
+int chanserv_persist_init(const char *path) {
+    if (open_shared(path) != 0) return -1;
+    if (shared_schema_ready) return 0;
+    if (ensure_schema(shared_db) != 0) return -1;
+    shared_schema_ready = 1;
+    return 0;
+}
+
+static sqlite3 *ready_db(const char *path) {
+    return chanserv_persist_init(path) == 0 ? shared_db : NULL;
 }
 
 static int save_masks(sqlite3 *db, const char *channel,
@@ -178,11 +194,12 @@ static int save_masks(sqlite3 *db, const char *channel,
 }
 
 int chanserv_persist_save(const char *path, const Channel *channel) {
-    sqlite3 *db = NULL;
+    sqlite3 *db;
     sqlite3_stmt *stmt = NULL;
     int ok = -1;
     if (path == NULL || channel == NULL) return -1;
-    if (chanserv_persist_init(path) != 0 || open_db(&db, path) != 0) return -1;
+    db = ready_db(path);
+    if (db == NULL) return -1;
     if (exec_sql(db, "BEGIN IMMEDIATE;") != 0) goto done;
     if (sqlite3_prepare_v2(db,
         "INSERT INTO channel_runtime(channel,channel_key,user_limit,join_count,join_seconds,limit_redirect,ban_redirect) "
@@ -225,7 +242,6 @@ rollback:
     (void)exec_sql(db, "ROLLBACK;");
 done:
     if (stmt != NULL) sqlite3_finalize(stmt);
-    if (db != NULL) sqlite3_close(db);
     return ok;
 }
 
@@ -259,12 +275,13 @@ static int restore_masks(sqlite3 *db, Channel *channel) {
 }
 
 int chanserv_persist_restore(const char *path, Channel *channel) {
-    sqlite3 *db = NULL;
+    sqlite3 *db;
     sqlite3_stmt *stmt = NULL;
     int rc;
     int result = -1;
     if (path == NULL || channel == NULL) return -1;
-    if (chanserv_persist_init(path) != 0 || open_db(&db, path) != 0) return -1;
+    db = ready_db(path);
+    if (db == NULL) return -1;
 
     channel->key[0] = '\0';
     channel->user_limit = 0U;
@@ -302,6 +319,5 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
 
 done:
     if (stmt != NULL) sqlite3_finalize(stmt);
-    if (db != NULL) sqlite3_close(db);
     return result;
 }
