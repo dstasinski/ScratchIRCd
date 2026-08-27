@@ -17,6 +17,7 @@
 
 #define CHANNEL_LOG_FLUSH_FETCH_ROWS 128U
 #define CHANNEL_LOG_FLUSH_DUE_MAX_ROWS 1024U
+#define CHANNEL_LOG_RETENTION_SCAN_ENTRIES 128U
 
 typedef struct ChannelLogState {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
@@ -34,6 +35,31 @@ static size_t log_queue_count;
 static int log_queue_count_known;
 static time_t log_queue_full_notice_time;
 static time_t log_retention_next_check;
+static DIR *log_retention_dir;
+static time_t log_retention_cutoff;
+static size_t log_retention_removed;
+
+static void channel_log_reset_state(void) {
+    ChannelLogState *state = states;
+    while (state != NULL) {
+        ChannelLogState *next = state->next;
+        free(state);
+        state = next;
+    }
+    states = NULL;
+    if (log_db.db != NULL) chanserv_db_close(&log_db);
+    memset(&log_db, 0, sizeof(log_db));
+    log_db_path[0] = '\0';
+    log_queue_count = 0U;
+    log_queue_count_known = 0;
+    log_queue_full_notice_time = 0;
+    if (log_retention_dir != NULL) closedir(log_retention_dir);
+    log_retention_dir = NULL;
+    log_retention_cutoff = 0;
+    log_retention_removed = 0U;
+    log_retention_next_check = 0;
+    active_server = NULL;
+}
 
 static ChanServDb *shared_db(Server *server) {
     if (server == NULL || server->config.chanserv_db[0] == '\0') return NULL;
@@ -63,6 +89,7 @@ static int ensure_queue_count(Server *server) {
 int channel_log_init(Server *server) {
     ChanServDb *db;
     if (server == NULL) return -1;
+    channel_log_reset_state();
     active_server = server;
     db = shared_db(server);
     if (db == NULL || chanserv_db_logging_ensure_schema(db) != 0) return -1;
@@ -138,32 +165,49 @@ static void log_path(const char *name, const char *suffix, char *path, size_t si
 static int make_logs_dir(void) { return mkdir("logs", 0750) == 0 || errno == EEXIST ? 0 : -1; }
 static void suffix_for(const struct tm *tm, char *out, size_t size) { (void)strftime(out, size, "%d%b%Y", tm); }
 
-static void prune_old_log_files(Server *server, time_t now) {
-    DIR *dir;
-    struct dirent *entry;
-    const time_t cutoff = now - (time_t)IRCD_CHANNEL_LOG_RETENTION_DAYS * 86400;
-    size_t removed = 0U;
-
-    if (server == NULL || now <= 0) return;
-    if (log_retention_next_check != 0 && now < log_retention_next_check) return;
+static void finish_retention_scan(Server *server, time_t now) {
+    size_t removed = log_retention_removed;
+    if (log_retention_dir != NULL) closedir(log_retention_dir);
+    log_retention_dir = NULL;
+    log_retention_cutoff = 0;
+    log_retention_removed = 0U;
     log_retention_next_check = now + 3600;
-
-    dir = opendir("logs");
-    if (dir == NULL) return;
-    while ((entry = readdir(dir)) != NULL) {
-        char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
-        struct stat st;
-        if (entry->d_name[0] == '.' || strstr(entry->d_name, ".log.") == NULL) continue;
-        if (snprintf(path, sizeof(path), "logs/%s", entry->d_name) < 0) continue;
-        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_mtime >= cutoff) continue;
-        if (unlink(path) == 0) ++removed;
-    }
-    closedir(dir);
     if (removed != 0U)
         snotice_broadcast(server, SNOTICE_ADMIN,
                           "Channel log retention pruned %zu file%s older than %u days",
                           removed, removed == 1U ? "" : "s",
                           (unsigned)IRCD_CHANNEL_LOG_RETENTION_DAYS);
+}
+
+static void prune_old_log_files(Server *server, time_t now) {
+    size_t scanned = 0U;
+    if (server == NULL || now <= 0) return;
+
+    if (log_retention_dir == NULL) {
+        if (log_retention_next_check != 0 && now < log_retention_next_check) return;
+        log_retention_dir = opendir("logs");
+        if (log_retention_dir == NULL) {
+            log_retention_next_check = now + 3600;
+            return;
+        }
+        log_retention_cutoff = now - (time_t)IRCD_CHANNEL_LOG_RETENTION_DAYS * 86400;
+        log_retention_removed = 0U;
+    }
+
+    while (scanned < CHANNEL_LOG_RETENTION_SCAN_ENTRIES) {
+        struct dirent *entry = readdir(log_retention_dir);
+        char path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
+        struct stat st;
+        if (entry == NULL) {
+            finish_retention_scan(server, now);
+            return;
+        }
+        ++scanned;
+        if (entry->d_name[0] == '.' || strstr(entry->d_name, ".log.") == NULL) continue;
+        if (snprintf(path, sizeof(path), "logs/%s", entry->d_name) < 0) continue;
+        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_mtime >= log_retention_cutoff) continue;
+        if (unlink(path) == 0) ++log_retention_removed;
+    }
 }
 
 static void boundary(const char *channel, const char *suffix, const struct tm *local, int midnight) {
