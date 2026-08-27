@@ -98,6 +98,12 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
             message_strip_color(text, stripped, sizeof(stripped));
             delivered_text = stripped;
         }
+        /* NOTICE must not generate an automatic error response. Silently
+         * reject an otherwise valid inbound notice if adding its source prefix
+         * would make the relayed form unrepresentable; do so before persistence
+         * or idle-time accounting so storage reflects actual delivery. */
+        if (!ircv3_message_wire_fits(client, "NOTICE", channel->name, delivered_text))
+            return COMMAND_KEEP_CLIENT;
 
         store_channel_history(server, client, channel->name, delivered_text);
         channel_log_message(server, channel, client, delivered_text, 1);
@@ -111,6 +117,8 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
             !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) return COMMAND_KEEP_CLIENT;
         if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && is_ctcp(text))
+            return COMMAND_KEEP_CLIENT;
+        if (!ircv3_message_wire_fits(client, "NOTICE", destination->nick, text))
             return COMMAND_KEEP_CLIENT;
         ircv3_send_message(destination, client, "NOTICE", destination->nick, text);
         client->last_activity = time(NULL);
