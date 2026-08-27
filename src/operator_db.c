@@ -7,6 +7,7 @@
  */
 
 #include "operator_db.h"
+#include "sqlite_policy.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -64,6 +65,10 @@ int operator_db_open(OperatorDb *db, const char *path) {
     if (ensure_parent_directory(path) != 0) return -1;
 
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
+        operator_db_close(db);
+        return -1;
+    }
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
         operator_db_close(db);
         return -1;
     }
