@@ -43,12 +43,30 @@ static void current_timestamp(char *out, size_t out_size) {
                    utc.tm_hour, utc.tm_min, utc.tm_sec, millis);
 }
 
+int ircv3_message_wire_fits(const Client *source, const char *command,
+                            const char *target, const char *text) {
+    size_t wire_len;
+    if (source == NULL || command == NULL || target == NULL || text == NULL)
+        return 0;
+
+    /* Untagged relay form:
+     *   :nick!user@host COMMAND target :text
+     * IRCv3 tags have a separate allowance; the remainder still gets the
+     * normal 510-byte content budget. Client identity fields and command/
+     * target sizes are bounded protocol fields, so this arithmetic is safe. */
+    wire_len = 1U + strlen(source->nick) + 1U + strlen(source->user) + 1U +
+               strlen(source->display_host) + 1U + strlen(command) + 1U +
+               strlen(target) + 2U + strlen(text);
+    return wire_len <= IRC_LINE_CONTENT_MAX;
+}
+
 void ircv3_send_message(Client *recipient, const Client *source,
                         const char *command, const char *target,
                         const char *text) {
     char timestamp[40];
     if (recipient == NULL || source == NULL || command == NULL ||
-        target == NULL || text == NULL) return;
+        target == NULL || text == NULL ||
+        !ircv3_message_wire_fits(source, command, target, text)) return;
 
     if ((recipient->capabilities & CLIENT_CAP_SERVER_TIME) != 0U) {
         current_timestamp(timestamp, sizeof(timestamp));
@@ -66,7 +84,8 @@ void ircv3_broadcast_message(Channel *channel, const Client *except,
                              const Client *source, const char *command,
                              const char *target, const char *text) {
     ChannelMember *member;
-    if (channel == NULL) return;
+    if (channel == NULL ||
+        !ircv3_message_wire_fits(source, command, target, text)) return;
     for (member = channel->members; member != NULL; member = member->next) {
         if (member->client == except) continue;
         /* +d suppresses ordinary channel PRIVMSGs, but command-prefixed text
