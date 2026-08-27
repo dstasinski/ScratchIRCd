@@ -104,6 +104,10 @@ int main(void) {
 
     assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == 0);
     assert(strstr(list, "#Test") != NULL);
+    {
+        char tiny[5];
+        assert(chanserv_db_list_enabled(&db, tiny, sizeof(tiny)) == -1);
+    }
 
     assert(chanserv_db_set_description(&db, "#TEST", "Changed") == 0);
     assert(chanserv_db_set_founder(&db, "#test", "Bob") == 0);
