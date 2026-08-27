@@ -100,6 +100,21 @@ def register(client, nick):
     client.expect(f" 001 {nick} ")
 
 
+def history_count(path, text):
+    """Return matching history rows; lazy DB/table creation means zero rows."""
+    if not os.path.exists(path):
+        return 0
+    with sqlite3.connect(path) as db:
+        table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history'"
+        ).fetchone()
+        if table is None:
+            return 0
+        return db.execute(
+            "SELECT COUNT(*) FROM history WHERE text=?", (text,)
+        ).fetchone()[0]
+
+
 def stop(proc):
     if proc.poll() is None:
         proc.terminate()
@@ -199,14 +214,10 @@ def main():
             user.send("PRIVMSG #colors :" + long_text)
             user.expect(" 417 User PRIVMSG ")
             admin.expect_not("x" * 80)
-            with sqlite3.connect(history_db) as db:
-                count = db.execute("SELECT COUNT(*) FROM history WHERE text=?", (long_text,)).fetchone()[0]
-                assert count == 0, count
+            assert history_count(history_db, long_text) == 0
             user.send("NOTICE #colors :" + long_text)
             admin.expect_not("x" * 80)
-            with sqlite3.connect(history_db) as db:
-                count = db.execute("SELECT COUNT(*) FROM history WHERE text=?", (long_text,)).fetchone()[0]
-                assert count == 0, count
+            assert history_count(history_db, long_text) == 0
 
             # +c rejects IRC color control codes entirely.
             admin.send("MODE #colors +c")
