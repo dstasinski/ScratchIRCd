@@ -31,3 +31,6 @@ jobs:
 
       - name: Service fair-share integration
         run: python3 tests/integration/test_service_fairshare.py build/scratchircd
+
+      - name: SQLite contention integration
+        run: python3 tests/integration/test_sqlite_contention.py build/scratchircd
