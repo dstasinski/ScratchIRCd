@@ -33,6 +33,7 @@ int chanserv_db_logging_ensure_schema(ChanServDb *db) {
     int rc;
 
     if (db == NULL || db->db == NULL) return -1;
+    if (db->logging_schema_ready) return 0;
     if (!column_exists(db->db, "logging_enabled")) {
         rc = sqlite3_exec(db->db,
             "ALTER TABLE channels ADD COLUMN logging_enabled INTEGER NOT NULL DEFAULT 0",
@@ -64,6 +65,7 @@ int chanserv_db_logging_ensure_schema(ChanServDb *db) {
         sqlite3_free(error);
         return -1;
     }
+    db->logging_schema_ready = 1;
     return 0;
 }
 
