@@ -90,6 +90,18 @@ def main():
             owner.send("MODE #authority +o ChanOp");oper.expect(" MODE #authority +o ChanOp")
             owner.send("MODE #authority +a Protect");protect.expect(" MODE #authority +a Protect")
 
+            # A legal inbound MODE can still become too long once the sender's
+            # nick!user@host prefix is added for channel broadcast. Reject the
+            # whole request before any of its mask mutations are applied.
+            long_masks=[("a"*110)+str(i)+"!*@*" for i in range(4)]
+            oversized="MODE #authority +bbbb "+" ".join(long_masks)
+            assert len(oversized.encode()) <= 510, len(oversized.encode())
+            owner.send(oversized);owner.expect(" 417 Owner MODE ")
+            protect.expect_not(" MODE #authority +bbbb ")
+            owner.send("MODE #authority b")
+            for mask in long_masks: owner.expect_not(mask,duration=0.15)
+            owner.expect(" 368 Owner #authority ")
+
             voice.send("INVITE Outside #authority");voice.expect(" 482 Voice #authority ")
             half.send("INVITE Outside #authority");half.expect(" 341 Half Outside #authority");outsider.expect(" INVITE Outside :#authority")
             protect.send("INVITE Outside #authority");protect.expect(" 341 Protect Outside #authority");outsider.expect(" INVITE Outside :#authority")
