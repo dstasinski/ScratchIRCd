@@ -180,6 +180,24 @@ int command_expensive_allow(Server *server, Client *client,
     return 1;
 }
 
+/* A client can submit a syntactically legal <=510-byte MODE line whose
+ * source-prefixed server rebroadcast would exceed the IRC 510-byte content
+ * limit. Reject such channel MODE changes before command_mode() can mutate
+ * channel state; clients can split an oversized batch into smaller commands. */
+static int channel_mode_wire_fits(const Client *client, const char *params) {
+    const char *target;
+    int written;
+
+    if (client == NULL || params == NULL || !client->registered) return 1;
+    target = params;
+    while (*target == ' ') ++target;
+    if (*target != '#' && *target != '&') return 1;
+
+    written = snprintf(NULL, 0, ":%s!%s@%s MODE %s",
+                       client->nick, client->user, client->display_host, params);
+    return written >= 0 && (size_t)written <= 510U;
+}
+
 CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){
     size_t index;
     int flood_result;
@@ -194,6 +212,13 @@ CommandResult command_dispatch(Server *server,Client *client,const char *command
                                        general_flood_cost(command));
     if (flood_result == 0) return COMMAND_DISCONNECT_CLIENT;
     if (flood_result < 0) return COMMAND_KEEP_CLIENT;
+
+    if (strcasecmp(command, "MODE") == 0 && !channel_mode_wire_fits(client, params)) {
+        client_sendf(client,
+                     ":%s 417 %s MODE :MODE change would exceed the IRC line limit; split the change",
+                     server->config.server_name, command_reply_nick(client));
+        return COMMAND_KEEP_CLIENT;
+    }
 
     for(index=0U;index<sizeof(command_table)/sizeof(command_table[0]);++index){
         if(strcasecmp(command,command_table[index].name)==0){
