@@ -85,6 +85,10 @@ static void shared_history_cleanup(void) {
     shared_last_max_rows = 0U;
 }
 
+void history_db_reset_shared(void) {
+    shared_history_cleanup();
+}
+
 HistoryDb *history_db_shared(const char *path) {
     if (path == NULL || *path == '\0' || strlen(path) > IRCD_CONFIG_PATH_MAX) return NULL;
     if (shared_db.handle != NULL && strcmp(shared_path, path) == 0) return &shared_db;
