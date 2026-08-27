@@ -49,6 +49,7 @@ typedef struct Server {
     /** Rotating starting point for bounded TLS handshake work. */
     size_t tls_handshake_cursor;
 
+    HashTable clients_by_id;
     HashTable clients_by_nick;
     HashTable channels_by_name;
     DnsResolver dns;
