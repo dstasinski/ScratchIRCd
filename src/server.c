@@ -31,6 +31,10 @@ typedef struct ServerPollClientSnapshot {
     uint64_t id;
 } ServerPollClientSnapshot;
 
+static void client_id_key(uint64_t id, char *buffer, size_t size) {
+    (void)snprintf(buffer, size, "%llu", (unsigned long long)id);
+}
+
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
@@ -137,6 +141,7 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         struct sockaddr_storage address;
         socklen_t address_length = sizeof(address);
         char ip[IRC_IP_MAX + 1U];
+        char id_key[32];
         Client *client;
         int fd = accept(listen_fd, (struct sockaddr *)&address, &address_length);
         if (fd < 0) { if (errno == EINTR) continue; return; }
@@ -153,6 +158,13 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
             SSL_set_fd(client->ssl, fd);
             SSL_set_accept_state(client->ssl);
             client->tls_state = CLIENT_TLS_HANDSHAKE;
+        }
+        client_id_key(client->id, id_key, sizeof(id_key));
+        if (hash_set(&server->clients_by_id, id_key, client) != 0) {
+            snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: client ID index allocation failure", ip);
+            client_free(client);
+            close(fd);
+            continue;
         }
         server->clients[server->client_count++] = client;
         snotice_broadcast(server, SNOTICE_CONNECTIONS, "Client connection accepted: real_ip=%s transport=%s", client->real_ip, use_tls ? "TLS" : "plain");
@@ -274,7 +286,12 @@ static int drain_buffered_client_input(Server *server) {
     return pending;
 }
 
-Client *server_find_client_by_id(Server *server, uint64_t id) { size_t index; if (server == NULL) return NULL; for (index = 0U; index < server->client_count; ++index) if (server->clients[index]->id == id) return server->clients[index]; return NULL; }
+Client *server_find_client_by_id(Server *server, uint64_t id) {
+    char key[32];
+    if (server == NULL) return NULL;
+    client_id_key(id, key, sizeof(key));
+    return hash_get(&server->clients_by_id, key);
+}
 
 static void handle_dns_result(Server *server, const DnsResult *result) {
     Client *client = server_find_client_by_id(server, result->client_id);
@@ -363,7 +380,7 @@ int server_init(Server *server, const ServerConfig *config) {
     memset(server, 0, sizeof(*server)); server->config = *config;
     server->dns.request_read_fd = server->dns.request_write_fd = -1; server->dns.result_read_fd = server->dns.result_write_fd = -1;
     server->dnsbl.request_read_fd = server->dnsbl.request_write_fd = -1; server->dnsbl.result_read_fd = server->dnsbl.result_write_fd = -1;
-    if (hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
+    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
     if (channel_log_init(server) != 0 || init_tls(server) != 0 || dns_resolver_init(&server->dns) != 0 || dnsbl_resolver_init(&server->dnsbl) != 0 || geoip_init(&server->geoip, server->config.geoip_city_db, server->config.geoip_asn_db) != 0 || make_listeners(server) != 0) { server_destroy(server); return -1; }
     return 0;
 }
@@ -400,6 +417,7 @@ static int clients_share_channel(const Client *left, const Client *right) {
 
 void server_disconnect(Server *server, Client *client, const char *reason) {
     char quit_message[IRCD_MESSAGE_BUFFER_SIZE];
+    char id_key[32];
     const char *quit_reason = reason != NULL ? reason : IRC_DEFAULT_QUIT_REASON;
     size_t index;
     int fd;
@@ -422,6 +440,8 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
         server_remove_channel_if_empty(server, channel);
     }
     if (client->nick[0] != '\0') (void)hash_remove(&server->clients_by_nick, client->nick);
+    client_id_key(client->id, id_key, sizeof(id_key));
+    (void)hash_remove(&server->clients_by_id, id_key);
     fd = client->fd;
     for (index = 0U; index < server->client_count; ++index) if (server->clients[index] == client) { server->clients[index] = server->clients[server->client_count - 1U]; --server->client_count; break; }
     client_free(client); close(fd);
@@ -517,5 +537,7 @@ void server_destroy(Server *server) {
     free(server->listener_tls); server->listener_tls = NULL; server->listener_count = 0U;
     dnsbl_resolver_destroy(&server->dnsbl); dns_resolver_destroy(&server->dns); geoip_destroy(&server->geoip);
     if (server->tls_ctx != NULL) { SSL_CTX_free(server->tls_ctx); server->tls_ctx = NULL; }
-    hash_destroy(&server->channels_by_name, channel_free); server->channel_count = 0U; hash_destroy(&server->clients_by_nick, NULL);
+    hash_destroy(&server->channels_by_name, channel_free); server->channel_count = 0U;
+    hash_destroy(&server->clients_by_nick, NULL);
+    hash_destroy(&server->clients_by_id, NULL);
 }
