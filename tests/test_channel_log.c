@@ -81,6 +81,7 @@ int main(void) {
     ChanServLogQueueRecord rows[8];
     size_t fetched = 0U;
     size_t remaining;
+    size_t remaining_before_restart;
     size_t i;
     struct tm now_tm, next_tm;
     time_t now, next_midnight;
@@ -207,6 +208,17 @@ int main(void) {
     channel_log_rotate_all(next_midnight + 3600);
     remaining = count_bulk_expired(BULK_EXPIRED_FILES);
     assert(remaining > 0U && remaining < BULK_EXPIRED_FILES);
+
+    /* Restart while the retention DIR cursor is still open. init must close
+     * that cursor, clear retention timing/counters, and begin a fresh bounded
+     * sweep rather than retaining stale in-process scan state. */
+    remaining_before_restart = remaining;
+    assert(channel_log_init(&server) == 0);
+    channel_log_rotate_all(next_midnight + 3600);
+    remaining = count_bulk_expired(BULK_EXPIRED_FILES);
+    assert(remaining < remaining_before_restart);
+    assert(access(fresh_log, F_OK) == 0);
+
     for (i = 0U; i < 10U && remaining != 0U; ++i) {
         channel_log_rotate_all(next_midnight + 3600);
         remaining = count_bulk_expired(BULK_EXPIRED_FILES);
