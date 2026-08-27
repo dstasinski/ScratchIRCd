@@ -67,6 +67,17 @@ static char *pchannels_cache=NULL;
 static uint64_t pchannels_cache_generation=0U;
 static char pchannels_cache_path[IRCD_CONFIG_PATH_MAX+1U];
 
+void command_common_reset_state(void){
+    if(registration_ban_db.handle!=NULL)ban_db_close(&registration_ban_db);
+    if(registration_geoban_db.handle!=NULL)geoban_db_close(&registration_geoban_db);
+    registration_ban_path[0]='\0';
+    registration_geoban_path[0]='\0';
+    free(pchannels_cache);
+    pchannels_cache=NULL;
+    pchannels_cache_generation=0U;
+    pchannels_cache_path[0]='\0';
+}
+
 static int rebuild_pchannels_cache(Server *server){
     ChanServDb db={0};
     sqlite3_stmt *stmt=NULL;
