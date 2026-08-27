@@ -13,6 +13,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <string.h>
 
 CommandResult command_quit(Server *server, Client *client, char *params) {
     const char *reason = params;
@@ -22,10 +23,10 @@ CommandResult command_quit(Server *server, Client *client, char *params) {
     if (reason != NULL && *reason == ':') {
         ++reason;
     }
-    if (reason == NULL || *reason == '\0') {
+    if (reason == NULL || *reason == '\0' || strlen(reason) > IRC_QUIT_REASON_MAX) {
         reason = IRC_DEFAULT_QUIT_REASON;
     }
 
-    snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", reason);
+    (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", reason);
     return COMMAND_DISCONNECT_CLIENT;
 }
