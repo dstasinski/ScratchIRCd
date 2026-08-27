@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -219,21 +220,39 @@ static int enqueue(Server *server, Channel *channel, time_t when, const char *bo
     return rc;
 }
 
-/* max_rows == 0 means explicitly drain the whole channel (shutdown/admin use).
- * Automatic event-loop flushing always passes a finite budget. */
+static int write_queue_record(const ChanServLogQueueRecord *record) {
+    ChannelLogState *state;
+    time_t when;
+    struct tm local;
+    char suffix[32], stamp[16], path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
+    FILE *file;
+    if (record == NULL || record->channel[0] == '\0') return -1;
+    state = state_for(record->channel, 1);
+    when = (time_t)record->event_time;
+    if (state == NULL || localtime_r(&when, &local) == NULL) return -1;
+    ensure_file(state, when);
+    suffix_for(&local, suffix, sizeof(suffix));
+    log_path(record->channel, suffix, path, sizeof(path));
+    file = fopen(path, "a");
+    if (!file) return -1;
+    (void)strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
+    if (fprintf(file, "[%s] %s\n", stamp, record->body) < 0 || fclose(file) != 0)
+        return -1;
+    return 0;
+}
+
+/* max_rows == 0 means explicitly drain the whole channel (admin use). */
 static int flush_channel(Server *server, const char *name, size_t max_rows,
                          size_t *flushed_out) {
     ChanServDb *db;
     ChanServLogQueueRecord rows[CHANNEL_LOG_FLUSH_FETCH_ROWS];
-    ChannelLogState *state;
     size_t count;
     size_t total = 0U;
     if (flushed_out != NULL) *flushed_out = 0U;
     if (!server || !name) return -1;
     active_server = server;
-    state = state_for(name, 1);
     db = shared_db(server);
-    if (!state || db == NULL || ensure_queue_count(server) != 0) return -1;
+    if (db == NULL || ensure_queue_count(server) != 0) return -1;
     for (;;) {
         size_t i;
         size_t capacity = CHANNEL_LOG_FLUSH_FETCH_ROWS;
@@ -243,20 +262,8 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
         if (capacity == 0U) break;
         if (chanserv_db_logging_queue_fetch(db, name, rows, capacity, &count) != 0) return -1;
         if (!count) break;
-        for (i = 0; i < count; ++i) {
-            time_t when = (time_t)rows[i].event_time;
-            struct tm local;
-            char suffix[32], stamp[16], path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
-            FILE *file;
-            if (localtime_r(&when, &local) == NULL) return -1;
-            ensure_file(state, when);
-            suffix_for(&local, suffix, sizeof(suffix));
-            log_path(name, suffix, path, sizeof(path));
-            file = fopen(path, "a");
-            if (!file) return -1;
-            (void)strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
-            if (fprintf(file, "[%s] %s\n", stamp, rows[i].body) < 0 || fclose(file) != 0)
-                return -1;
+        for (i = 0U; i < count; ++i) {
+            if (write_queue_record(&rows[i]) != 0) return -1;
             last_id = rows[i].id;
         }
         if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) return -1;
@@ -271,12 +278,6 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
     return 0;
 }
 
-static int list_queued(Server *server, char *buffer, size_t size) {
-    ChanServDb *db;
-    if (!server || !buffer || !size || (db = shared_db(server)) == NULL) return -1;
-    return chanserv_db_logging_queue_list_channels(db, buffer, size);
-}
-
 static long long oldest_for(Server *server, const char *name) {
     ChanServDb *db;
     ChanServLogQueueRecord row;
@@ -288,20 +289,34 @@ static long long oldest_for(Server *server, const char *name) {
     return when;
 }
 
-static void flush_queued(Server *server, int due_only, time_t now) {
-    char channels[8192], *save = NULL, *name;
-    size_t budget = due_only ? CHANNEL_LOG_FLUSH_DUE_MAX_ROWS : 0U;
-    if (!server || list_queued(server, channels, sizeof(channels)) != 0 || !channels[0]) return;
-    name = strtok_r(channels, ",", &save);
-    while (name) {
-        long long oldest = oldest_for(server, name);
-        if (!due_only || (oldest && oldest + IRCD_CHANNEL_LOG_BATCH_SECONDS <= (long long)now)) {
-            size_t flushed = 0U;
-            if (due_only && budget == 0U) break;
-            (void)flush_channel(server, name, due_only ? budget : 0U, &flushed);
-            if (due_only) budget = flushed >= budget ? 0U : budget - flushed;
-        }
-        name = strtok_r(NULL, ",", &save);
+/* Automatic work is globally oldest-first so a large backlog in one channel
+ * cannot starve other queued channels. cutoff is inclusive. max_rows==0 drains
+ * all matching rows and is reserved for shutdown. */
+static void flush_queued(Server *server, long long cutoff, size_t max_rows) {
+    ChanServDb *db;
+    ChanServLogQueueRecord rows[CHANNEL_LOG_FLUSH_FETCH_ROWS];
+    size_t total = 0U;
+    if (!server || (db = shared_db(server)) == NULL || ensure_queue_count(server) != 0) return;
+    for (;;) {
+        size_t i, count = 0U;
+        size_t capacity = CHANNEL_LOG_FLUSH_FETCH_ROWS;
+        ChanServLogQueueRecord *last;
+        if (max_rows != 0U && max_rows - total < capacity)
+            capacity = max_rows - total;
+        if (capacity == 0U) break;
+        if (chanserv_db_logging_queue_fetch_due(db, cutoff, rows, capacity, &count) != 0 || count == 0U)
+            break;
+        for (i = 0U; i < count; ++i)
+            if (write_queue_record(&rows[i]) != 0) return;
+        last = &rows[count - 1U];
+        if (chanserv_db_logging_queue_delete_ordered_through(db, last->event_time, last->id) != 0)
+            return;
+        if (log_queue_count >= count) log_queue_count -= count;
+        else log_queue_count = 0U;
+        total += count;
+        if (log_queue_count < server->config.channel_log_queue_max_rows)
+            log_queue_full_notice_time = 0;
+        if (max_rows != 0U && total >= max_rows) break;
     }
 }
 
@@ -331,8 +346,20 @@ void channel_log_message(Server *server, Channel *channel, Client *client, const
     (void)enqueue(server, channel, time(NULL), body);
 }
 
-void channel_log_flush_due(Server *server, time_t now) { if (server) { active_server = server; flush_queued(server, 1, now); } }
-void channel_log_flush_all(Server *server) { if (server) { active_server = server; flush_queued(server, 0, time(NULL)); } }
+void channel_log_flush_due(Server *server, time_t now) {
+    if (server) {
+        active_server = server;
+        flush_queued(server, (long long)now - IRCD_CHANNEL_LOG_BATCH_SECONDS,
+                     CHANNEL_LOG_FLUSH_DUE_MAX_ROWS);
+    }
+}
+
+void channel_log_flush_all(Server *server) {
+    if (server) {
+        active_server = server;
+        flush_queued(server, LLONG_MAX, 0U);
+    }
+}
 
 void channel_log_rotate_all(time_t now) {
     ChannelLogState *state;
@@ -346,8 +373,8 @@ void channel_log_rotate_all(time_t now) {
     for (state = states; state; state = state->next) {
         if (!state->known || !state->enabled || !state->date_suffix[0] || strcmp(state->date_suffix, suffix) == 0) continue;
         /* Do not close yesterday's file ahead of durable queued records that
-         * still belong in it. Automatic passes will continue draining the
-         * backlog in bounded chunks and rotation completes when it is empty. */
+         * still belong in it. Automatic passes continue draining the globally
+         * oldest records in bounded chunks; rotation completes when empty. */
         if (oldest_for(active_server, state->channel) != 0) continue;
         ensure_file(state, now);
     }
