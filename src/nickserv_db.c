@@ -8,11 +8,14 @@
  */
 
 #include "nickserv_db.h"
+#include "sqlite_policy.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#define NICKSERV_DB_SCHEMA_VERSION 1
 
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS nickserv_accounts ("
@@ -86,6 +89,26 @@ static int apply_migrations(sqlite3 *handle) {
     return 0;
 }
 
+static int schema_version(sqlite3 *handle, int *version) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (handle == NULL || version == NULL) return -1;
+    if (sqlite3_prepare_v2(handle, "PRAGMA user_version", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *version = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
+static int migrate_schema(sqlite3 *handle) {
+    int version = 0;
+    if (schema_version(handle, &version) != 0) return -1;
+    if (version >= NICKSERV_DB_SCHEMA_VERSION) return 0;
+    if (apply_migrations(handle) != 0) return -1;
+    return sqlite3_exec(handle, "PRAGMA user_version=1", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
 static void copy_text(char *dest, size_t size, const unsigned char *text) {
     (void)snprintf(dest, size, "%s", text != NULL ? (const char *)text : "");
 }
@@ -116,12 +139,16 @@ int nickserv_db_open(NickServDb *db, const char *path) {
         nickserv_db_close(db);
         return -1;
     }
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
+        nickserv_db_close(db);
+        return -1;
+    }
     if (sqlite3_exec(db->handle, schema_sql, NULL, NULL, &error) != SQLITE_OK) {
         sqlite3_free(error);
         nickserv_db_close(db);
         return -1;
     }
-    if (apply_migrations(db->handle) != 0) {
+    if (migrate_schema(db->handle) != 0) {
         nickserv_db_close(db);
         return -1;
     }
