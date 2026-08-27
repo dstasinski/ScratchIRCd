@@ -31,7 +31,6 @@ typedef struct Client {
     SSL *ssl;
     ClientTlsState tls_state;
     int tls_want_write;
-    int input_want_write;
     char real_ip[IRC_IP_MAX+1U];
     char real_host[IRC_HOST_MAX+1U];
     char display_host[IRC_HOST_MAX+1U];
