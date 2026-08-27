@@ -75,8 +75,11 @@ static int transport_write(Client *client, const char *data, size_t length, size
         return 0;
     }
     if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL) {
-        size_t chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
-        int rc = SSL_write(client->ssl, data, (int)chunk);
+        size_t chunk;
+        int rc;
+        if (client->input_retry_pending) return 0;
+        chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
+        rc = SSL_write(client->ssl, data, (int)chunk);
         if (rc > 0) {
             *written = (size_t)rc;
             client->output_retry_pending = 0;
