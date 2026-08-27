@@ -90,6 +90,9 @@ Channel *server_get_or_create_channel(Server *server, const char *name);
 void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
 
+/** Assign a fresh stable client ID and keep the active-ID index consistent. */
+int server_reassign_client_id(Server *server, Client *client);
+
 /** Return non-zero when an IP is exempt from the concurrent per-IP limit. */
 int server_connection_limit_ip_exempt(const Server *server, const char *ip);
 
