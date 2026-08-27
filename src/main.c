@@ -2,7 +2,6 @@
 #include "channel_log.h"
 #include "chanserv_db.h"
 #include "config.h"
-#include "geoip.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
@@ -110,13 +109,6 @@ int main(int argc, char **argv) {
         }
         server.started_at = time(NULL);
 
-        /* GeoLite2 files are optional. Missing files leave Client.geoip unavailable. */
-        if (geoip_init(&server.geoip, config.geoip_city_db, config.geoip_asn_db) != 0) {
-            server_destroy(&server);
-            fprintf(stderr, "Failed to initialize GeoIP subsystem\n");
-            return 1;
-        }
-
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
@@ -124,7 +116,6 @@ int main(int argc, char **argv) {
         server_run(&server);
         active_server = NULL;
         restart = server.restart_requested && !server.shutdown_requested;
-        geoip_destroy(&server.geoip);
         server_destroy(&server);
 
         /* Channel-log rows are already durable in SQLite. Make one bounded
