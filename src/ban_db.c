@@ -4,6 +4,7 @@
  */
 
 #include "ban_db.h"
+#include "sqlite_policy.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -12,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#define BAN_DB_SCHEMA_VERSION 1
 
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS bans ("
@@ -150,6 +153,25 @@ static int ensure_expires_column(BanDb *db) {
         NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
+static int schema_version(sqlite3 *db, int *version) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || version == NULL) return -1;
+    if (sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, NULL) != SQLITE_OK) return -1;
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *version = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
+static int migrate_schema(BanDb *db) {
+    int version = 0;
+    if (schema_version(db->handle, &version) != 0) return -1;
+    if (version >= BAN_DB_SCHEMA_VERSION) return 0;
+    if (ensure_expires_column(db) != 0) return -1;
+    return sqlite3_exec(db->handle, "PRAGMA user_version=1", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
 int ban_db_purge_expired(BanDb *db) {
     if (db == NULL || db->handle == NULL) return -1;
     return sqlite3_exec(db->handle,
@@ -166,12 +188,16 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
+        ban_db_close(db);
+        return -1;
+    }
     if (sqlite3_exec(db->handle, schema_sql, NULL, NULL, &error) != SQLITE_OK) {
         sqlite3_free(error);
         ban_db_close(db);
         return -1;
     }
-    if (ensure_expires_column(db) != 0) {
+    if (migrate_schema(db) != 0) {
         ban_db_close(db);
         return -1;
     }
