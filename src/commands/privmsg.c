@@ -55,6 +55,15 @@ static void store_channel_history(Server *server, Client *client,
                                         record.created_at_ms);
 }
 
+static int privmsg_wire_fits(Server *server, Client *client,
+                             const char *target, const char *text) {
+    if (ircv3_message_wire_fits(client, "PRIVMSG", target, text)) return 1;
+    client_sendf(client,
+                 ":%s 417 %s PRIVMSG :Message would exceed the IRC relay line limit",
+                 server->config.server_name, client->nick);
+    return 0;
+}
+
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
     char *target;
     char *text;
@@ -155,6 +164,8 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
             message_strip_color(text, stripped, sizeof(stripped));
             delivered_text = stripped;
         }
+        if (!privmsg_wire_fits(server, client, channel->name, delivered_text))
+            return COMMAND_KEEP_CLIENT;
 
         store_channel_history(server, client, channel->name, "PRIVMSG", delivered_text);
         channel_log_message(server, channel, client, delivered_text, 0);
@@ -186,6 +197,8 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
                          client->nick, destination->nick);
             return COMMAND_KEEP_CLIENT;
         }
+        if (!privmsg_wire_fits(server, client, destination->nick, text))
+            return COMMAND_KEEP_CLIENT;
         ircv3_send_message(destination, client, "PRIVMSG", destination->nick, text);
         client->last_activity = time(NULL);
         if (destination->away[0] != '\0')
