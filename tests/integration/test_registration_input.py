@@ -134,6 +134,15 @@ def main():
             c.send("USER valid_ident 0 * :Valid Real Name")
             c.expect(" 001 ValidNick ", duration=5.0)
 
+            # A single receive buffer may contain far more complete lines than
+            # one event-loop dispatch budget. Leftover lines must be drained by
+            # immediate loop turns rather than waiting for the normal 1s poll.
+            packed = (b"\r\n" * 300) + b"PING :packed-tail\r\n"
+            started = time.monotonic()
+            c.send_bytes(packed)
+            c.expect("PONG test.local ::packed-tail", duration=2.0)
+            assert time.monotonic() - started < 1.5, "buffered line batches stalled between poll turns"
+
             # Existing NICK validation remains strict and retryable.
             n = new_client(port); clients.append(n)
             n.send("NICK " + ("N" * 32))
