@@ -19,6 +19,7 @@ int main(void) {
     char path[128];
     BanDb db;
     BanRecord match;
+    sqlite3 *locker = NULL;
     char oversized_mask[IRC_CHANNEL_MASK_MAX + 2U];
     char oversized_reason[IRC_QUIT_REASON_MAX + 2U];
     char oversized_set_by[IRCD_OPER_NAME_MAX + 2U];
@@ -55,6 +56,18 @@ int main(void) {
                         "baduser@example.test", NULL, &match) == 1);
     assert(strcmp(match.reason, "testing kline") == 0);
     assert(match.expires_at == 0);
+
+    /* Matching must remain a WAL-safe read operation even while another
+     * connection owns the database writer slot. The old pre-match DELETE
+     * purge made ordinary client ban checks contend for that writer lock. */
+    assert(sqlite3_open(path, &locker) == SQLITE_OK);
+    assert(sqlite3_exec(locker, "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK);
+    assert(ban_db_match(&db, BAN_TYPE_KLINE,
+                        "baduser@example.test", NULL, &match) == 1);
+    assert(strcmp(match.reason, "testing kline") == 0);
+    assert(sqlite3_exec(locker, "ROLLBACK", NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(locker);
+    locker = NULL;
 
     /* Legacy wildcard ZLINEs continue to work. */
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
