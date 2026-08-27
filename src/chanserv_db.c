@@ -291,15 +291,32 @@ int chanserv_db_delete(ChanServDb *db, const char *name) {
 }
 
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
-    sqlite3_stmt *stmt=NULL; size_t used=0U; int rc;
-    if(db==NULL||db->db==NULL||buffer==NULL||size==0U)return -1;
-    buffer[0]='\0';
-    if(sqlite3_prepare_v2(db->db,"SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",-1,&stmt,NULL)!=SQLITE_OK)return -1;
-    while((rc=sqlite3_step(stmt))==SQLITE_ROW){
-        const char *name=(const char *)sqlite3_column_text(stmt,0); size_t n=strlen(name),need=n+(used?1U:0U);
-        if(need>=size-used)break; if(used)buffer[used++]=','; memcpy(buffer+used,name,n); used+=n; buffer[used]='\0';
+    sqlite3_stmt *stmt = NULL;
+    size_t used = 0U;
+    int rc;
+    int truncated = 0;
+    if (db == NULL || db->db == NULL || buffer == NULL || size == 0U) return -1;
+    buffer[0] = '\0';
+    if (sqlite3_prepare_v2(db->db,
+        "SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 0);
+        size_t n = name != NULL ? strlen(name) : 0U;
+        size_t need = n + (used != 0U ? 1U : 0U);
+        if (n == 0U) continue;
+        if (need >= size - used) {
+            truncated = 1;
+            break;
+        }
+        if (used != 0U) buffer[used++] = ',';
+        memcpy(buffer + used, name, n);
+        used += n;
+        buffer[used] = '\0';
     }
-    sqlite3_finalize(stmt); return rc==SQLITE_DONE||rc==SQLITE_ROW?0:-1;
+    sqlite3_finalize(stmt);
+    if (truncated) return -1;
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
