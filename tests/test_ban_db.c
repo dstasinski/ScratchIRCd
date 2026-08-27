@@ -39,7 +39,7 @@ int main(void) {
     unlink(path);
 
     assert(ban_db_open(&db, path) == 0);
-    assert(sqlite3_busy_timeout(db.handle, IRCD_SQLITE_BUSY_TIMEOUT_MS) == SQLITE_OK);
+    assert(pragma_int(db.handle, "PRAGMA busy_timeout") == IRCD_SQLITE_BUSY_TIMEOUT_MS);
     assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
     assert(pragma_int(db.handle, "PRAGMA synchronous") == 1);
     assert(ban_db_add(&db, BAN_TYPE_KLINE, "bad*@example.test",
