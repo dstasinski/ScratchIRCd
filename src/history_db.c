@@ -4,6 +4,7 @@
  */
 
 #include "history_db.h"
+#include "sqlite_policy.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -58,7 +59,10 @@ int history_db_open(HistoryDb *db, const char *path) {
         history_db_close(db);
         return -1;
     }
-    (void)sqlite3_busy_timeout(db->handle, 1000);
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
+        history_db_close(db);
+        return -1;
+    }
     if (sqlite3_exec(db->handle, schema_sql, NULL, NULL, &error) != SQLITE_OK) {
         sqlite3_free(error);
         history_db_close(db);
