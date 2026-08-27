@@ -218,6 +218,8 @@ add_test(NAME kick_lifecycle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_C
 set_tests_properties(kick_lifecycle_integration PROPERTIES TIMEOUT 60)
 add_test(NAME die_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_die.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(die_integration PROPERTIES TIMEOUT 60)
+add_test(NAME restart_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_restart.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(restart_integration PROPERTIES TIMEOUT 60)
 add_test(NAME general_flood_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_general_flood.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(general_flood_integration PROPERTIES TIMEOUT 60)
 
