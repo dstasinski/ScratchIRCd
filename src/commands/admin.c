@@ -92,18 +92,19 @@ CommandResult command_admin(Server *server, Client *client, char *params) {
 }
 
 CommandResult command_info(Server *server, Client *client, char *params) {
-    char version_line[128];
     (void)params;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
     client_sendf(client, RPL_INFOSTART,
                  server->config.server_name, client->nick);
-    (void)snprintf(version_line, sizeof(version_line),
-                   "ScratchIRCd %s on %s", IRCD_VERSION,
-                   server->config.server_name);
+    /* The numeric prefix already identifies the server. Avoid formatting the
+     * server name a second time into an arbitrary fixed-size intermediate
+     * buffer, which previously allowed a configured long name to be silently
+     * truncated. */
     client_sendf(client, RPL_INFO,
-                 server->config.server_name, client->nick, version_line);
+                 server->config.server_name, client->nick,
+                 "ScratchIRCd " IRCD_VERSION);
     client_sendf(client, RPL_INFO,
                  server->config.server_name, client->nick,
                  "Single-server IRC daemon written in C for Linux");
