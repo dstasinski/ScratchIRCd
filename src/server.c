@@ -22,6 +22,7 @@
 #define SERVER_ACCEPT_BUDGET_PER_LISTENER 32U
 #define SERVER_DNS_RESULT_BUDGET 64U
 #define SERVER_DNSBL_RESULT_BUDGET 64U
+#define SERVER_DNSBL_LISTED_BUDGET 4U
 
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -253,7 +254,6 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
         (void)snprintf(reason, sizeof(reason), "DNSBL %s (%s)", result->name[0] != '\0' ? result->name : "listed", result->zone[0] != '\0' ? result->zone : "unknown");
         (void)snprintf(set_by, sizeof(set_by), "DNSBL:%s", result->name[0] != '\0' ? result->name : "automatic");
         if (ban_db_open(&db, server->config.bans_db) == 0) {
-            (void)ban_db_purge_expired(&db);
             (void)ban_db_add_timed(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by,
                                    server->config.zline_default_duration_seconds);
             ban_db_close(&db);
@@ -272,10 +272,12 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
 static void drain_dnsbl_results(Server *server) {
     DnsblResult result;
     size_t handled = 0U;
+    size_t listed = 0U;
     while (handled < SERVER_DNSBL_RESULT_BUDGET &&
            dnsbl_resolver_read_result(&server->dnsbl, &result) == 1) {
         handle_dnsbl_result(server, &result);
         ++handled;
+        if (result.listed && ++listed >= SERVER_DNSBL_LISTED_BUDGET) break;
     }
 }
 
