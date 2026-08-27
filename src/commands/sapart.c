@@ -40,7 +40,7 @@ CommandResult command_sapart(Server *server, Client *client, char *params) {
     for (name = strtok(channels, ", "); name != NULL; name = strtok(NULL, ", ")) {
         Channel *channel = hash_get(&server->channels_by_name, name);
         char message[IRCD_MESSAGE_BUFFER_SIZE];
-        char reason[IRCD_MESSAGE_BUFFER_SIZE];
+        char reason[64];
         if (channel == NULL || !channel_has_client(channel, target)) continue;
         (void)snprintf(reason, sizeof(reason), "Forced part by %s", client->nick);
         (void)snprintf(message, sizeof(message),
