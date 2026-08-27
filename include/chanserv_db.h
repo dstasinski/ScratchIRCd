@@ -42,7 +42,12 @@ typedef struct ChanServLogQueueRecord {
     char body[IRCD_MESSAGE_BUFFER_SIZE + 256U];
 } ChanServLogQueueRecord;
 
-typedef struct ChanServDb { sqlite3 *db; } ChanServDb;
+typedef struct ChanServDb {
+    sqlite3 *db;
+    /* Per-connection cache: once the optional logging migration/schema has
+     * succeeded, hot queue operations must not repeat PRAGMA/DDL checks. */
+    int logging_schema_ready;
+} ChanServDb;
 
 int chanserv_db_open(ChanServDb *db, const char *path);
 void chanserv_db_close(ChanServDb *db);
