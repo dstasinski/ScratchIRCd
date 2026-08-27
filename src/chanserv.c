@@ -108,6 +108,27 @@ static const char *access_name(ChanServAccessLevel level) {
     }
 }
 
+typedef struct AccessListNoticeContext {
+    Server *server;
+    Client *client;
+    const char *channel;
+    size_t count;
+} AccessListNoticeContext;
+
+static int access_list_notice(const ChanServAccess *record, void *context) {
+    AccessListNoticeContext *list = context;
+    char line[160];
+    int written;
+    if (record == NULL || list == NULL || list->server == NULL ||
+        list->client == NULL || list->channel == NULL) return -1;
+    written = snprintf(line, sizeof(line), "Access %s: %s:%d",
+                       list->channel, record->account, (int)record->level);
+    if (written < 0 || (size_t)written >= sizeof(line)) return -1;
+    cs_notice(list->server, list->client, line);
+    ++list->count;
+    return 0;
+}
+
 static ChanServAccessLevel parse_access(const char *text) {
     if (text == NULL) return CHANSERV_ACCESS_NONE;
     if (strcasecmp(text, "OWNER") == 0) return CHANSERV_ACCESS_OWNER;
@@ -290,9 +311,18 @@ static void command_access(Server *server, Client *client, char *params) {
     if (!load_founder_channel(server,client,name,&db,&channel_record)) return;
     if (action == NULL) { chanserv_db_close(&db); cs_notice(server,client,"Syntax: ACCESS <#channel> ADD|DEL|LIST ..."); return; }
     if (strcasecmp(action,"LIST")==0) {
-        char list[IRCD_MESSAGE_BUFFER_SIZE];
-        if (chanserv_db_access_list(&db,name,list,sizeof(list))==0) {
-            char line[IRCD_OUTPUT_BUFFER_SIZE]; (void)snprintf(line,sizeof(line),"Access %s: %s",name,list[0]?list:"(empty)"); cs_notice(server,client,line);
+        AccessListNoticeContext context = {server, client, name, 0U};
+        char line[128];
+        int rc = chanserv_db_access_foreach(&db, name, access_list_notice, &context);
+        if (rc == 0) {
+            if (context.count == 0U) {
+                (void)snprintf(line, sizeof(line), "Access %s: (empty)", name);
+                cs_notice(server, client, line);
+            }
+            (void)snprintf(line, sizeof(line), "End of access list for %s.", name);
+            cs_notice(server, client, line);
+        } else {
+            cs_notice(server, client, "Failed to list access entries.");
         }
         chanserv_db_close(&db); return;
     }
