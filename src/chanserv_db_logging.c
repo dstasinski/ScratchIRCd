@@ -191,7 +191,7 @@ int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
     if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->db,
         "SELECT id,channel,event_time,body FROM channel_log_queue "
-        "WHERE channel=?1 ORDER BY event_time,id LIMIT ?2",
+        "WHERE channel=?1 ORDER BY id LIMIT ?2",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
