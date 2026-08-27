@@ -86,6 +86,10 @@ int main(void) {
     assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
     assert(strstr(list, "Bob:3") != NULL);
     assert(strstr(list, "Carol:4") != NULL);
+    {
+        char tiny[8];
+        assert(chanserv_db_access_list(&db, "#test", tiny, sizeof(tiny)) == -1);
+    }
 
     /* Existing entries remain updateable even when the access list is full. */
     assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
