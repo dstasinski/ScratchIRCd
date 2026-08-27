@@ -171,7 +171,7 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
-    if (ensure_expires_column(db) != 0 || ban_db_purge_expired(db) != 0) {
+    if (ensure_expires_column(db) != 0) {
         ban_db_close(db);
         return -1;
     }
@@ -265,7 +265,6 @@ int ban_db_match(BanDb *db, BanType type, const char *identity1,
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || record == NULL) return -1;
-    if (ban_db_purge_expired(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
