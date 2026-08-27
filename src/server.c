@@ -26,6 +26,11 @@
 #define SERVER_TLS_HANDSHAKE_BUDGET 32U
 #define SERVER_INPUT_LINE_BUDGET_PER_CLIENT 32U
 
+typedef struct ServerPollClientSnapshot {
+    Client *client;
+    uint64_t id;
+} ServerPollClientSnapshot;
+
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
@@ -432,7 +437,7 @@ void server_run(Server *server) {
         const size_t snapshot_count = server->client_count;
         const size_t total = client_base + snapshot_count;
         struct pollfd *poll_fds;
-        Client **snapshot;
+        ServerPollClientSnapshot *snapshot;
         size_t index;
         size_t start_index;
         size_t tls_handshakes = 0U;
@@ -447,11 +452,12 @@ void server_run(Server *server) {
         poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns); poll_fds[dns_index].events = POLLIN;
         poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl); poll_fds[dnsbl_index].events = POLLIN;
         for (index = 0U; index < snapshot_count; ++index) {
-            snapshot[index] = server->clients[index];
-            poll_fds[client_base + index].fd = snapshot[index]->fd;
+            snapshot[index].client = server->clients[index];
+            snapshot[index].id = server->clients[index]->id;
+            poll_fds[client_base + index].fd = snapshot[index].client->fd;
             poll_fds[client_base + index].events = POLLIN;
-            if (snapshot[index]->tls_state == CLIENT_TLS_HANDSHAKE && snapshot[index]->tls_want_write) poll_fds[client_base + index].events |= POLLOUT;
-            else if (snapshot[index]->tls_state != CLIENT_TLS_HANDSHAKE && client_output_pending(snapshot[index]) && !snapshot[index]->output_want_read) poll_fds[client_base + index].events |= POLLOUT;
+            if (snapshot[index].client->tls_state == CLIENT_TLS_HANDSHAKE && snapshot[index].client->tls_want_write) poll_fds[client_base + index].events |= POLLOUT;
+            else if (snapshot[index].client->tls_state != CLIENT_TLS_HANDSHAKE && client_output_pending(snapshot[index].client) && !snapshot[index].client->output_want_read) poll_fds[client_base + index].events |= POLLOUT;
         }
         ready = poll(poll_fds, (nfds_t)total, buffered_pending ? 0 : 1000);
         if (ready < 0 && errno != EINTR) { perror("poll"); free(snapshot); free(poll_fds); return; }
@@ -461,10 +467,11 @@ void server_run(Server *server) {
             if ((poll_fds[dnsbl_index].revents & POLLIN) != 0) drain_dnsbl_results(server);
             for (index = 0U; index < snapshot_count; ++index) {
                 size_t client_index = (start_index + index) % snapshot_count;
-                Client *client = snapshot[client_index];
+                const ServerPollClientSnapshot entry = snapshot[client_index];
+                Client *client = server_find_client_by_id(server, entry.id);
                 short events = poll_fds[client_base + client_index].revents;
                 int disconnect = 0;
-                if (client == NULL || server_find_client_by_id(server, client->id) != client) continue;
+                if (client == NULL || client != entry.client) continue;
                 if (client->output_overflowed) {
                     snotice_broadcast(server, SNOTICE_FLOOD, "SendQ exceeded for %s (nick=%s limit=%zu bytes)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->outbuf_limit);
                     server_disconnect(server, client, "SendQ exceeded");
