@@ -55,6 +55,19 @@ def stop_server(proc):
     try: proc.wait(timeout=3)
     except subprocess.TimeoutExpired: proc.kill(); proc.wait(timeout=3)
 
+def wait_queue_row(db_path, text, duration=3.0):
+    deadline=time.monotonic()+duration
+    count=0
+    while time.monotonic()<deadline:
+        try:
+            with sqlite3.connect(db_path) as db:
+                count=db.execute("SELECT COUNT(*) FROM channel_log_queue WHERE body LIKE ?", (f"%{text}%",)).fetchone()[0]
+        except sqlite3.OperationalError:
+            count=0
+        if count == 1:return count
+        time.sleep(.02)
+    return count
+
 def main():
     if len(sys.argv)!=3: raise SystemExit("usage: test_channel_logging.py scratchircd scratchircd-mkpasswd")
     binary=os.path.abspath(sys.argv[1]); mkpasswd=os.path.abspath(sys.argv[2])
@@ -80,12 +93,12 @@ def main():
             founder.send("CHANSERV REGISTER #PersistLog :logging persistence"); founder.expect("Channel registered successfully.")
             admin.send("OPER root adminpass"); admin.expect(" 381 Admin :You are now a Network Administrator")
             admin.send("CHANSERV SET #PersistLog LOGGING ON"); admin.expect("Channel logging enabled.")
-            founder.send("PRIVMSG #PersistLog :before-restart"); time.sleep(.1)
+            founder.send("PRIVMSG #PersistLog :before-restart")
 
-            # The event must be durable immediately. The unit test separately
-            # verifies that ordinary runtime delivery waits for the five-minute batch.
-            with sqlite3.connect(db_path) as db:
-                count=db.execute("SELECT COUNT(*) FROM channel_log_queue WHERE body LIKE '%before-restart%'").fetchone()[0]
+            # The event must be durable immediately once the server processes
+            # the command. Poll that condition instead of assuming a fixed
+            # scheduler delay is enough on every CI runner.
+            count=wait_queue_row(db_path,"before-restart")
             assert count == 1, count
         finally:
             for c in clients:c.close()
@@ -105,7 +118,9 @@ def main():
             register(user,"AfterRestart"); register(admin,"Admin2")
             admin.send("OPER root adminpass"); admin.expect(" 381 Admin2 :You are now a Network Administrator")
             user.send("JOIN #PersistLog"); user.expect(" 366 AfterRestart #PersistLog ")
-            user.send("PRIVMSG #PersistLog :after-restart"); time.sleep(.1)
+            user.send("PRIVMSG #PersistLog :after-restart")
+            count=wait_queue_row(db_path,"after-restart")
+            assert count == 1, count
             admin.send("CHANSERV SET #PersistLog LOGGING OFF"); admin.expect("Channel logging disabled.")
             suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
             assert os.path.exists(path),path
