@@ -1,6 +1,7 @@
 #include "ban_db.h"
 #include "channel_log.h"
 #include "chanserv_db.h"
+#include "commands.h"
 #include "config.h"
 #include "history_db.h"
 #include "memoserv_db.h"
@@ -125,6 +126,7 @@ int main(int argc, char **argv) {
          * the normal oldest-first flusher instead of blocking here indefinitely. */
         channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
         history_db_reset_shared();
+        command_common_reset_state();
 
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
