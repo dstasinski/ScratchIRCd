@@ -13,6 +13,8 @@ void command_maybe_register(Server *server, Client *client);
 void command_send_names(Server *server, Channel *channel, Client *client);
 void command_nickserv_message(Server *server, Client *client, char *text);
 void command_memoserv_message(Server *server, Client *client, char *text);
+/** Reset process-local command caches/handles for shutdown or in-process RESTART. */
+void command_common_reset_state(void);
 /** Charge the shared weighted budget used for database/enumeration work. */
 int command_expensive_allow(Server *server, Client *client,
                             const char *command, unsigned int cost);
