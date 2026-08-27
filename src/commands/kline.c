@@ -92,13 +92,20 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     if (strchr(mask, '@') == NULL) {
         Client *target = hash_get(&server->clients_by_nick, mask);
         const char *host;
+        int written;
         if (target == NULL) {
             client_sendf(client, ERR_NOSUCHNICK, server->config.server_name,
                          client->nick, mask);
             return COMMAND_KEEP_CLIENT;
         }
         host = target->real_host[0] != '\0' ? target->real_host : target->real_ip;
-        (void)snprintf(resolved_mask, sizeof(resolved_mask), "*@%s", host);
+        written = snprintf(resolved_mask, sizeof(resolved_mask), "*@%s", host);
+        if (written < 0 || (size_t)written >= sizeof(resolved_mask)) {
+            client_sendf(client,
+                         ":%s NOTICE %s :KLINE failed: resolved host is too long for a ban mask",
+                         server->config.server_name, client->nick);
+            return COMMAND_KEEP_CLIENT;
+        }
         mask = resolved_mask;
         reason = server->config.kline_default_reason;
         shorthand = 1;
