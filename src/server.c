@@ -248,7 +248,22 @@ static int read_client(Server *server, Client *client) {
     if (client->ssl != NULL) {
         int error;
         received = SSL_read(client->ssl, client->inbuf + client->inbuf_len, (int)available);
-        if (received <= 0) { error = SSL_get_error(client->ssl, received); if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) return 0; return 1; }
+        if (received <= 0) {
+            error = SSL_get_error(client->ssl, received);
+            if (error == SSL_ERROR_WANT_READ) {
+                client->input_retry_pending = 1;
+                client->input_want_write = 0;
+                return 0;
+            }
+            if (error == SSL_ERROR_WANT_WRITE) {
+                client->input_retry_pending = 1;
+                client->input_want_write = 1;
+                return 0;
+            }
+            return 1;
+        }
+        client->input_retry_pending = 0;
+        client->input_want_write = 0;
     } else {
         ssize_t plain = recv(client->fd, client->inbuf + client->inbuf_len, available, 0);
         if (plain < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return 0;
@@ -472,12 +487,21 @@ void server_run(Server *server) {
         poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns); poll_fds[dns_index].events = POLLIN;
         poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl); poll_fds[dnsbl_index].events = POLLIN;
         for (index = 0U; index < snapshot_count; ++index) {
+            Client *poll_client;
             snapshot[index].client = server->clients[index];
             snapshot[index].id = server->clients[index]->id;
-            poll_fds[client_base + index].fd = snapshot[index].client->fd;
+            poll_client = snapshot[index].client;
+            poll_fds[client_base + index].fd = poll_client->fd;
             poll_fds[client_base + index].events = POLLIN;
-            if (snapshot[index].client->tls_state == CLIENT_TLS_HANDSHAKE && snapshot[index].client->tls_want_write) poll_fds[client_base + index].events |= POLLOUT;
-            else if (snapshot[index].client->tls_state != CLIENT_TLS_HANDSHAKE && client_output_pending(snapshot[index].client) && !snapshot[index].client->output_want_read) poll_fds[client_base + index].events |= POLLOUT;
+            if (poll_client->tls_state == CLIENT_TLS_HANDSHAKE && poll_client->tls_want_write) {
+                poll_fds[client_base + index].events |= POLLOUT;
+            } else if (poll_client->tls_state == CLIENT_TLS_ESTABLISHED && poll_client->ssl != NULL && poll_client->input_retry_pending) {
+                if (poll_client->input_want_write) poll_fds[client_base + index].events = POLLOUT;
+            } else if (poll_client->tls_state == CLIENT_TLS_ESTABLISHED && poll_client->ssl != NULL && poll_client->output_retry_pending) {
+                poll_fds[client_base + index].events = poll_client->output_want_read ? POLLIN : POLLOUT;
+            } else if (poll_client->tls_state != CLIENT_TLS_HANDSHAKE && client_output_pending(poll_client) && !poll_client->output_want_read) {
+                poll_fds[client_base + index].events |= POLLOUT;
+            }
         }
         ready = poll(poll_fds, (nfds_t)total, buffered_pending ? 0 : 1000);
         if (ready < 0 && errno != EINTR) { perror("poll"); free(snapshot); free(poll_fds); return; }
@@ -504,16 +528,23 @@ void server_run(Server *server) {
                         ++tls_handshakes;
                         disconnect = advance_tls_handshake(server, client);
                     }
+                } else if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL && client->input_retry_pending) {
+                    if ((client->input_want_write && (events & POLLOUT) != 0) || (!client->input_want_write && (events & POLLIN) != 0))
+                        disconnect = read_client(server, client);
+                } else if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL && client->output_retry_pending) {
+                    if ((client->output_want_read && (events & POLLIN) != 0) || (!client->output_want_read && (events & POLLOUT) != 0)) {
+                        if (client_flush_output(client) < 0) disconnect = 1;
+                    }
                 } else {
                     if (client_output_pending(client) && (((events & POLLOUT) != 0) || (client->output_want_read && (events & POLLIN) != 0))) {
                         if (client_flush_output(client) < 0) disconnect = 1;
                     }
-                    if (!disconnect && (events & POLLIN) != 0) disconnect = read_client(server, client);
-                    if (!disconnect && client->output_overflowed) {
-                        snotice_broadcast(server, SNOTICE_FLOOD, "SendQ exceeded for %s (nick=%s limit=%zu bytes)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->outbuf_limit);
-                        (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", "SendQ exceeded");
-                        disconnect = 1;
-                    }
+                    if (!disconnect && !client->output_retry_pending && (events & POLLIN) != 0) disconnect = read_client(server, client);
+                }
+                if (!disconnect && client->output_overflowed) {
+                    snotice_broadcast(server, SNOTICE_FLOOD, "SendQ exceeded for %s (nick=%s limit=%zu bytes)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->outbuf_limit);
+                    (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", "SendQ exceeded");
+                    disconnect = 1;
                 }
                 if (disconnect) server_disconnect(server, client, client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
             }
