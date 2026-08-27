@@ -186,16 +186,19 @@ int command_expensive_allow(Server *server, Client *client,
  * channel state; clients can split an oversized batch into smaller commands. */
 static int channel_mode_wire_fits(const Client *client, const char *params) {
     const char *target;
-    int written;
+    size_t wire_len;
 
-    if (client == NULL || params == NULL || !client->registered) return 1;
+    if (client == NULL || params == NULL) return 1;
     target = params;
     while (*target == ' ') ++target;
     if (*target != '#' && *target != '&') return 1;
 
-    written = snprintf(NULL, 0, ":%s!%s@%s MODE %s",
-                       client->nick, client->user, client->display_host, params);
-    return written >= 0 && (size_t)written <= 510U;
+    /* :nick!user@host MODE <params> -- CRLF is not part of the 510-byte
+     * content allowance. All identity fields are fixed-size Client members,
+     * so these additions cannot overflow size_t in practice. */
+    wire_len = 1U + strlen(client->nick) + 1U + strlen(client->user) + 1U +
+               strlen(client->display_host) + 6U + strlen(params);
+    return wire_len <= 510U;
 }
 
 CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){
