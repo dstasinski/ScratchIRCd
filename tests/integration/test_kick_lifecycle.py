@@ -158,6 +158,30 @@ def main():
             oper.send("KICK #kickrank Owner :not allowed")
             oper.expect(" 484 ChanOp #kickrank ")
 
+            # Optional departure reasons may fit the inbound 510-byte line but
+            # become too long after the server adds the public source prefix.
+            # Preserve the action and replace only the unrelayable reason.
+            long_reason = "x" * 480
+            longkick = IRCClient(port); clients.append(longkick); register(longkick, "LongKick")
+            longkick.send("JOIN #kickrank"); longkick.expect(" 366 LongKick #kickrank ")
+            owner.send("KICK #kickrank LongKick :" + long_reason)
+            longkick.expect(" KICK #kickrank LongKick :Kicked")
+            longkick.send("PART #kickrank :membership probe")
+            longkick.expect(" 442 LongKick #kickrank ")
+
+            owner.send("JOIN #partlong"); owner.expect(" 366 Owner #partlong ")
+            watcher.send("JOIN #partlong"); watcher.expect(" 366 Watcher #partlong ")
+            watcher.send("PART #partlong :" + long_reason)
+            owner.expect(" PART #partlong :Leaving")
+            watcher.send("PART #partlong :membership probe")
+            watcher.expect(" 442 Watcher #partlong ")
+
+            quitter = IRCClient(port); clients.append(quitter); register(quitter, "Quitter")
+            owner.send("JOIN #quitlong"); owner.expect(" 366 Owner #quitlong ")
+            quitter.send("JOIN #quitlong"); quitter.expect(" 366 Quitter #quitlong ")
+            quitter.send("QUIT :" + long_reason)
+            owner.expect(" QUIT :Client quit")
+
             # Empty ephemeral channels are removed after an OWNER self-KICK.
             owner.send("JOIN #selfempty"); owner.expect(" 366 Owner #selfempty ")
             owner.send("KICK #selfempty Owner :close channel")
