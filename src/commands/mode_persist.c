@@ -53,8 +53,11 @@ static void append_param(char *buffer, size_t size, const char *param) {
 static void send_channel_modes(Server *server, Client *client, Channel *channel) {
     static const char booleans[] = "AciKMmnOprRSstTVz";
     char modes[128] = "+";
-    char params[IRCD_MESSAGE_BUFFER_SIZE] = "";
-    char combined[IRCD_MESSAGE_BUFFER_SIZE];
+    /* Five possible parameters: key (63), limit (20 decimal digits), join
+     * throttle (21), and two channel redirects (63 each), plus separators.
+     * 256 bytes therefore covers every representable channel state. */
+    char params[256] = "";
+    char combined[512];
     char number[64];
     size_t used = 1U;
     size_t i;
