@@ -19,6 +19,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#define SERVER_ACCEPT_BUDGET_PER_LISTENER 32U
+#define SERVER_DNS_RESULT_BUDGET 64U
+#define SERVER_DNSBL_RESULT_BUDGET 64U
+
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
@@ -120,13 +124,15 @@ static int ensure_client_capacity(Server *server) {
 }
 
 static void accept_clients(Server *server, int listen_fd, int use_tls) {
-    for (;;) {
+    size_t handled = 0U;
+    while (handled < SERVER_ACCEPT_BUDGET_PER_LISTENER) {
         struct sockaddr_storage address;
         socklen_t address_length = sizeof(address);
         char ip[IRC_IP_MAX + 1U];
         Client *client;
         int fd = accept(listen_fd, (struct sockaddr *)&address, &address_length);
         if (fd < 0) { if (errno == EINTR) continue; return; }
+        ++handled;
         if (peer_ip(&address, address_length, ip, sizeof(ip)) != 0) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected: unable to determine peer IP"); close(fd); continue; }
         if (server->client_count >= server->config.max_clients) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: global client limit reached (%zu/%zu)", ip, server->client_count, server->config.max_clients); close(fd); continue; }
         if (server_connection_limit_reached(server, ip, NULL)) { snotice_broadcast(server, SNOTICE_FLOOD | SNOTICE_SECURITY, "Connection rejected from %s: per-IP concurrent connection limit reached (%zu)", ip, server->config.max_connections_per_ip); close(fd); continue; }
@@ -225,7 +231,15 @@ static void handle_dns_result(Server *server, const DnsResult *result) {
     command_maybe_register(server, client);
 }
 
-static void drain_dns_results(Server *server) { DnsResult result; while (dns_resolver_read_result(&server->dns, &result) == 1) handle_dns_result(server, &result); }
+static void drain_dns_results(Server *server) {
+    DnsResult result;
+    size_t handled = 0U;
+    while (handled < SERVER_DNS_RESULT_BUDGET &&
+           dns_resolver_read_result(&server->dns, &result) == 1) {
+        handle_dns_result(server, &result);
+        ++handled;
+    }
+}
 
 static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
     Client *client = server_find_client_by_id(server, result->client_id);
@@ -255,7 +269,15 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
     }
 }
 
-static void drain_dnsbl_results(Server *server) { DnsblResult result; while (dnsbl_resolver_read_result(&server->dnsbl, &result) == 1) handle_dnsbl_result(server, &result); }
+static void drain_dnsbl_results(Server *server) {
+    DnsblResult result;
+    size_t handled = 0U;
+    while (handled < SERVER_DNSBL_RESULT_BUDGET &&
+           dnsbl_resolver_read_result(&server->dnsbl, &result) == 1) {
+        handle_dnsbl_result(server, &result);
+        ++handled;
+    }
+}
 
 static void expire_connection_lookups(Server *server) {
     time_t now = time(NULL);
