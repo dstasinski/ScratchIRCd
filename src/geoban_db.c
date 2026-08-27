@@ -4,6 +4,7 @@
  */
 
 #include "geoban_db.h"
+#include "sqlite_policy.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -205,6 +206,10 @@ int geoban_db_open(GeoBanDb *db, const char *path) {
     memset(db, 0, sizeof(*db));
     if (ensure_parent_directory(path) != 0) return -1;
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
+        geoban_db_close(db);
+        return -1;
+    }
+    if (ircd_sqlite_apply_policy(db->handle) != 0) {
         geoban_db_close(db);
         return -1;
     }
