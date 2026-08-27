@@ -11,10 +11,22 @@
 #include <stdio.h>
 #include <string.h>
 
+static int kick_wire_fits(const Client *source, const char *channel,
+                          const char *target, const char *reason) {
+    size_t length;
+    if (source == NULL || channel == NULL || target == NULL || reason == NULL) return 0;
+    length = 1U + strlen(source->nick) + 1U + strlen(source->user) + 1U +
+             strlen(source->display_host) + sizeof(" KICK ") - 1U +
+             strlen(channel) + 1U + strlen(target) + sizeof(" :") - 1U +
+             strlen(reason);
+    return length <= IRC_LINE_CONTENT_MAX;
+}
+
 CommandResult command_kick(Server *server, Client *client, char *params) {
     char *channel_name;
     char *nick;
     char *reason;
+    const char *delivered_reason;
     Channel *channel;
     Client *target;
     ChannelMember *actor_member;
@@ -44,7 +56,8 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (reason != NULL && *reason == ':') ++reason;
-    if (reason == NULL || *reason == '\0') reason = IRC_DEFAULT_KICK_REASON;
+    delivered_reason = reason != NULL && *reason != '\0'
+                           ? reason : IRC_DEFAULT_KICK_REASON;
 
     channel = hash_get(&server->channels_by_name, channel_name);
     if (channel == NULL) {
@@ -100,10 +113,13 @@ CommandResult command_kick(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    if (!kick_wire_fits(client, channel->name, target->nick, delivered_reason))
+        delivered_reason = IRC_DEFAULT_KICK_REASON;
+
     (void)snprintf(message, sizeof(message),
                    ":%s!%s@%s KICK %s %s :%s\r\n",
                    client->nick, client->user, client->display_host,
-                   channel->name, target->nick, reason);
+                   channel->name, target->nick, delivered_reason);
     channel_broadcast(channel, NULL, message);
 
     channel_remove_client(channel, target);
