@@ -6,6 +6,16 @@
 #include <string.h>
 #include <unistd.h>
 
+static int pragma_int(sqlite3 *db, const char *sql) {
+    sqlite3_stmt *stmt = NULL;
+    int value = -1;
+    assert(sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK);
+    assert(sqlite3_step(stmt) == SQLITE_ROW);
+    value = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return value;
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-chanserv-XXXXXX";
     int fd = mkstemp(path);
@@ -20,6 +30,9 @@ int main(void) {
     unlink(path);
 
     assert(chanserv_db_open(&db, path) == 0);
+    assert(pragma_int(db.db, "PRAGMA user_version") == 1);
+    assert(pragma_int(db.db, "PRAGMA busy_timeout") == 250);
+    assert(pragma_int(db.db, "PRAGMA synchronous") == 1);
     generation = chanserv_db_pchannels_generation();
     assert(chanserv_db_create(&db, "#Test", "Alice", "Example channel") == 0);
     assert(chanserv_db_pchannels_generation() != generation);
@@ -113,6 +126,13 @@ int main(void) {
     assert(chanserv_db_delete(&db, "#{fold}") == 0);
 
     chanserv_db_close(&db);
+
+    /* Schema version persists, so a normal reopen does not need legacy scans. */
+    assert(chanserv_db_open(&db, path) == 0);
+    assert(pragma_int(db.db, "PRAGMA user_version") == 1);
+    assert(pragma_int(db.db, "PRAGMA busy_timeout") == 250);
+    chanserv_db_close(&db);
+
     unlink(path);
     puts("chanserv db tests passed");
     return 0;
