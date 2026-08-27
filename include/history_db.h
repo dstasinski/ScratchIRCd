@@ -41,6 +41,9 @@ int history_db_prune(HistoryDb *db, unsigned int retention_days,
  */
 HistoryDb *history_db_shared(const char *path);
 
+/** Close the shared history handle and clear all process-static maintenance state. */
+void history_db_reset_shared(void);
+
 /**
  * Run shared history pruning at most once every five minutes. A changed
  * retention/max-row policy forces immediate maintenance. Failed maintenance is
