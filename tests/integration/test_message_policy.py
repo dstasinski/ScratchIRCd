@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,7 @@ def main():
         port = free_port()
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
         conf = os.path.join(td, "ircd.conf")
+        history_db = os.path.join(td, "history.db")
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
@@ -128,7 +130,7 @@ def main():
             f.write(f"nickserv_db = {td}/nickserv.db\n")
             f.write(f"chanserv_db = {td}/chanserv.db\n")
             f.write(f"memoserv_db = {td}/memoserv.db\n")
-            f.write(f"history_db = {td}/history.db\n")
+            f.write(f"history_db = {history_db}\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\n")
@@ -188,6 +190,23 @@ def main():
             admin.expect(" JOIN #colors")
             user.send("JOIN #colors")
             user.expect(" JOIN #colors")
+
+            # A client line may fit 510 bytes yet become too long after the
+            # server adds nick!user@display_host for relay. PRIVMSG must reject
+            # that case before delivery/history; NOTICE must silently reject it.
+            long_text = "x" * 480
+            assert len(("PRIVMSG #colors :" + long_text).encode()) < 510
+            user.send("PRIVMSG #colors :" + long_text)
+            user.expect(" 417 User PRIVMSG ")
+            admin.expect_not("x" * 80)
+            with sqlite3.connect(history_db) as db:
+                count = db.execute("SELECT COUNT(*) FROM history WHERE text=?", (long_text,)).fetchone()[0]
+                assert count == 0, count
+            user.send("NOTICE #colors :" + long_text)
+            admin.expect_not("x" * 80)
+            with sqlite3.connect(history_db) as db:
+                count = db.execute("SELECT COUNT(*) FROM history WHERE text=?", (long_text,)).fetchone()[0]
+                assert count == 0, count
 
             # +c rejects IRC color control codes entirely.
             admin.send("MODE #colors +c")
