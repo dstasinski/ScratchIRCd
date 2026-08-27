@@ -14,6 +14,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#define CHANNEL_LOG_FLUSH_FETCH_ROWS 128U
+#define CHANNEL_LOG_FLUSH_DUE_MAX_ROWS 1024U
+
 typedef struct ChannelLogState {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
     int known;
@@ -216,11 +219,16 @@ static int enqueue(Server *server, Channel *channel, time_t when, const char *bo
     return rc;
 }
 
-static int flush_channel(Server *server, const char *name) {
+/* max_rows == 0 means explicitly drain the whole channel (shutdown/admin use).
+ * Automatic event-loop flushing always passes a finite budget. */
+static int flush_channel(Server *server, const char *name, size_t max_rows,
+                         size_t *flushed_out) {
     ChanServDb *db;
-    ChanServLogQueueRecord rows[128];
+    ChanServLogQueueRecord rows[CHANNEL_LOG_FLUSH_FETCH_ROWS];
     ChannelLogState *state;
     size_t count;
+    size_t total = 0U;
+    if (flushed_out != NULL) *flushed_out = 0U;
     if (!server || !name) return -1;
     active_server = server;
     state = state_for(name, 1);
@@ -228,8 +236,12 @@ static int flush_channel(Server *server, const char *name) {
     if (!state || db == NULL || ensure_queue_count(server) != 0) return -1;
     for (;;) {
         size_t i;
+        size_t capacity = CHANNEL_LOG_FLUSH_FETCH_ROWS;
         long long last_id = 0;
-        if (chanserv_db_logging_queue_fetch(db, name, rows, 128, &count) != 0) return -1;
+        if (max_rows != 0U && max_rows - total < capacity)
+            capacity = max_rows - total;
+        if (capacity == 0U) break;
+        if (chanserv_db_logging_queue_fetch(db, name, rows, capacity, &count) != 0) return -1;
         if (!count) break;
         for (i = 0; i < count; ++i) {
             time_t when = (time_t)rows[i].event_time;
@@ -250,9 +262,12 @@ static int flush_channel(Server *server, const char *name) {
         if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) return -1;
         if (log_queue_count >= count) log_queue_count -= count;
         else log_queue_count = 0U;
+        total += count;
         if (log_queue_count < server->config.channel_log_queue_max_rows)
             log_queue_full_notice_time = 0;
+        if (max_rows != 0U && total >= max_rows) break;
     }
+    if (flushed_out != NULL) *flushed_out = total;
     return 0;
 }
 
@@ -275,12 +290,17 @@ static long long oldest_for(Server *server, const char *name) {
 
 static void flush_queued(Server *server, int due_only, time_t now) {
     char channels[8192], *save = NULL, *name;
+    size_t budget = due_only ? CHANNEL_LOG_FLUSH_DUE_MAX_ROWS : 0U;
     if (!server || list_queued(server, channels, sizeof(channels)) != 0 || !channels[0]) return;
     name = strtok_r(channels, ",", &save);
     while (name) {
         long long oldest = oldest_for(server, name);
-        if (!due_only || (oldest && oldest + IRCD_CHANNEL_LOG_BATCH_SECONDS <= (long long)now))
-            (void)flush_channel(server, name);
+        if (!due_only || (oldest && oldest + IRCD_CHANNEL_LOG_BATCH_SECONDS <= (long long)now)) {
+            size_t flushed = 0U;
+            if (due_only && budget == 0U) break;
+            (void)flush_channel(server, name, due_only ? budget : 0U, &flushed);
+            if (due_only) budget = flushed >= budget ? 0U : budget - flushed;
+        }
         name = strtok_r(NULL, ",", &save);
     }
 }
@@ -325,7 +345,10 @@ void channel_log_rotate_all(time_t now) {
     suffix_for(&local, suffix, sizeof(suffix));
     for (state = states; state; state = state->next) {
         if (!state->known || !state->enabled || !state->date_suffix[0] || strcmp(state->date_suffix, suffix) == 0) continue;
-        (void)flush_channel(active_server, state->channel);
+        /* Do not close yesterday's file ahead of durable queued records that
+         * still belong in it. Automatic passes will continue draining the
+         * backlog in bounded chunks and rotation completes when it is empty. */
+        if (oldest_for(active_server, state->channel) != 0) continue;
         ensure_file(state, now);
     }
 }
@@ -351,7 +374,7 @@ int channel_log_handle_chanserv(Server *server, Client *client, const char *text
     if (db_get_enabled(server, channel, &registered, &current) != 0 || !registered) { cs_notice(server, client, "Channel is not registered."); return 1; }
     enable = strcasecmp(value, "ON") == 0;
     state = state_for(channel, 1);
-    if (!enable) (void)flush_channel(server, channel);
+    if (!enable) (void)flush_channel(server, channel, 0U, NULL);
     if (db_set_enabled(server, channel, enable) != 0) { cs_notice(server, client, "Unable to update channel logging."); return 1; }
     if (state) {
         state->known = 1;
