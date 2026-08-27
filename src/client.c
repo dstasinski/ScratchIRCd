@@ -70,22 +70,37 @@ static int queue_append(Client *client, const char *data, size_t length) {
 static int transport_write(Client *client, const char *data, size_t length, size_t *written) {
     *written = 0U;
     if (client->ssl != NULL && client->tls_state != CLIENT_TLS_ESTABLISHED) {
+        client->output_retry_pending = 0;
         client->output_want_read = 0;
         return 0;
     }
     if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL) {
         size_t chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
         int rc = SSL_write(client->ssl, data, (int)chunk);
-        if (rc > 0) { *written = (size_t)rc; client->output_want_read = 0; return 1; }
+        if (rc > 0) {
+            *written = (size_t)rc;
+            client->output_retry_pending = 0;
+            client->output_want_read = 0;
+            return 1;
+        }
         {
             int error = SSL_get_error(client->ssl, rc);
-            if (error == SSL_ERROR_WANT_READ) { client->output_want_read = 1; return 0; }
-            if (error == SSL_ERROR_WANT_WRITE) { client->output_want_read = 0; return 0; }
+            if (error == SSL_ERROR_WANT_READ) {
+                client->output_retry_pending = 1;
+                client->output_want_read = 1;
+                return 0;
+            }
+            if (error == SSL_ERROR_WANT_WRITE) {
+                client->output_retry_pending = 1;
+                client->output_want_read = 0;
+                return 0;
+            }
         }
         return -1;
     }
     {
         ssize_t rc = send(client->fd, data, length, MSG_NOSIGNAL);
+        client->output_retry_pending = 0;
         if (rc > 0) { *written = (size_t)rc; return 1; }
         if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return 0;
         return -1;
@@ -103,6 +118,7 @@ int client_flush_output(Client *client) {
         client->outbuf_len -= written;
     }
     client->outbuf_start = 0U;
+    client->output_retry_pending = 0;
     client->output_want_read = 0;
     return 1;
 }
