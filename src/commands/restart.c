@@ -9,7 +9,6 @@
  */
 
 #include "commands.h"
-#include "channel_log.h"
 #include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
@@ -28,7 +27,9 @@ CommandResult command_restart(Server *server, Client *client, char *params) {
                       client->nick, client->real_ip);
     client_sendf(client, ":%s NOTICE %s :Restarting ScratchIRCd",
                  server->config.server_name, client->nick);
-    channel_log_flush_all(server);
+    /* Channel-log rows are durable on enqueue. main() performs the bounded
+     * post-disconnect best-effort flush; draining the full backlog here would
+     * block the single event loop for an unbounded amount of time. */
     server->restart_requested = 1;
     return COMMAND_KEEP_CLIENT;
 }
