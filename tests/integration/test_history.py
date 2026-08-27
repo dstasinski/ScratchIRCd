@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end persistent SQLite CHATHISTORY and server-time coverage."""
-import os, socket, subprocess, sys, tempfile, time
+import os, socket, sqlite3, subprocess, sys, tempfile, time
 
 class IRCClient:
     def __init__(self, port):
@@ -44,6 +44,18 @@ def stop(proc):
         try:proc.wait(timeout=3)
         except subprocess.TimeoutExpired:proc.kill(); proc.wait(timeout=3)
 
+def wait_history_rows(path,target,count,duration=3.0):
+    end=time.monotonic()+duration; seen=0
+    while time.monotonic()<end:
+        try:
+            with sqlite3.connect(path) as db:
+                seen=db.execute("SELECT COUNT(*) FROM history WHERE target=?",(target,)).fetchone()[0]
+        except sqlite3.OperationalError:
+            seen=0
+        if seen >= count:return seen
+        time.sleep(.02)
+    return seen
+
 def main():
     binary=os.path.abspath(sys.argv[1])
     with tempfile.TemporaryDirectory(prefix="scratchircd-history-") as td:
@@ -62,7 +74,10 @@ def main():
             sender.send("JOIN #history"); sender.expect(" JOIN #history")
             sender.send("PRIVMSG #history :persisted one")
             sender.send("NOTICE #history :persisted two")
-            time.sleep(.15)
+            # Both inserts are synchronous once their commands reach the
+            # handler. Wait for that durable condition rather than assuming a
+            # fixed scheduler delay before terminating the daemon.
+            assert wait_history_rows(history,"#history",2) >= 2
         finally:
             if sender:sender.close()
             stop(proc)
