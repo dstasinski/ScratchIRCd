@@ -9,6 +9,8 @@
 #include <sys/socket.h>
 #include <time.h>
 
+#define IRCV3_SERVER_TAG_SECTION_MAX 4096U
+
 static ClientFreeHook client_free_hook = NULL;
 
 void client_set_free_hook(ClientFreeHook hook) { client_free_hook = hook; }
@@ -161,23 +163,39 @@ int client_send_raw(Client *client, const char *data, size_t length) {
     return length > (size_t)INT_MAX ? INT_MAX : (int)length;
 }
 
+static int client_line_content_fits(const char *line) {
+    const char *separator;
+    size_t tag_section_length;
+    size_t message_length;
+
+    if (line == NULL) return 0;
+    if (line[0] != '@') return strlen(line) <= IRC_LINE_CONTENT_MAX;
+
+    separator = strchr(line, ' ');
+    if (separator == NULL || separator == line + 1) return 0;
+    tag_section_length = (size_t)(separator - line) + 1U;
+    message_length = strlen(separator + 1);
+    return tag_section_length <= IRCV3_SERVER_TAG_SECTION_MAX &&
+           message_length <= IRC_LINE_CONTENT_MAX;
+}
+
 int client_send_line(Client *client, const char *line) {
     char buffer[IRCD_OUTPUT_BUFFER_SIZE];
     int written;
-    size_t content_length;
     size_t length;
     if (client == NULL || line == NULL) return -1;
 
-    /* RFC IRC framing allows at most 512 octets including CRLF. Never let a
-     * caller's oversized formatter escape onto the wire. Callers that need to
-     * return large result sets must chunk them into multiple IRC messages. */
-    content_length = strlen(line);
-    if (content_length > IRC_LINE_CONTENT_MAX) return -1;
+    /* Untagged IRC framing allows 512 octets including CRLF. IRCv3 message
+     * tags use a separate allowance: validate the leading tag section and the
+     * ordinary message independently rather than charging tags against the
+     * classic 510-byte content budget. */
+    if (!client_line_content_fits(line)) return -1;
 
     written = snprintf(buffer, sizeof(buffer), "%s\r\n", line);
     if (written < 0) return -1;
     length = (size_t)written;
-    if (length > IRC_WIRE_LINE_MAX || length >= sizeof(buffer)) return -1;
+    if (length >= sizeof(buffer)) return -1;
+    if (line[0] != '@' && length > IRC_WIRE_LINE_MAX) return -1;
     return client_send_raw(client, buffer, length);
 }
 
