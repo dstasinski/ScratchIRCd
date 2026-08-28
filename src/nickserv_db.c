@@ -114,7 +114,7 @@ static int persisted_vhosts_valid(sqlite3 *handle) {
     int rc;
     if (handle == NULL) return -1;
     if (sqlite3_prepare_v2(handle,
-            "SELECT 1 FROM nickserv_accounts WHERE length(vhost)>?1 LIMIT 1",
+            "SELECT 1 FROM nickserv_accounts WHERE length(CAST(vhost AS BLOB))>?1 LIMIT 1",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)IRC_HOST_MAX);
     rc = sqlite3_step(stmt);
@@ -122,25 +122,59 @@ static int persisted_vhosts_valid(sqlite3 *handle) {
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
-static void copy_text(char *dest, size_t size, const unsigned char *text) {
-    (void)snprintf(dest, size, "%s", text != NULL ? (const char *)text : "");
+static int text_fits(const char *text, size_t max_length, int allow_empty) {
+    size_t length;
+    if (text == NULL) return 0;
+    length = strnlen(text, max_length + 1U);
+    if (length > max_length) return 0;
+    return allow_empty || length != 0U;
 }
 
-static void from_stmt(sqlite3_stmt *stmt, NickServAccount *account) {
+/** Copy one SQLite TEXT field exactly; never silently clip persisted identity. */
+static int copy_text_column(sqlite3_stmt *stmt, int column,
+                            char *destination, size_t destination_size) {
+    const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
+    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
+static int from_stmt(sqlite3_stmt *stmt, NickServAccount *account) {
+    if (stmt == NULL || account == NULL) return -1;
     memset(account, 0, sizeof(*account));
-    copy_text(account->name, sizeof(account->name), sqlite3_column_text(stmt, 0));
-    copy_text(account->password_hash, sizeof(account->password_hash), sqlite3_column_text(stmt, 1));
-    copy_text(account->vhost, sizeof(account->vhost), sqlite3_column_text(stmt, 2));
+    if (copy_text_column(stmt, 0, account->name, sizeof(account->name)) != 0 ||
+        copy_text_column(stmt, 1, account->password_hash, sizeof(account->password_hash)) != 0 ||
+        copy_text_column(stmt, 2, account->vhost, sizeof(account->vhost)) != 0 ||
+        copy_text_column(stmt, 6, account->email, sizeof(account->email)) != 0 ||
+        copy_text_column(stmt, 8, account->pending_email, sizeof(account->pending_email)) != 0 ||
+        copy_text_column(stmt, 9, account->email_verify_token_hash,
+                         sizeof(account->email_verify_token_hash)) != 0 ||
+        copy_text_column(stmt, 11, account->reset_token_hash,
+                         sizeof(account->reset_token_hash)) != 0) {
+        memset(account, 0, sizeof(*account));
+        return -1;
+    }
+    if (account->name[0] == '\0' || account->password_hash[0] == '\0') {
+        memset(account, 0, sizeof(*account));
+        return -1;
+    }
     account->enabled = sqlite3_column_int(stmt, 3);
     account->created_at = sqlite3_column_int64(stmt, 4);
     account->updated_at = sqlite3_column_int64(stmt, 5);
-    copy_text(account->email, sizeof(account->email), sqlite3_column_text(stmt, 6));
     account->email_verified = sqlite3_column_int(stmt, 7);
-    copy_text(account->pending_email, sizeof(account->pending_email), sqlite3_column_text(stmt, 8));
-    copy_text(account->email_verify_token_hash, sizeof(account->email_verify_token_hash), sqlite3_column_text(stmt, 9));
     account->email_verify_expires_at = sqlite3_column_int64(stmt, 10);
-    copy_text(account->reset_token_hash, sizeof(account->reset_token_hash), sqlite3_column_text(stmt, 11));
     account->reset_expires_at = sqlite3_column_int64(stmt, 12);
+    return 0;
+}
+
+static int name_valid(const char *name) {
+    return text_fits(name, IRC_NICK_MAX, 0);
 }
 
 int nickserv_db_open(NickServDb *db, const char *path) {
@@ -184,12 +218,16 @@ int nickserv_db_get(NickServDb *db, const char *name, NickServAccount *account) 
     sqlite3_stmt *stmt = NULL;
     int rc;
 
-    if (db == NULL || db->handle == NULL || name == NULL || account == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) || account == NULL) return -1;
+    memset(account, 0, sizeof(*account));
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        from_stmt(stmt, account);
+        if (from_stmt(stmt, account) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         sqlite3_finalize(stmt);
         return 1;
     }
@@ -219,7 +257,10 @@ int nickserv_db_add(NickServDb *db, const NickServAccount *account) {
     int rc;
 
     if (db == NULL || db->handle == NULL || account == NULL ||
-        strlen(account->vhost) > IRC_HOST_MAX) return -1;
+        !name_valid(account->name) ||
+        !text_fits(account->password_hash, IRCD_OPER_HASH_MAX, 0) ||
+        !text_fits(account->vhost, IRC_HOST_MAX, 1) ||
+        !text_fits(account->email, IRCD_EMAIL_MAX, 1)) return -1;
     if (account_count(db, &count) != 0 || count >= IRCD_NICKSERV_ACCOUNT_HARD_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, account->name, -1, SQLITE_TRANSIENT);
@@ -236,7 +277,7 @@ int nickserv_db_add(NickServDb *db, const NickServAccount *account) {
 int nickserv_db_delete(NickServDb *db, const char *name) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name)) return -1;
     if (sqlite3_prepare_v2(db->handle, "DELETE FROM nickserv_accounts WHERE name=?1", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
@@ -244,10 +285,12 @@ int nickserv_db_delete(NickServDb *db, const char *name) {
     return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
 }
 
-static int set_text(NickServDb *db, const char *sql, const char *name, const char *value) {
+static int set_text(NickServDb *db, const char *sql, const char *name,
+                    const char *value, size_t value_max, int allow_empty) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || value == NULL) return -1;
+    if (db == NULL || db->handle == NULL || sql == NULL ||
+        !name_valid(name) || !text_fits(value, value_max, allow_empty)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, value, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
@@ -259,20 +302,19 @@ static int set_text(NickServDb *db, const char *sql, const char *name, const cha
 int nickserv_db_set_password(NickServDb *db, const char *name, const char *password_hash) {
     return set_text(db,
         "UPDATE nickserv_accounts SET password_hash=?1,reset_token_hash='',reset_expires_at=0,updated_at=unixepoch() WHERE name=?2",
-        name, password_hash);
+        name, password_hash, IRCD_OPER_HASH_MAX, 0);
 }
 
 int nickserv_db_set_vhost(NickServDb *db, const char *name, const char *vhost) {
-    if (vhost == NULL || strlen(vhost) > IRC_HOST_MAX) return -1;
     return set_text(db,
         "UPDATE nickserv_accounts SET vhost=?1,updated_at=unixepoch() WHERE name=?2",
-        name, vhost);
+        name, vhost, IRC_HOST_MAX, 1);
 }
 
 int nickserv_db_set_enabled(NickServDb *db, const char *name, int enabled) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name)) return -1;
     if (sqlite3_prepare_v2(db->handle,
             "UPDATE nickserv_accounts SET enabled=?1,updated_at=unixepoch() WHERE name=?2",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
@@ -292,7 +334,9 @@ int nickserv_db_set_email_challenge(NickServDb *db, const char *name,
         "email_verify_expires_at=?3,updated_at=unixepoch() WHERE name=?4";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || pending_email == NULL || token_hash == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) ||
+        !text_fits(pending_email, IRCD_EMAIL_MAX, 0) ||
+        !text_fits(token_hash, IRCD_TOKEN_HASH_HEX_LEN, 0)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, pending_email, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, token_hash, -1, SQLITE_TRANSIENT);
@@ -312,7 +356,8 @@ int nickserv_db_verify_email(NickServDb *db, const char *name,
         "AND email_verify_expires_at>=?3 AND pending_email<>''";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || token_hash == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) ||
+        !text_fits(token_hash, IRCD_TOKEN_HASH_HEX_LEN, 0)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, token_hash, -1, SQLITE_TRANSIENT);
@@ -329,7 +374,8 @@ int nickserv_db_admin_set_email(NickServDb *db, const char *name,
         "email_verify_token_hash='',email_verify_expires_at=0,updated_at=unixepoch() WHERE name=?3";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || email == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) ||
+        !text_fits(email, IRCD_EMAIL_MAX, 1)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, email, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, verified ? 1 : 0);
@@ -346,7 +392,8 @@ int nickserv_db_set_reset_token(NickServDb *db, const char *name,
         "updated_at=unixepoch() WHERE name=?3";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || token_hash == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) ||
+        !text_fits(token_hash, IRCD_TOKEN_HASH_HEX_LEN, 0)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, token_hash, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, expires_at);
@@ -365,7 +412,9 @@ int nickserv_db_consume_reset_token(NickServDb *db, const char *name,
         "AND reset_token_hash=?3 AND reset_expires_at>=?4 AND enabled=1";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || token_hash == NULL || new_password_hash == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) ||
+        !text_fits(token_hash, IRCD_TOKEN_HASH_HEX_LEN, 0) ||
+        !text_fits(new_password_hash, IRCD_OPER_HASH_MAX, 0)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, new_password_hash, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
