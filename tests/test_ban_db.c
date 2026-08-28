@@ -26,6 +26,32 @@ static int pragma_int(sqlite3 *db, const char *sql) {
     return value;
 }
 
+static void inject_ban_row(sqlite3 *db, int type,
+                           const char *mask, int mask_bytes,
+                           const char *reason, int reason_bytes,
+                           const char *set_by, int set_by_bytes) {
+    sqlite3_stmt *stmt = NULL;
+    assert(sqlite3_prepare_v2(db,
+        "INSERT INTO bans(type,mask,reason,set_by,created_at,expires_at) "
+        "VALUES(?1,?2,?3,?4,unixepoch(),0)",
+        -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_int(stmt, 1, type);
+    sqlite3_bind_text(stmt, 2, mask, mask_bytes, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, reason, reason_bytes, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, set_by, set_by_bytes, SQLITE_TRANSIENT);
+    assert(sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+}
+
+static void clear_injected(sqlite3 *db, const char *mask) {
+    sqlite3_stmt *stmt = NULL;
+    assert(sqlite3_prepare_v2(db, "DELETE FROM bans WHERE mask=?1",
+                              -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_text(stmt, 1, mask, -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+}
+
 int main(void) {
     char path[128];
     BanDb db;
@@ -34,6 +60,7 @@ int main(void) {
     char oversized_mask[IRC_CHANNEL_MASK_MAX + 2U];
     char oversized_reason[IRC_QUIT_REASON_MAX + 2U];
     char oversized_set_by[IRCD_OPER_NAME_MAX + 2U];
+    char embedded_setter[] = {'r','o','o','t','\0','x'};
 
     (void)snprintf(path, sizeof(path), "/tmp/scratchircd-bans-%ld.db", (long)getpid());
     unlink(path);
@@ -65,6 +92,13 @@ int main(void) {
                       oversized_reason, "root") == -1);
     assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@oversized-setter.test",
                       "reason", oversized_set_by) == -1);
+    assert(ban_db_add(&db, (BanType)99, "*@invalid-type.test", "reason", "root") == -1);
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@bad\nmask.test", "reason", "root") == -1);
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@bad-reason.test", "bad\rreason", "root") == -1);
+    assert(ban_db_add(&db, BAN_TYPE_KLINE, "*@bad-setter.test", "reason", "root\nother") == -1);
+    assert(ban_db_delete(&db, (BanType)99, "*@invalid.test") == -1);
+    assert(ban_db_list(&db, (BanType)99, count_record, NULL) == -1);
+    assert(ban_db_match(&db, (BanType)99, "x@y", NULL, &match) == -1);
 
     assert(ban_db_match(&db, BAN_TYPE_KLINE,
                         "baduser@example.test", NULL, &match) == 1);
@@ -132,6 +166,29 @@ int main(void) {
     count = 0;
     assert(ban_db_list(&db, BAN_TYPE_KLINE, count_record, NULL) == 0);
     assert(count == 1);
+
+    /* Direct SQLite corruption must fail closed. It may not be truncated into
+     * a different effective policy row or delivered to LIST callbacks. */
+    inject_ban_row(db.handle, BAN_TYPE_KLINE, oversized_mask, -1,
+                   "reason", -1, "root", -1);
+    assert(ban_db_match(&db, BAN_TYPE_KLINE, "anything@example.test", NULL, &match) == -1);
+    assert(ban_db_list(&db, BAN_TYPE_KLINE, count_record, NULL) == -1);
+    clear_injected(db.handle, oversized_mask);
+
+    inject_ban_row(db.handle, BAN_TYPE_KLINE, "*@corrupt-reason.test", -1,
+                   oversized_reason, -1, "root", -1);
+    assert(ban_db_match(&db, BAN_TYPE_KLINE, "user@corrupt-reason.test", NULL, &match) == -1);
+    clear_injected(db.handle, "*@corrupt-reason.test");
+
+    inject_ban_row(db.handle, BAN_TYPE_KLINE, "*@corrupt-nul.test", -1,
+                   "reason", -1, embedded_setter, (int)sizeof(embedded_setter));
+    assert(ban_db_match(&db, BAN_TYPE_KLINE, "user@corrupt-nul.test", NULL, &match) == -1);
+    clear_injected(db.handle, "*@corrupt-nul.test");
+
+    inject_ban_row(db.handle, BAN_TYPE_ZLINE, "198.51.100.77", -1,
+                   "bad\nreason", -1, "root", -1);
+    assert(ban_db_match(&db, BAN_TYPE_ZLINE, "198.51.100.77", NULL, &match) == -1);
+    clear_injected(db.handle, "198.51.100.77");
 
     assert(ban_db_delete(&db, BAN_TYPE_ZLINE, "203.0.113.0/24") == 0);
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
