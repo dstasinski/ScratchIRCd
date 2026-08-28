@@ -113,14 +113,26 @@ int main(void) {
                                            "$argon2id$new") == -1);
     assert(nickserv_db_consume_reset_token(&db, "Daniel", "resethash", 2000,
                                            long_hash) == -1);
+    assert(nickserv_db_get(&db, "Daniel\nMallory", &loaded) == -1);
+    assert(nickserv_db_set_vhost(&db, "Daniel", "bad\nhost") == -1);
+    assert(nickserv_db_admin_set_email(&db, "Daniel", "bad\n@example.test", 1) == -1);
+    assert(nickserv_db_set_email_challenge(&db, "Daniel", "bad\r@example.test",
+                                           "verifyhash", 2000) == -1);
+    assert(nickserv_db_set_reset_token(&db, "Daniel", "reset\nhash", 3000) == -1);
 
-    /* Legacy/external corruption must fail closed instead of being clipped. */
+    /* Legacy/external corruption must fail closed instead of being clipped or
+     * allowing multi-line persisted data into live IRC state. */
     raw_set_text(db.handle, "password_hash", "Daniel", long_hash);
     assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
     raw_set_text(db.handle, "password_hash", "Daniel", "$argon2id$test");
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
 
     raw_set_text(db.handle, "email", "Daniel", long_email);
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
+    raw_set_text(db.handle, "email", "Daniel", "");
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+
+    raw_set_text(db.handle, "email", "Daniel", "daniel\n@example.test");
     assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
     raw_set_text(db.handle, "email", "Daniel", "");
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
@@ -138,6 +150,11 @@ int main(void) {
     raw_set_text(db.handle, "reset_token_hash", "Daniel", long_token);
     assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
     raw_set_text(db.handle, "reset_token_hash", "Daniel", "");
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+
+    raw_set_text(db.handle, "vhost", "Daniel", "bad\rhost");
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
+    raw_set_text(db.handle, "vhost", "Daniel", "");
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
 
     assert(nickserv_db_set_email_challenge(&db, "Daniel", "daniel@example.test",
