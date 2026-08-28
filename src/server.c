@@ -25,6 +25,7 @@
 #define SERVER_DNSBL_LISTED_BUDGET 4U
 #define SERVER_TLS_HANDSHAKE_BUDGET 32U
 #define SERVER_INPUT_LINE_BUDGET_PER_CLIENT 32U
+#define SERVER_INPUT_LINE_BUDGET_GLOBAL 512U
 #define SERVER_DNSBL_REASON_ZONE_MAX \
     (IRC_QUIT_REASON_MAX - 6U - IRCD_DNSBL_NAME_MAX - 3U)
 #define SERVER_DNSBL_SET_BY_NAME_MAX (IRCD_OPER_NAME_MAX - 6U)
@@ -285,12 +286,14 @@ static int advance_tls_handshake(Server *server, Client *client) {
     return 1;
 }
 
-static int process_buffered_lines(Server *server, Client *client, int *pending) {
+static int process_buffered_lines(Server *server, Client *client, int *pending,
+                                  size_t *global_budget) {
     size_t offset = 0U;
     size_t handled = 0U;
 
     if (pending != NULL) *pending = 0;
-    while (handled < SERVER_INPUT_LINE_BUDGET_PER_CLIENT && offset < client->inbuf_len) {
+    while (handled < SERVER_INPUT_LINE_BUDGET_PER_CLIENT &&
+           *global_budget > 0U && offset < client->inbuf_len) {
         char *base = client->inbuf + offset;
         size_t remaining = client->inbuf_len - offset;
         char *newline = memchr(base, '\n', remaining);
@@ -309,6 +312,7 @@ static int process_buffered_lines(Server *server, Client *client, int *pending) 
         line[line_length] = '\0';
         offset += consumed;
         ++handled;
+        --*global_budget;
         if (line[0] != '\0' && irc_handle_line(server, client, line) != 0) {
             if (offset < client->inbuf_len) memmove(client->inbuf, client->inbuf + offset, client->inbuf_len - offset);
             client->inbuf_len -= offset;
@@ -363,18 +367,34 @@ static int read_client(Server *server, Client *client) {
     return 0;
 }
 
-static int drain_buffered_client_input(Server *server) {
-    size_t index = 0U;
+static int drain_buffered_client_input(Server *server, size_t *global_budget) {
+    size_t initial_count;
+    size_t visited = 0U;
+    size_t index;
     int pending = 0;
-    while (index < server->client_count) {
-        Client *client = server->clients[index];
+
+    if (server == NULL || global_budget == NULL || server->client_count == 0U) {
+        if (server != NULL) server->input_dispatch_cursor = 0U;
+        return 0;
+    }
+
+    initial_count = server->client_count;
+    index = server->input_dispatch_cursor % initial_count;
+    while (visited < initial_count && server->client_count > 0U && *global_budget > 0U) {
+        Client *client;
         int client_pending = 0;
         int disconnect;
+
+        if (index >= server->client_count) index = 0U;
+        client = server->clients[index];
+        ++visited;
+
         if (client == NULL || client->tls_state == CLIENT_TLS_HANDSHAKE || client->inbuf_len == 0U) {
-            ++index;
+            index = (index + 1U) % server->client_count;
             continue;
         }
-        disconnect = process_buffered_lines(server, client, &client_pending);
+        disconnect = process_buffered_lines(server, client, &client_pending,
+                                            global_budget);
         if (!disconnect && client->output_overflowed) {
             snotice_broadcast(server, SNOTICE_FLOOD, "SendQ exceeded for %s (nick=%s limit=%zu bytes)", client->real_ip, client->nick[0] != '\0' ? client->nick : "*", client->outbuf_limit);
             (void)snprintf(client->quit_reason, sizeof(client->quit_reason), "%s", "SendQ exceeded");
@@ -382,11 +402,24 @@ static int drain_buffered_client_input(Server *server) {
         }
         if (disconnect) {
             server_disconnect(server, client, client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
+            if (server->client_count == 0U) break;
+            index = (index + 1U) % server->client_count;
             continue;
         }
         if (client_pending) pending = 1;
-        ++index;
+        index = (index + 1U) % server->client_count;
     }
+
+    if (server->client_count > 0U)
+        server->input_dispatch_cursor = index % server->client_count;
+    else
+        server->input_dispatch_cursor = 0U;
+
+    /* If the aggregate budget was consumed, an unvisited client may still
+     * have complete buffered commands. Force a zero-time poll on the next turn
+     * so output, resolver, accept and TLS work remain interleaved with command
+     * dispatch instead of synchronously draining all clients first. */
+    if (*global_budget == 0U) pending = 1;
     return pending;
 }
 
@@ -567,7 +600,8 @@ void server_run(Server *server) {
 
     if (server == NULL) return;
     while (!server->restart_requested) {
-        int buffered_pending = drain_buffered_client_input(server);
+        size_t input_line_budget = SERVER_INPUT_LINE_BUDGET_GLOBAL;
+        int buffered_pending = drain_buffered_client_input(server, &input_line_budget);
         const size_t dns_index = server->listener_count;
         const size_t dnsbl_index = server->listener_count + 1U;
         const size_t client_base = server->listener_count + 2U;
