@@ -21,7 +21,8 @@ CommandResult command_list(Server *server, Client *client, char *params) {
     client_sendf(client, RPL_LISTSTART,
                  server->config.server_name, client->nick);
 
-    for (size_t bucket = 0U; bucket < server->channels_by_name.bucket_count;
+    for (size_t bucket = 0U;
+         bucket < server->channels_by_name.bucket_count && !client->output_overflowed;
          ++bucket) {
         HashEntry *entry;
         for (entry = server->channels_by_name.buckets[bucket]; entry != NULL;
@@ -34,10 +35,12 @@ CommandResult command_list(Server *server, Client *client, char *params) {
                          server->config.server_name, client->nick,
                          channel->name, (int)channel->member_count,
                          channel->topic[0] != '\0' ? channel->topic : "");
+            if (client->output_overflowed) break;
         }
     }
 
-    client_sendf(client, RPL_LISTEND,
-                 server->config.server_name, client->nick);
+    if (!client->output_overflowed)
+        client_sendf(client, RPL_LISTEND,
+                     server->config.server_name, client->nick);
     return COMMAND_KEEP_CLIENT;
 }
