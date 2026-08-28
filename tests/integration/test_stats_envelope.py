@@ -184,6 +184,23 @@ def main():
             assert geo_value in g_rows[0] and setter in g_rows[0], g_rows[0]
             assert reason not in g_rows[0], g_rows[0]
 
+            # LINKS accepts a client-supplied mask. A maximum legal request can
+            # leave too little space to echo that entire mask in numeric 365
+            # once the maximum-length server prefix is added. Keep the reply
+            # present and wire-safe by trimming only the echoed mask field.
+            links_mask = "x" * 504
+            assert len(("LINKS " + links_mask).encode()) == 510
+            client.send("LINKS " + links_mask)
+            lines = client.collect_until(" :End of /LINKS list.")
+            assert_wire_safe(lines)
+            links_rows = [line for line in lines if " 365 alice " in line]
+            assert len(links_rows) == 1, lines
+            assert links_rows[0].endswith(" :End of /LINKS list."), links_rows[0]
+            echoed_mask = links_rows[0].split(" 365 alice ", 1)[1].rsplit(
+                " :End of /LINKS list.", 1)[0]
+            assert 0 < len(echoed_mask) < len(links_mask), links_rows[0]
+            assert links_mask.startswith(echoed_mask), echoed_mask
+
             # File-backed text may contain physical lines far longer than one
             # IRC numeric. Preserve all text by chunking each logical line.
             client.send("MOTD")
