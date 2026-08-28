@@ -7,6 +7,7 @@
 #include "history_db.h"
 #include "memoserv.h"
 #include "memoserv_db.h"
+#include "nickserv.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
 #include "runtime_config.h"
@@ -137,6 +138,7 @@ int main(int argc, char **argv) {
         command_common_reset_state();
         command_motd_reset_cache();
         command_rules_reset_cache();
+        nickserv_reset_runtime_state();
         memoserv_reset_runtime_state();
 
         if (!restart) break;
