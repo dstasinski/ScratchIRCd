@@ -22,6 +22,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct ZlineDisconnectContext {
+    Server *server;
+    Client *setter;
+    const char *reason;
+    const char *added_mask;
+} ZlineDisconnectContext;
+
+static int zline_disconnect_row(const BanRecord *record, void *context) {
+    ZlineDisconnectContext *ctx = context;
+    size_t i = 0U;
+    if (record == NULL || ctx == NULL || ctx->server == NULL) return -1;
+    while (i < ctx->server->client_count) {
+        Client *target = ctx->server->clients[i];
+        if (target != ctx->setter &&
+            ban_record_matches(record, target->real_ip, NULL)) {
+            snotice_broadcast(ctx->server, SNOTICE_BANS,
+                              "ZLINE matched %s (%s@%s) [real_ip=%s] by %s",
+                              command_reply_nick(target), target->user,
+                              target->display_host, target->real_ip,
+                              ctx->added_mask != NULL ? ctx->added_mask : record->mask);
+            client_sendf(target, ERR_YOUREBANNEDCREEP,
+                         ctx->server->config.server_name,
+                         command_reply_nick(target), ctx->server->config.admin_email);
+            server_disconnect(ctx->server, target,
+                              ctx->reason != NULL && *ctx->reason != '\0'
+                                  ? ctx->reason : record->reason);
+            continue;
+        }
+        ++i;
+    }
+    return 0;
+}
+
 static int valid_cidr_mask(const char *mask) {
     char address[IRC_IP_MAX + 1U];
     const char *slash;
@@ -50,7 +83,6 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     char *reason;
     char resolved_mask[IRC_IP_MAX + 1U];
     BanDb db = {0};
-    size_t i = 0U;
     int shorthand = 0;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
@@ -124,22 +156,9 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    while (i < server->client_count) {
-        Client *target = server->clients[i];
-        BanRecord match;
-        if (target != client && ban_db_match(&db, BAN_TYPE_ZLINE,
-                                             target->real_ip, NULL, &match) == 1) {
-            snotice_broadcast(server, SNOTICE_BANS,
-                              "ZLINE matched %s (%s@%s) [real_ip=%s] by %s",
-                              command_reply_nick(target), target->user,
-                              target->display_host, target->real_ip, mask);
-            client_sendf(target, ERR_YOUREBANNEDCREEP,
-                         server->config.server_name,
-                         command_reply_nick(target), server->config.admin_email);
-            server_disconnect(server, target, reason);
-            continue;
-        }
-        ++i;
+    {
+        ZlineDisconnectContext context = {server, client, reason, mask};
+        (void)ban_db_list(&db, BAN_TYPE_ZLINE, zline_disconnect_row, &context);
     }
     ban_db_close(&db);
 
