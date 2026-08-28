@@ -8,6 +8,33 @@
 #include <string.h>
 #include <unistd.h>
 
+static unsigned char irc_fold(unsigned char ch) {
+    if (ch >= 'A' && ch <= 'Z') return (unsigned char)(ch + ('a' - 'A'));
+    switch (ch) {
+        case '{': return '[';
+        case '}': return ']';
+        case '|': return '\\';
+        case '~': return '^';
+        default: return ch;
+    }
+}
+
+static int irc_collation(void *context, int left_len, const void *left_data,
+                         int right_len, const void *right_data) {
+    const unsigned char *left = left_data;
+    const unsigned char *right = right_data;
+    int length = left_len < right_len ? left_len : right_len;
+    int i;
+    (void)context;
+    for (i = 0; i < length; ++i) {
+        unsigned char a = irc_fold(left[i]);
+        unsigned char b = irc_fold(right[i]);
+        if (a < b) return -1;
+        if (a > b) return 1;
+    }
+    return left_len < right_len ? -1 : left_len > right_len ? 1 : 0;
+}
+
 static void execf(sqlite3 *db, const char *sql) {
     assert(sqlite3_exec(db, sql, NULL, NULL, NULL) == SQLITE_OK);
 }
@@ -57,6 +84,7 @@ int main(void) {
     ChanServDb db = {0};
     Channel source;
     Channel restored;
+    sqlite3 *raw = NULL;
     char long_key[IRC_CHANNEL_KEY_MAX + 2U];
     char long_redirect[IRC_CHANNEL_NAME_MAX + 2U];
     char long_mask[IRC_CHANNEL_MASK_MAX + 2U];
@@ -110,65 +138,64 @@ int main(void) {
     channel_mask_clear(&restored.exception_list);
     channel_mask_clear(&restored.invite_exception_list);
 
-    assert(sqlite3_open(path, &db.db) == SQLITE_OK);
+    assert(sqlite3_open(path, &raw) == SQLITE_OK);
+    assert(sqlite3_create_collation(raw, "IRCNOCASE", SQLITE_UTF8, NULL,
+                                    irc_collation) == SQLITE_OK);
 
-    raw_set_runtime_text(db.db, "channel_key", long_key);
+    raw_set_runtime_text(raw, "channel_key", long_key);
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_text(db.db, "channel_key", "secret");
+    raw_set_runtime_text(raw, "channel_key", "secret");
 
-    raw_set_runtime_text(db.db, "limit_redirect", "#bad\nredirect");
+    raw_set_runtime_text(raw, "limit_redirect", "#bad\nredirect");
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_text(db.db, "limit_redirect", "#overflow");
+    raw_set_runtime_text(raw, "limit_redirect", "#overflow");
 
-    raw_set_runtime_text(db.db, "ban_redirect", long_redirect);
+    raw_set_runtime_text(raw, "ban_redirect", long_redirect);
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_text(db.db, "ban_redirect", "#banned");
+    raw_set_runtime_text(raw, "ban_redirect", "#banned");
 
-    raw_set_runtime_int64(db.db, "user_limit", -1);
+    raw_set_runtime_int64(raw, "user_limit", -1);
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_int64(db.db, "user_limit", 25);
+    raw_set_runtime_int64(raw, "user_limit", 25);
 
-    raw_set_runtime_int64(db.db, "join_count", -1);
+    raw_set_runtime_int64(raw, "join_count", -1);
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_int64(db.db, "join_count", 3);
+    raw_set_runtime_int64(raw, "join_count", 3);
 
-    raw_set_runtime_int64(db.db, "join_seconds", (sqlite3_int64)UINT_MAX + 1LL);
+    raw_set_runtime_int64(raw, "join_seconds", (sqlite3_int64)UINT_MAX + 1LL);
     assert_restore_failed_clean(path, &restored);
-    raw_set_runtime_int64(db.db, "join_seconds", 30);
+    raw_set_runtime_int64(raw, "join_seconds", 30);
 
     {
         sqlite3_stmt *stmt = NULL;
-        assert(sqlite3_prepare_v2(db.db,
+        assert(sqlite3_prepare_v2(raw,
             "UPDATE channel_masks SET mask=?1 WHERE channel='#Persist' AND type=1",
             -1, &stmt, NULL) == SQLITE_OK);
         sqlite3_bind_text(stmt, 1, long_mask, -1, SQLITE_TRANSIENT);
         assert(sqlite3_step(stmt) == SQLITE_DONE);
-        assert(sqlite3_changes(db.db) == 1);
+        assert(sqlite3_changes(raw) == 1);
         sqlite3_finalize(stmt);
     }
     assert_restore_failed_clean(path, &restored);
-    execf(db.db, "UPDATE channel_masks SET mask='Bad!*@*' WHERE channel='#Persist' AND type=1");
+    execf(raw, "UPDATE channel_masks SET mask='Bad!*@*' WHERE channel='#Persist' AND type=1");
 
-    execf(db.db, "UPDATE channel_masks SET protected_authorized=2 WHERE channel='#Persist' AND type=1");
+    execf(raw, "UPDATE channel_masks SET protected_authorized=2 WHERE channel='#Persist' AND type=1");
     assert_restore_failed_clean(path, &restored);
-    execf(db.db, "UPDATE channel_masks SET protected_authorized=1 WHERE channel='#Persist' AND type=1");
+    execf(raw, "UPDATE channel_masks SET protected_authorized=1 WHERE channel='#Persist' AND type=1");
 
     /* CHECK normally protects the type field; emulate external schema damage by
-     * rebuilding one row with foreign-key checks disabled in a scratch table. */
-    execf(db.db, "PRAGMA foreign_keys=OFF");
-    execf(db.db, "CREATE TABLE bad_masks(channel TEXT,type INTEGER,mask TEXT,protected_authorized INTEGER)");
-    execf(db.db, "INSERT INTO bad_masks VALUES('#Persist',99,'Bad!*@*',1)");
-    execf(db.db, "DELETE FROM channel_masks WHERE channel='#Persist' AND type=1");
-    execf(db.db, "PRAGMA ignore_check_constraints=ON");
-    execf(db.db, "INSERT INTO channel_masks SELECT * FROM bad_masks");
-    execf(db.db, "PRAGMA ignore_check_constraints=OFF");
+     * bypassing it on this dedicated corruption-test connection. */
+    execf(raw, "PRAGMA foreign_keys=OFF");
+    execf(raw, "PRAGMA ignore_check_constraints=ON");
+    execf(raw, "UPDATE channel_masks SET type=99 WHERE channel='#Persist' AND type=1");
+    execf(raw, "PRAGMA ignore_check_constraints=OFF");
     assert_restore_failed_clean(path, &restored);
-    execf(db.db, "DELETE FROM channel_masks WHERE channel='#Persist' AND type=99");
-    execf(db.db, "INSERT INTO channel_masks(channel,type,mask,protected_authorized) VALUES('#Persist',1,'Bad!*@*',1)");
-    execf(db.db, "DROP TABLE bad_masks");
+    execf(raw, "PRAGMA ignore_check_constraints=ON");
+    execf(raw, "UPDATE channel_masks SET type=1 WHERE channel='#Persist' AND type=99");
+    execf(raw, "PRAGMA ignore_check_constraints=OFF");
 
-    sqlite3_close(db.db);
-    db.db = NULL;
+    sqlite3_close(raw);
+    raw = NULL;
 
     assert(chanserv_persist_restore(path, &restored) == 0);
     assert(strcmp(restored.key, "secret") == 0);
