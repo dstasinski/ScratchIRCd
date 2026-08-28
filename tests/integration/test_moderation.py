@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -112,12 +113,13 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-moderation-") as td:
         port = free_port()
         conf = os.path.join(td, "ircd.conf")
+        bans_db = os.path.join(td, "bans.db")
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
-            f.write(f"operators_db = {td}/operators.db\nbans_db = {td}/bans.db\n")
+            f.write(f"operators_db = {td}/operators.db\nbans_db = {bans_db}\n")
             f.write(f"nickserv_db = {td}/nickserv.db\nchanserv_db = {td}/chanserv.db\n")
             f.write(f"memoserv_db = {td}/memoserv.db\nhistory_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
@@ -205,6 +207,35 @@ def main():
             admin.send("MUTE -Bob"); bob.expect(" MODE Bob -M")
             bob.send("PRIVMSG #mute :channel restored")
             carol.expect("PRIVMSG #mute :channel restored")
+
+            # A malformed persistent policy row must never be truncated into a
+            # different KLINE or treated as "no ban". Inject an overlong mask
+            # directly to simulate legacy/manual SQLite corruption. Registration
+            # must fail closed through the real policy lookup path.
+            corrupt_mask = "*" * 256
+            db = sqlite3.connect(bans_db)
+            try:
+                db.execute(
+                    "INSERT INTO bans(type,mask,reason,set_by,created_at,expires_at) "
+                    "VALUES(1,?,?,?,unixepoch(),0)",
+                    (corrupt_mask, "corrupt policy", "root"),
+                )
+                db.commit()
+            finally:
+                db.close()
+
+            corrupt = IRCClient(port); clients.append(corrupt)
+            corrupt.send("NICK Corrupt")
+            corrupt.send("USER corrupt 0 * :Corrupt")
+            corrupt.expect(" 465 Corrupt ")
+            corrupt.expect_not(" 001 Corrupt ", duration=0.3)
+
+            db = sqlite3.connect(bans_db)
+            try:
+                db.execute("DELETE FROM bans WHERE type=1 AND mask=?", (corrupt_mask,))
+                db.commit()
+            finally:
+                db.close()
         finally:
             for c in clients: c.close()
             stop(proc)
