@@ -34,11 +34,13 @@ static int load_server_name_length(size_t length) {
     return load_single_option(line);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     char path[] = "/tmp/scratchircd-config-XXXXXX";
     int fd = mkstemp(path);
     FILE *file;
     ServerConfig config;
+
+    assert(argc == 1 || argc == 2);
 
     runtime_config_defaults(&config);
     assert(config.max_channels == IRCD_DEFAULT_MAX_CHANNELS);
@@ -188,5 +190,11 @@ int main(void) {
     assert(load_single_option("chanserv_max_channels_per_account = 20\n") != 0);
 
     (void)unlink(path);
+
+    if (argc == 2) {
+        runtime_config_defaults(&config);
+        assert(runtime_config_load(&config, argv[1]) == 0);
+    }
+
     return 0;
 }
