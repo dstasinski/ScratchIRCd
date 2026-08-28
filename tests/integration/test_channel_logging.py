@@ -89,23 +89,21 @@ def main():
             founder=IRCClient(port); admin=IRCClient(port); clients += [founder,admin]
             register(founder,"Founder"); register(admin,"Admin")
             founder.send("NICKSERV REGISTER founderpass"); founder.expect("Nickname registered and identified.")
-            founder.send("JOIN #PersistLog"); founder.expect(" 366 Founder #PersistLog ")
-            founder.send("CHANSERV REGISTER #PersistLog :logging persistence"); founder.expect("Channel registered successfully.")
+            admin.send("NICKSERV REGISTER adminnickpass"); admin.expect("Nickname registered and identified.")
             admin.send("OPER root adminpass"); admin.expect(" 381 Admin :You are now a Network Administrator")
+            admin.send("JOIN #PersistLog"); admin.expect(" 366 Admin #PersistLog ")
+            admin.send("CHANSERV REGISTER #PersistLog :logging persistence"); admin.expect("Channel registered successfully.")
+            admin.send("CSSET #PersistLog FOUNDER Founder"); admin.expect("ChanServ channel updated.")
+            founder.send("JOIN #PersistLog"); founder.expect(" 366 Founder #PersistLog ")
             admin.send("CHANSERV SET #PersistLog LOGGING ON"); admin.expect("Channel logging enabled.")
             founder.send("PRIVMSG #PersistLog :before-restart")
 
-            # The event must be durable immediately once the server processes
-            # the command. Poll that condition instead of assuming a fixed
-            # scheduler delay is enough on every CI runner.
             count=wait_queue_row(db_path,"before-restart")
             assert count == 1, count
         finally:
             for c in clients:c.close()
             stop_server(proc)
 
-        # Graceful shutdown is a forced-flush boundary, so before-restart should
-        # already be present in the text log when the daemon comes back.
         suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
         assert os.path.exists(path),path
         with open(path,"r",encoding="utf-8",errors="replace") as f:
