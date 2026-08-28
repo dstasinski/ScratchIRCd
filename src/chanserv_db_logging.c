@@ -13,7 +13,7 @@ static int column_exists(sqlite3 *db, const char *column) {
     int found = 0;
 
     if (db == NULL || column == NULL) return 0;
-    if (sqlite3_prepare_v2(db->db, "PRAGMA table_info(channels)",
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)",
                            -1, &stmt, NULL) != SQLITE_OK)
         return 0;
 
