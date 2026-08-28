@@ -89,10 +89,12 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
 
     if (*topic == ':') ++topic;
 
-    /* TOPICLEN is advertised as IRC_CHANNEL_TOPIC_MAX. Do not silently store a
-     * truncated value, and do not mutate channel state when adding the public
-     * nick!user@display_host prefix would make the broadcast unrepresentable. */
-    if (strlen(topic) > IRC_CHANNEL_TOPIC_MAX ||
+    /* TOPICLEN is derived from the configured server-name envelope so every
+     * accepted topic is guaranteed to fit a later 332 reply for the longest
+     * legal requester nick and channel name. The source-prefixed live
+     * broadcast is checked separately because its envelope depends on the
+     * setter's user/display_host identity. */
+    if (strlen(topic) > command_topic_limit(server) ||
         !ircv3_message_wire_fits(client, "TOPIC", channel->name, topic)) {
         client_sendf(client,
                      ":%s 417 %s TOPIC :Topic would exceed the IRC line limit",
