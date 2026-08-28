@@ -233,7 +233,8 @@ int chanserv_persist_save(const char *path, const Channel *channel) {
         !text_fits(channel->name, IRC_CHANNEL_NAME_MAX) ||
         !text_fits(channel->key, IRC_CHANNEL_KEY_MAX) ||
         !text_fits(channel->limit_redirect, IRC_CHANNEL_NAME_MAX) ||
-        !text_fits(channel->ban_redirect, IRC_CHANNEL_NAME_MAX)) return -1;
+        !text_fits(channel->ban_redirect, IRC_CHANNEL_NAME_MAX) ||
+        (uintmax_t)channel->user_limit > (uintmax_t)INT64_MAX) return -1;
     db = ready_db(path);
     if (db == NULL) return -1;
     if (exec_sql(db, "BEGIN IMMEDIATE;") != 0) goto done;
