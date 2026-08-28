@@ -108,7 +108,6 @@ def main():
             f.write("argon2_window_seconds = 3600\n")
             f.write("argon2_global_ops_per_minute = 100\n")
             f.write("argon2_global_burst_per_second = 100\n")
-            f.write("chanserv_max_channels_per_account = 1\n")
             f.write("memoserv_quota = 10\n")
             f.write("memoserv_sender_quota = 1\n")
             f.write("memoserv_retention_days = 90\n")
@@ -140,15 +139,9 @@ def main():
             owner.send("PRIVMSG NickServ :SET PASSWORD secret3")
             owner.expect("Password hashing rate limit reached")
 
-            # One founder cannot consume the whole registered-channel namespace.
-            owner.send("JOIN #one")
-            owner.expect(" 366 Owner #one ")
-            owner.send("CHANSERV REGISTER #one :first")
-            owner.expect("Channel registered successfully.")
-            owner.send("JOIN #two")
-            owner.expect(" 366 Owner #two ")
-            owner.send("CHANSERV REGISTER #two :second")
-            owner.expect("maximum of 1 registered channels")
+            # ChanServ REGISTER/DROP are network-administrator policy rather
+            # than a founder fair-share resource. Their authorization behavior
+            # is covered by the dedicated ChanServ integration tests.
 
             # SET EMAIL consumes the one mail-producing request. The RESET is
             # sent via PRIVMSG to prove the alias cannot bypass the same limit.
