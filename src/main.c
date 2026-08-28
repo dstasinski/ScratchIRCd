@@ -56,11 +56,6 @@ static int ensure_databases(const ServerConfig *config) {
         fprintf(stderr, "Failed to open ban database: %s\n", config->bans_db);
         return -1;
     }
-    if (ban_db_purge_expired(&bans) != 0) {
-        fprintf(stderr, "Failed to purge expired bans: %s\n", config->bans_db);
-        ban_db_close(&bans);
-        return -1;
-    }
     ban_db_close(&bans);
 
     if (nickserv_db_open(&nickserv, config->nickserv_db) != 0) {
@@ -141,6 +136,7 @@ int main(int argc, char **argv) {
         command_rules_reset_cache();
         nickserv_reset_runtime_state();
         memoserv_reset_runtime_state();
+        ban_db_reset_runtime_state();
         geoban_db_reset_runtime_state();
 
         if (!restart) break;
