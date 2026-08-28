@@ -20,6 +20,42 @@ static int exec_sql(sqlite3 *db, const char *sql) {
     return 0;
 }
 
+static int account_arg_fits(const char *account) {
+    size_t length;
+    if (account == NULL) return 0;
+    length = strlen(account);
+    return length != 0U && length <= IRC_NICK_MAX;
+}
+
+static int copy_text_column(sqlite3_stmt *stmt, int column,
+                            char *destination, size_t destination_size) {
+    const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
+    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
+static int fill_memo(sqlite3_stmt *stmt, MemoServMemo *memo) {
+    if (stmt == NULL || memo == NULL) return -1;
+    memset(memo, 0, sizeof(*memo));
+    if (copy_text_column(stmt, 1, memo->sender, sizeof(memo->sender)) != 0 ||
+        copy_text_column(stmt, 2, memo->recipient, sizeof(memo->recipient)) != 0 ||
+        copy_text_column(stmt, 3, memo->text, sizeof(memo->text)) != 0) {
+        memset(memo, 0, sizeof(*memo));
+        return -1;
+    }
+    memo->id = (long long)sqlite3_column_int64(stmt, 0);
+    memo->created_at = (long long)sqlite3_column_int64(stmt, 4);
+    memo->read_at = (long long)sqlite3_column_int64(stmt, 5);
+    return 0;
+}
+
 int memoserv_db_open(MemoServDb *db, const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS memos ("
@@ -65,10 +101,12 @@ int memoserv_db_send(MemoServDb *db, const char *sender,
                      const char *recipient, const char *text,
                      long long *memo_id) {
     sqlite3_stmt *stmt = NULL;
+    size_t text_length;
     int rc;
-    if (db == NULL || db->handle == NULL || sender == NULL || recipient == NULL ||
-        text == NULL || *sender == '\0' || *recipient == '\0' || *text == '\0' ||
-        strlen(text) > IRCD_MEMOSERV_TEXT_MAX) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(sender) ||
+        !account_arg_fits(recipient) || text == NULL || *text == '\0') return -1;
+    text_length = strlen(text);
+    if (text_length > IRCD_MEMOSERV_TEXT_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "INSERT INTO memos(sender,recipient,text) VALUES(?1,?2,?3)",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
@@ -86,7 +124,7 @@ int memoserv_db_unread_count(MemoServDb *db, const char *recipient,
                              size_t *count) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || recipient == NULL || count == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || count == NULL) return -1;
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT COUNT(*) FROM memos WHERE recipient=?1 AND read_at=0",
@@ -102,8 +140,8 @@ int memoserv_db_list(MemoServDb *db, const char *recipient,
                      MemoServMemo *memos, size_t capacity, size_t *count) {
     sqlite3_stmt *stmt = NULL;
     size_t used = 0U;
-    int rc;
-    if (db == NULL || db->handle == NULL || recipient == NULL ||
+    int rc = SQLITE_DONE;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) ||
         memos == NULL || capacity == 0U || count == NULL) return -1;
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
@@ -113,17 +151,11 @@ int memoserv_db_list(MemoServDb *db, const char *recipient,
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
     while (used < capacity && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        const char *sender = (const char *)sqlite3_column_text(stmt, 1);
-        const char *recip = (const char *)sqlite3_column_text(stmt, 2);
-        const char *text = (const char *)sqlite3_column_text(stmt, 3);
-        MemoServMemo *memo = &memos[used++];
-        memset(memo, 0, sizeof(*memo));
-        memo->id = (long long)sqlite3_column_int64(stmt, 0);
-        (void)snprintf(memo->sender, sizeof(memo->sender), "%s", sender != NULL ? sender : "");
-        (void)snprintf(memo->recipient, sizeof(memo->recipient), "%s", recip != NULL ? recip : "");
-        (void)snprintf(memo->text, sizeof(memo->text), "%s", text != NULL ? text : "");
-        memo->created_at = (long long)sqlite3_column_int64(stmt, 4);
-        memo->read_at = (long long)sqlite3_column_int64(stmt, 5);
+        if (fill_memo(stmt, &memos[used]) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        ++used;
     }
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
@@ -135,7 +167,8 @@ int memoserv_db_get(MemoServDb *db, const char *recipient,
                     long long memo_id, MemoServMemo *memo) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || recipient == NULL || memo == NULL || memo_id <= 0) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) ||
+        memo == NULL || memo_id <= 0) return -1;
     memset(memo, 0, sizeof(*memo));
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
@@ -144,16 +177,9 @@ int memoserv_db_get(MemoServDb *db, const char *recipient,
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
     rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-        const char *sender = (const char *)sqlite3_column_text(stmt, 1);
-        const char *recip = (const char *)sqlite3_column_text(stmt, 2);
-        const char *text = (const char *)sqlite3_column_text(stmt, 3);
-        memo->id = (long long)sqlite3_column_int64(stmt, 0);
-        (void)snprintf(memo->sender, sizeof(memo->sender), "%s", sender != NULL ? sender : "");
-        (void)snprintf(memo->recipient, sizeof(memo->recipient), "%s", recip != NULL ? recip : "");
-        (void)snprintf(memo->text, sizeof(memo->text), "%s", text != NULL ? text : "");
-        memo->created_at = (long long)sqlite3_column_int64(stmt, 4);
-        memo->read_at = (long long)sqlite3_column_int64(stmt, 5);
+    if (rc == SQLITE_ROW && fill_memo(stmt, memo) != 0) {
+        sqlite3_finalize(stmt);
+        return -1;
     }
     sqlite3_finalize(stmt);
     return rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
@@ -163,7 +189,8 @@ int memoserv_db_mark_read(MemoServDb *db, const char *recipient,
                           long long memo_id, long long when) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || recipient == NULL || memo_id <= 0 || when <= 0) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) ||
+        memo_id <= 0 || when <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "UPDATE memos SET read_at=CASE WHEN read_at=0 THEN ?3 ELSE read_at END "
         "WHERE recipient=?1 AND id=?2",
@@ -181,7 +208,7 @@ int memoserv_db_delete(MemoServDb *db, const char *recipient,
     sqlite3_stmt *stmt = NULL;
     int rc;
     int changed;
-    if (db == NULL || db->handle == NULL || recipient == NULL || memo_id <= 0) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || memo_id <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "DELETE FROM memos WHERE recipient=?1 AND id=?2",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
@@ -196,7 +223,7 @@ int memoserv_db_delete(MemoServDb *db, const char *recipient,
 int memoserv_db_delete_all(MemoServDb *db, const char *recipient) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || recipient == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(recipient)) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "DELETE FROM memos WHERE recipient=?1",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
