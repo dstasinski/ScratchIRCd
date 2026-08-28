@@ -17,6 +17,7 @@
 #define CHANNEL_LOG_FLUSH_FETCH_ROWS 128U
 #define CHANNEL_LOG_FLUSH_DUE_MAX_ROWS 1024U
 #define CHANNEL_LOG_RETENTION_SCAN_ENTRIES 128U
+#define CHANNEL_LOG_ROTATION_SCAN_STATES 128U
 #define CHANNEL_LOG_FLUSH_ERROR_NOTICE_SECONDS 60
 
 typedef struct ChannelLogState {
@@ -28,6 +29,7 @@ typedef struct ChannelLogState {
 } ChannelLogState;
 
 static ChannelLogState *states;
+static ChannelLogState *log_rotation_cursor;
 static Server *active_server;
 static ChanServDb log_db;
 static char log_db_path[IRCD_PATH_MAX + 1U];
@@ -48,6 +50,7 @@ static void channel_log_reset_state(void) {
         state = next;
     }
     states = NULL;
+    log_rotation_cursor = NULL;
     if (log_db.db != NULL) chanserv_db_close(&log_db);
     memset(&log_db, 0, sizeof(log_db));
     log_db_path[0] = '\0';
@@ -457,19 +460,29 @@ void channel_log_rotate_all(time_t now) {
     ChannelLogState *state;
     struct tm local;
     char suffix[32];
+    size_t scanned = 0U;
     if (!active_server) return;
     channel_log_flush_due(active_server, now);
     prune_old_log_files(active_server, now);
     if (localtime_r(&now, &local) == NULL) return;
     suffix_for(&local, suffix, sizeof(suffix));
-    for (state = states; state; state = state->next) {
-        if (!state->known || !state->enabled || !state->date_suffix[0] || strcmp(state->date_suffix, suffix) == 0) continue;
+
+    if (log_rotation_cursor == NULL) log_rotation_cursor = states;
+    while (log_rotation_cursor != NULL &&
+           scanned < CHANNEL_LOG_ROTATION_SCAN_STATES) {
+        state = log_rotation_cursor;
+        log_rotation_cursor = state->next;
+        ++scanned;
+        if (!state->known || !state->enabled || !state->date_suffix[0] ||
+            strcmp(state->date_suffix, suffix) == 0)
+            continue;
         /* Do not close yesterday's file ahead of durable queued records that
          * still belong in it. Automatic passes continue draining the globally
          * oldest records in bounded chunks; rotation completes when empty. */
         if (!channel_queue_empty(active_server, state->channel)) continue;
         ensure_file(state, now);
     }
+    if (log_rotation_cursor == NULL) log_rotation_cursor = states;
 }
 
 static void cs_notice(Server *server, Client *client, const char *text) {
