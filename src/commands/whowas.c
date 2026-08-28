@@ -15,6 +15,28 @@
 #include <strings.h>
 #include <time.h>
 
+static void send_whowas_user(Server *server, Client *client,
+                             const WhowasRecord *record) {
+    char realname[IRC_REALNAME_MAX + 1U];
+    int overhead;
+    size_t limit;
+    size_t length;
+    if (server == NULL || client == NULL || record == NULL) return;
+    overhead = snprintf(NULL, 0, RPL_WHOWASUSER, server->config.server_name,
+                        client->nick, record->nick, record->user,
+                        record->host, "");
+    if (overhead < 0 || (size_t)overhead > IRC_LINE_CONTENT_MAX) return;
+    limit = IRC_LINE_CONTENT_MAX - (size_t)overhead;
+    if (limit > IRC_REALNAME_MAX) limit = IRC_REALNAME_MAX;
+    length = strlen(record->realname);
+    if (length > limit) length = limit;
+    memcpy(realname, record->realname, length);
+    realname[length] = '\0';
+    client_sendf(client, RPL_WHOWASUSER, server->config.server_name,
+                 client->nick, record->nick, record->user,
+                 record->host, realname);
+}
+
 CommandResult command_whowas(Server *server, Client *client, char *params) {
     char *nick;
     char *count_text;
@@ -52,9 +74,7 @@ CommandResult command_whowas(Server *server, Client *client, char *params) {
         char when[64];
         struct tm tm_value;
         if (strcasecmp(record->nick, nick) != 0) continue;
-        client_sendf(client, RPL_WHOWASUSER, server->config.server_name,
-                     client->nick, record->nick, record->user,
-                     record->host, record->realname);
+        send_whowas_user(server, client, record);
         when[0] = '\0';
         if (localtime_r(&record->when, &tm_value) != NULL)
             (void)strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S %Z", &tm_value);
