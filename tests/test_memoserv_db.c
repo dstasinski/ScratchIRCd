@@ -56,6 +56,9 @@ int main(void) {
     assert(memoserv_db_send(&db, long_account, "Bob", "bad sender", NULL) == -1);
     assert(memoserv_db_send(&db, "Alice", long_account, "bad recipient", NULL) == -1);
     assert(memoserv_db_send(&db, "Alice", "Bob", long_text, NULL) == -1);
+    assert(memoserv_db_send(&db, "Alice\nMallory", "Bob", "bad sender", NULL) == -1);
+    assert(memoserv_db_send(&db, "Alice", "Bob\rMallory", "bad recipient", NULL) == -1);
+    assert(memoserv_db_send(&db, "Alice", "Bob", "bad\nbody", NULL) == -1);
 
     assert(memoserv_db_send(&db, "Alice", "Bob", "first memo", &first) == 0);
     assert(memoserv_db_send(&db, "Carol", "Bob", "second memo", &second) == 0);
@@ -86,7 +89,7 @@ int main(void) {
     assert(memoserv_db_get(&db, "Alice", first, &memo) == 0);
 
     /* Legacy/external corruption must fail closed rather than returning a
-     * clipped sender, recipient, or memo body. */
+     * clipped or multi-line sender, recipient, or memo body. */
     raw_set_memo_text(db.handle, "text", first, long_text);
     assert(memoserv_db_get(&db, "Bob", first, &memo) == -1);
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
@@ -94,7 +97,18 @@ int main(void) {
     raw_set_memo_text(db.handle, "text", first, "first memo");
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
 
+    raw_set_memo_text(db.handle, "text", first, "first\nmemo");
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == -1);
+    assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
+    raw_set_memo_text(db.handle, "text", first, "first memo");
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
+
     raw_set_memo_text(db.handle, "sender", second, long_account);
+    assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
+    raw_set_memo_text(db.handle, "sender", second, "Carol");
+    assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == 0);
+
+    raw_set_memo_text(db.handle, "sender", second, "Car\rol");
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
     raw_set_memo_text(db.handle, "sender", second, "Carol");
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == 0);
