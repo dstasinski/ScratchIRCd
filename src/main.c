@@ -4,6 +4,7 @@
 #include "chanserv_persist.h"
 #include "commands.h"
 #include "config.h"
+#include "geoban_db.h"
 #include "history_db.h"
 #include "memoserv.h"
 #include "memoserv_db.h"
@@ -140,6 +141,7 @@ int main(int argc, char **argv) {
         command_rules_reset_cache();
         nickserv_reset_runtime_state();
         memoserv_reset_runtime_state();
+        geoban_db_reset_runtime_state();
 
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
