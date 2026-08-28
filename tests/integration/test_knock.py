@@ -142,6 +142,17 @@ def main():
             register(owner, "Owner")
             register(guest, "Guest")
 
+            missing_channel = "#" + ("x" * 503)
+            assert len(("KNOCK " + missing_channel).encode()) == 510
+            guest.send("KNOCK " + missing_channel)
+            missing_line = guest.expect(" 403 Guest ")
+            assert len(missing_line.encode()) <= 510, missing_line
+            assert missing_line.endswith(" :No such channel"), missing_line
+            missing_echo = missing_line.split(" 403 Guest ", 1)[1].rsplit(
+                " :No such channel", 1)[0]
+            assert 0 < len(missing_echo) < len(missing_channel), missing_line
+            assert missing_channel.startswith(missing_echo), missing_echo
+
             owner.send("JOIN #knock")
             owner.expect(" JOIN #knock")
             owner.send("MODE #knock +i")
@@ -149,6 +160,16 @@ def main():
 
             guest.send("KNOCK #knock :please invite me")
             owner.expect(" KNOCK #knock :please invite me")
+            guest.expect("NOTICE Guest :KNOCK delivered to #knock channel staff")
+
+            long_reason = "r" * 496
+            assert len(("KNOCK #knock :" + long_reason).encode()) == 510
+            guest.send("KNOCK #knock :" + long_reason)
+            relay = owner.expect(" KNOCK #knock :")
+            assert len(relay.encode()) <= 510, relay
+            relayed_reason = relay.split(" KNOCK #knock :", 1)[1]
+            assert 0 < len(relayed_reason) < len(long_reason), relay
+            assert long_reason.startswith(relayed_reason), relayed_reason
             guest.expect("NOTICE Guest :KNOCK delivered to #knock channel staff")
 
             # KNOCK itself must not create an invitation.
