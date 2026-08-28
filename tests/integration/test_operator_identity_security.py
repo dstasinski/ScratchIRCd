@@ -148,8 +148,11 @@ def main():
             modes = target.expect(" 221 Target ")
             token = next(line.split(" 221 Target ", 1)[1].split()[0]
                          for line in modes if " 221 Target " in line)
-            # +r is legitimate from NickServ; SAMODE must not add oper/TLS/cloak/vhost.
-            assert "o" not in token and "z" not in token and "x" not in token and "t" not in token and "V" not in token, token
+            # +r is legitimate from NickServ and +t is legitimate from the
+            # earlier SETHOST. SAMODE must not manufacture oper/TLS/cloak/
+            # WebIRC provenance modes or remove the existing vhost mode.
+            assert "r" in token and "t" in token, token
+            assert "o" not in token and "z" not in token and "x" not in token and "V" not in token, token
         finally:
             if admin is not None: admin.close()
             if target is not None: target.close()
