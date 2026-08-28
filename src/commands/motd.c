@@ -1,6 +1,6 @@
 /**
  * @file motd.c
- * @brief Implementation of the IRC MOTD command.
+ * @brief Implementation of IRC MOTD command.
  */
 
 #include "commands.h"
@@ -31,7 +31,10 @@ static void send_cached_motd_lines(Server *server, Client *client,
     while (offset < length) {
         size_t remaining = length - offset;
         const char *newline = memchr(text + offset, '\n', remaining);
-        size_t logical = newline != NULL ? (size_t)(newline - (text + offset)) : remaining;
+        size_t raw_logical = newline != NULL
+                                 ? (size_t)(newline - (text + offset))
+                                 : remaining;
+        size_t logical = raw_logical;
         size_t emitted = 0U;
 
         if (logical > 0U && text[offset + logical - 1U] == '\r') --logical;
@@ -40,23 +43,18 @@ static void send_cached_motd_lines(Server *server, Client *client,
                          server->config.server_name, client->nick, "");
         } else {
             while (emitted < logical && !client->output_overflowed) {
+                char line[IRC_LINE_CONTENT_MAX + 1U];
                 size_t chunk = logical - emitted;
                 if (chunk > payload_limit) chunk = payload_limit;
+                memcpy(line, text + offset + emitted, chunk);
+                line[chunk] = '\0';
                 client_sendf(client, RPL_MOTD,
-                             server->config.server_name, client->nick,
-                             (char[IRC_LINE_CONTENT_MAX + 1U]){0});
-                {
-                    char line[IRC_LINE_CONTENT_MAX + 1U];
-                    memcpy(line, text + offset + emitted, chunk);
-                    line[chunk] = '\0';
-                    client_sendf(client, RPL_MOTD,
-                                 server->config.server_name, client->nick, line);
-                }
+                             server->config.server_name, client->nick, line);
                 emitted += chunk;
             }
         }
         if (client->output_overflowed) return;
-        offset += (newline != NULL ? (size_t)(newline - (text + offset)) + 1U : remaining);
+        offset += raw_logical + (newline != NULL ? 1U : 0U);
     }
 }
 
