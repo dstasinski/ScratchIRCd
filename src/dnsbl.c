@@ -135,6 +135,10 @@ static void *resolver_main(void *arg) {
     DnsblRequest request;
     while (read_full(resolver->request_read_fd, &request, sizeof(request)) == 1) {
         DnsblResult result;
+        /* Shutdown/restart must not synchronously drain all queued blacklist
+         * requests. Finish only a lookup that is already in progress, then
+         * discard the pipe backlog and terminate this worker. */
+        if (atomic_load_explicit(&resolver->stopping, memory_order_relaxed)) break;
         resolve_request(&request, &result);
         /* Dropping a congested result is safe: the client deadline fails open. */
         (void)write_full(resolver->result_write_fd, &result, sizeof(result));
@@ -147,6 +151,7 @@ int dnsbl_resolver_init(DnsblResolver *resolver) {
     int results[2] = {-1, -1};
     if (resolver == NULL) return -1;
     memset(resolver, 0, sizeof(*resolver));
+    atomic_init(&resolver->stopping, 0);
     resolver->request_read_fd = resolver->request_write_fd = -1;
     resolver->result_read_fd = resolver->result_write_fd = -1;
     if (pipe(requests) != 0 || pipe(results) != 0) goto fail;
@@ -169,6 +174,7 @@ fail:
 
 void dnsbl_resolver_destroy(DnsblResolver *resolver) {
     if (resolver == NULL) return;
+    atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
     if (resolver->request_write_fd >= 0) { close(resolver->request_write_fd); resolver->request_write_fd = -1; }
     if (resolver->running) { (void)pthread_join(resolver->thread, NULL); resolver->running = 0; }
     if (resolver->request_read_fd >= 0) close(resolver->request_read_fd);
@@ -182,7 +188,9 @@ int dnsbl_resolver_submit(DnsblResolver *resolver, uint64_t client_id,
                           size_t zone_count) {
     DnsblRequest request;
     ssize_t n;
-    if (resolver == NULL || !resolver->running || ip == NULL || zone_count > IRCD_MAX_DNSBLS) return -1;
+    if (resolver == NULL || !resolver->running || ip == NULL ||
+        zone_count > IRCD_MAX_DNSBLS ||
+        atomic_load_explicit(&resolver->stopping, memory_order_relaxed)) return -1;
     memset(&request, 0, sizeof(request));
     request.client_id = client_id;
     request.zone_count = zone_count;
