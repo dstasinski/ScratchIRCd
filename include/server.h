@@ -49,6 +49,8 @@ typedef struct Server {
 
     /** Rotating starting point for bounded TLS handshake work. */
     size_t tls_handshake_cursor;
+    /** Rotating starting point for the aggregate buffered-command budget. */
+    size_t input_dispatch_cursor;
 
     HashTable clients_by_id;
     HashTable clients_by_nick;
