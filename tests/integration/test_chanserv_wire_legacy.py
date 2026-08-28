@@ -102,6 +102,23 @@ def stop(proc):
             proc.wait(timeout=3.0)
 
 
+def irc_fold(text):
+    table = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ{}|~", "abcdefghijklmnopqrstuvwxyz[]\\^")
+    return text.translate(table)
+
+
+def irc_nocase(left, right):
+    a = irc_fold(left)
+    b = irc_fold(right)
+    return (a > b) - (a < b)
+
+
+def open_chanserv_db(path):
+    db = sqlite3.connect(path)
+    db.create_collation("IRCNOCASE", irc_nocase)
+    return db
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv_wire_legacy.py scratchircd")
@@ -161,7 +178,7 @@ def main():
 
         # Simulate a legacy/external database containing a topic that was legal
         # under the old 390-byte storage limit but exceeds today's TOPICLEN.
-        with sqlite3.connect(chanserv_db) as db:
+        with open_chanserv_db(chanserv_db) as db:
             changed = db.execute(
                 "UPDATE channels SET topic=?,topic_setter='legacy',topic_time=123 "
                 "WHERE name=?",
@@ -185,7 +202,7 @@ def main():
             client.send(f"TOPIC {channel}")
             client.expect(f" 331 {founder} {channel} ")
 
-            with sqlite3.connect(chanserv_db) as db:
+            with open_chanserv_db(chanserv_db) as db:
                 stored = db.execute(
                     "SELECT topic FROM channels WHERE name=?", (channel,)
                 ).fetchone()[0]
