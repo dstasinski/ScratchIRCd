@@ -177,6 +177,33 @@ def main():
             web3.sendall(b"PING :web-three\r\n")
             data = web3.recv(4096)
             assert data, "different WebIRC end-user IP was rejected"
+
+            # Equivalent IPv6 spellings are one numeric identity. The first
+            # spelling consumes the only slot; an expanded spelling of the same
+            # address must be rejected rather than treated as a different IP.
+            web4 = connect(port); sockets.append(web4); assert accepted(web4)
+            web4.sendall(b"WEBIRC gateway-secret web.example v6-one.example 2001:db8::1\r\n")
+            web4.sendall(b"PING :web-v6-one\r\n")
+            data = web4.recv(4096)
+            assert data, "first IPv6 WebIRC end-user was disconnected"
+
+            web5 = connect(port); sockets.append(web5); assert accepted(web5)
+            web5.sendall(b"WEBIRC gateway-secret web.example v6-two.example 2001:0db8:0:0:0:0:0:1\r\n")
+            deadline = time.monotonic() + 2.0
+            response = b""
+            closed = False
+            while time.monotonic() < deadline:
+                try:
+                    chunk = web5.recv(4096)
+                    if not chunk:
+                        closed = True
+                        break
+                    response += chunk
+                    if b"Too many concurrent connections" in response:
+                        break
+                except socket.timeout:
+                    pass
+            assert closed or b"Too many concurrent connections" in response, response
         finally:
             for sock in sockets:
                 try: sock.close()
