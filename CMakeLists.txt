@@ -160,6 +160,12 @@ target_compile_definitions(test_channel_log PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_channel_log PRIVATE SQLite::SQLite3 OpenSSL::SSL OpenSSL::Crypto)
 add_test(NAME channel_log_rotation COMMAND test_channel_log)
 
+add_executable(test_chanserv_logging_db tests/test_chanserv_logging_db.c src/chanserv_db.c src/chanserv_db_logging.c)
+target_include_directories(test_chanserv_logging_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_chanserv_logging_db PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_chanserv_logging_db PRIVATE SQLite::SQLite3)
+add_test(NAME chanserv_logging_database COMMAND test_chanserv_logging_db)
+
 add_executable(test_memoserv_db tests/test_memoserv_db.c src/memoserv_db.c src/memoserv_db_extra.c)
 target_include_directories(test_memoserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(test_memoserv_db PRIVATE _POSIX_C_SOURCE=200809L)
@@ -242,7 +248,7 @@ add_test(NAME general_flood_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CU
 set_tests_properties(general_flood_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_client_output test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_memoserv_db)
+    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_client_output test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_chanserv_logging_db test_memoserv_db)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
