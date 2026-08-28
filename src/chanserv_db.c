@@ -54,6 +54,21 @@ static int exec_sql(sqlite3 *db, const char *sql) {
     return 0;
 }
 
+/** Copy a SQLite TEXT column losslessly into a fixed IRC structure field. */
+static int copy_text_column(sqlite3_stmt *stmt, int column,
+                            char *destination, size_t destination_size) {
+    const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
+    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
 static int column_exists(sqlite3 *db, const char *column) {
     sqlite3_stmt *stmt = NULL;
     int found = 0;
@@ -200,13 +215,17 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        (void)snprintf(record->name, sizeof(record->name), "%s", sqlite3_column_text(stmt, 0));
-        (void)snprintf(record->founder, sizeof(record->founder), "%s", sqlite3_column_text(stmt, 1));
-        (void)snprintf(record->description, sizeof(record->description), "%s", sqlite3_column_text(stmt, 2));
+        if (copy_text_column(stmt, 0, record->name, sizeof(record->name)) != 0 ||
+            copy_text_column(stmt, 1, record->founder, sizeof(record->founder)) != 0 ||
+            copy_text_column(stmt, 2, record->description, sizeof(record->description)) != 0 ||
+            copy_text_column(stmt, 5, record->topic, sizeof(record->topic)) != 0 ||
+            copy_text_column(stmt, 6, record->topic_setter, sizeof(record->topic_setter)) != 0) {
+            sqlite3_finalize(stmt);
+            memset(record, 0, sizeof(*record));
+            return -1;
+        }
         record->enabled = sqlite3_column_int(stmt, 3);
         record->mode_lock = (uint64_t)sqlite3_column_int64(stmt, 4);
-        (void)snprintf(record->topic, sizeof(record->topic), "%s", sqlite3_column_text(stmt, 5));
-        (void)snprintf(record->topic_setter, sizeof(record->topic_setter), "%s", sqlite3_column_text(stmt, 6));
         record->topic_time = sqlite3_column_int64(stmt, 7);
         record->created_at = sqlite3_column_int64(stmt, 8);
         record->updated_at = sqlite3_column_int64(stmt, 9);
@@ -356,8 +375,10 @@ int chanserv_db_access_get(ChanServDb *db, const char *channel, const char *acco
     sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt);
     if(rc==SQLITE_ROW){
-        (void)snprintf(record->channel,sizeof(record->channel),"%s",sqlite3_column_text(stmt,0));
-        (void)snprintf(record->account,sizeof(record->account),"%s",sqlite3_column_text(stmt,1));
+        if(copy_text_column(stmt,0,record->channel,sizeof(record->channel))!=0||
+           copy_text_column(stmt,1,record->account,sizeof(record->account))!=0){
+            sqlite3_finalize(stmt);memset(record,0,sizeof(*record));return -1;
+        }
         record->level=(ChanServAccessLevel)sqlite3_column_int(stmt,2); sqlite3_finalize(stmt); return 1;
     }
     sqlite3_finalize(stmt); return rc==SQLITE_DONE?0:-1;
@@ -377,10 +398,11 @@ int chanserv_db_access_foreach(ChanServDb *db, const char *channel,
         ChanServAccess record;
         int callback_rc;
         memset(&record, 0, sizeof(record));
-        (void)snprintf(record.channel, sizeof(record.channel), "%s",
-                       sqlite3_column_text(stmt, 0));
-        (void)snprintf(record.account, sizeof(record.account), "%s",
-                       sqlite3_column_text(stmt, 1));
+        if (copy_text_column(stmt, 0, record.channel, sizeof(record.channel)) != 0 ||
+            copy_text_column(stmt, 1, record.account, sizeof(record.account)) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         record.level = (ChanServAccessLevel)sqlite3_column_int(stmt, 2);
         callback_rc = callback(&record, context);
         if (callback_rc != 0) {
