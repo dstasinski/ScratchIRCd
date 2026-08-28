@@ -46,7 +46,7 @@ class IRCClient:
 
 
 def free_port():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()
@@ -193,6 +193,20 @@ def main():
             assert any("~bob" in line for line in names if " 353 bob " in line), names
             bodies = queued_bodies(chanserv_db, "#registered")
             assert any("bob (" in body and " joined #registered." in body for body in bodies), bodies
+
+            # SAMODE deliberately bypasses MLOCK through command_mode_core(),
+            # but it must not bypass the persistent representation ceiling.
+            admin.send("SAMODE #registered +l 5")
+            bob.expect(" MODE #registered +l 5")
+            admin.send("SAMODE #registered +l 9223372036854775808")
+            admin.expect(" 461 alice SAMODE :Not enough parameters")
+            admin.send("SAMODE #registered +l -1")
+            admin.expect(" 461 alice SAMODE :Not enough parameters")
+            bob.send("MODE #registered")
+            limit_lines = bob.expect(" 324 bob #registered ")
+            limit_line = next(line for line in limit_lines if " 324 bob #registered " in line)
+            assert "l" in limit_line.split(" 324 bob #registered ", 1)[1].split()[0], limit_line
+            assert limit_line.endswith(" 5"), limit_line
 
             admin.send("SAMODE #registered -n")
             bob.expect(" MODE #registered -n")
