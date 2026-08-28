@@ -230,6 +230,28 @@ static int glob_match_ci(const char *pattern, const char *text) {
     return *text == '\0';
 }
 
+int geoban_record_matches(const GeoBanRecord *record, const ClientGeoIP *geoip) {
+    char asn[32];
+    if (record == NULL || geoip == NULL) return 0;
+    switch (record->type) {
+        case GEOBAN_COUNTRY:
+            return geoip->country_code[0] != '\0' &&
+                   strcasecmp(record->value, geoip->country_code) == 0;
+        case GEOBAN_REGION:
+            return geoip->region_code[0] != '\0' &&
+                   strcasecmp(record->value, geoip->region_code) == 0;
+        case GEOBAN_ASN:
+            if (geoip->asn == 0U) return 0;
+            (void)snprintf(asn, sizeof(asn), "%u", geoip->asn);
+            return strcmp(record->value, asn) == 0;
+        case GEOBAN_ORG:
+            return geoip->organization[0] != '\0' &&
+                   glob_match_ci(record->value, geoip->organization);
+        default:
+            return 0;
+    }
+}
+
 int geoban_db_open(GeoBanDb *db, const char *path) {
     char *error = NULL;
     if (db == NULL || path == NULL || *path == '\0') return -1;
@@ -318,34 +340,12 @@ int geoban_db_match(GeoBanDb *db, const ClientGeoIP *geoip, GeoBanRecord *record
         "WHERE expires_at=0 OR expires_at>unixepoch() ORDER BY type,value COLLATE NOCASE";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    char asn[32];
     if (db == NULL || db->handle == NULL || geoip == NULL || record == NULL) return -1;
-    (void)snprintf(asn, sizeof(asn), "%u", geoip->asn);
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         GeoBanRecord candidate;
-        int matched = 0;
         record_from_stmt(stmt, &candidate);
-        switch (candidate.type) {
-            case GEOBAN_COUNTRY:
-                matched = geoip->country_code[0] != '\0' &&
-                          strcasecmp(candidate.value, geoip->country_code) == 0;
-                break;
-            case GEOBAN_REGION:
-                matched = geoip->region_code[0] != '\0' &&
-                          strcasecmp(candidate.value, geoip->region_code) == 0;
-                break;
-            case GEOBAN_ASN:
-                matched = geoip->asn != 0U && strcmp(candidate.value, asn) == 0;
-                break;
-            case GEOBAN_ORG:
-                matched = geoip->organization[0] != '\0' &&
-                          glob_match_ci(candidate.value, geoip->organization);
-                break;
-            default:
-                break;
-        }
-        if (matched) {
+        if (geoban_record_matches(&candidate, geoip)) {
             *record = candidate;
             sqlite3_finalize(stmt);
             return 1;
