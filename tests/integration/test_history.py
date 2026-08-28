@@ -105,7 +105,11 @@ def main():
             assert len(history_lines)==2,lines
             assert "time=" in history_lines[0] and " PRIVMSG #history :persisted one" in history_lines[0],lines
             assert "time=" in history_lines[1] and " NOTICE #history :persisted two" in history_lines[1],lines
-            assert any(" BATCH +" in x and " chathistory #history" in x for x in lines),lines
+            starts=[x for x in lines if " BATCH +" in x and " chathistory #history" in x]
+            assert len(starts)==1,lines
+            batch_id=starts[0].split(" BATCH +",1)[1].split(" ",1)[0]
+            assert batch_id.startswith("h") and batch_id[1:].isdigit(),batch_id
+            assert len(batch_id)<=31,batch_id
 
             # server-time also applies to live message delivery, not only replay.
             live=IRCClient(port); register(live,"Bob")
