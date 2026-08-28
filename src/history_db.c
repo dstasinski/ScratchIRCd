@@ -174,9 +174,40 @@ int history_db_shared_maintain(const char *path, unsigned int retention_days,
     return 0;
 }
 
-static void copy_column(char *dest, size_t size, sqlite3_stmt *stmt, int column) {
-    const unsigned char *value = sqlite3_column_text(stmt, column);
-    (void)snprintf(dest, size, "%s", value != NULL ? (const char *)value : "");
+static int copy_column(char *dest, size_t size, sqlite3_stmt *stmt, int column) {
+    const unsigned char *value;
+    int bytes;
+    if (dest == NULL || size == 0U || stmt == NULL) return -1;
+    value = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (value == NULL || bytes < 0 || (size_t)bytes >= size ||
+        memchr(value, '\0', (size_t)bytes) != NULL ||
+        memchr(value, '\r', (size_t)bytes) != NULL ||
+        memchr(value, '\n', (size_t)bytes) != NULL)
+        return -1;
+    memcpy(dest, value, (size_t)bytes);
+    dest[bytes] = '\0';
+    return 0;
+}
+
+static int history_record_from_stmt(sqlite3_stmt *stmt, HistoryRecord *record) {
+    if (stmt == NULL || record == NULL) return -1;
+    memset(record, 0, sizeof(*record));
+    record->id = sqlite3_column_int64(stmt, 0);
+    if (record->id <= 0 ||
+        copy_column(record->target, sizeof(record->target), stmt, 1) != 0 ||
+        copy_column(record->command, sizeof(record->command), stmt, 2) != 0 ||
+        copy_column(record->nick, sizeof(record->nick), stmt, 3) != 0 ||
+        copy_column(record->user, sizeof(record->user), stmt, 4) != 0 ||
+        copy_column(record->host, sizeof(record->host), stmt, 5) != 0 ||
+        copy_column(record->account, sizeof(record->account), stmt, 6) != 0 ||
+        copy_column(record->text, sizeof(record->text), stmt, 7) != 0)
+        return -1;
+    if (strcmp(record->command, "PRIVMSG") != 0 &&
+        strcmp(record->command, "NOTICE") != 0)
+        return -1;
+    record->created_at_ms = sqlite3_column_int64(stmt, 8);
+    return 0;
 }
 
 int history_db_latest(HistoryDb *db, const char *target, size_t limit,
@@ -197,20 +228,18 @@ int history_db_latest(HistoryDb *db, const char *target, size_t limit,
     sqlite3_bind_text(stmt, 1, target, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)limit);
     while ((step = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity) {
-        HistoryRecord *record = &records[used++];
-        memset(record, 0, sizeof(*record));
-        record->id = sqlite3_column_int64(stmt, 0);
-        copy_column(record->target, sizeof(record->target), stmt, 1);
-        copy_column(record->command, sizeof(record->command), stmt, 2);
-        copy_column(record->nick, sizeof(record->nick), stmt, 3);
-        copy_column(record->user, sizeof(record->user), stmt, 4);
-        copy_column(record->host, sizeof(record->host), stmt, 5);
-        copy_column(record->account, sizeof(record->account), stmt, 6);
-        copy_column(record->text, sizeof(record->text), stmt, 7);
-        record->created_at_ms = sqlite3_column_int64(stmt, 8);
+        if (history_record_from_stmt(stmt, &records[used]) != 0) {
+            sqlite3_finalize(stmt);
+            if (count != NULL) *count = 0U;
+            return -1;
+        }
+        ++used;
     }
     sqlite3_finalize(stmt);
-    if (step != SQLITE_DONE) return -1;
+    if (step != SQLITE_DONE) {
+        if (count != NULL) *count = 0U;
+        return -1;
+    }
     if (count != NULL) *count = used;
     return 0;
 }
