@@ -555,6 +555,11 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
 }
 
 void server_run(Server *server) {
+    struct pollfd *poll_fds = NULL;
+    ServerPollClientSnapshot *snapshot = NULL;
+    size_t poll_capacity = 0U;
+    size_t snapshot_capacity = 0U;
+
     if (server == NULL) return;
     while (!server->restart_requested) {
         int buffered_pending = drain_buffered_client_input(server);
@@ -563,21 +568,53 @@ void server_run(Server *server) {
         const size_t client_base = server->listener_count + 2U;
         const size_t snapshot_count = server->client_count;
         const size_t total = client_base + snapshot_count;
-        struct pollfd *poll_fds;
-        ServerPollClientSnapshot *snapshot;
         size_t index;
         size_t start_index;
         size_t tls_handshakes = 0U;
         int ready;
 
         if (server->restart_requested) break;
-        poll_fds = calloc(total, sizeof(*poll_fds));
-        snapshot = calloc(snapshot_count, sizeof(*snapshot));
+        if (total > poll_capacity) {
+            struct pollfd *grown;
+            if (total > SIZE_MAX / sizeof(*poll_fds)) {
+                snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop poll capacity overflow; stopping server loop");
+                break;
+            }
+            grown = realloc(poll_fds, total * sizeof(*poll_fds));
+            if (grown == NULL) {
+                snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop poll allocation failure; stopping server loop");
+                break;
+            }
+            poll_fds = grown;
+            poll_capacity = total;
+        }
+        if (snapshot_count > snapshot_capacity) {
+            ServerPollClientSnapshot *grown;
+            if (snapshot_count > SIZE_MAX / sizeof(*snapshot)) {
+                snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop snapshot capacity overflow; stopping server loop");
+                break;
+            }
+            grown = realloc(snapshot, snapshot_count * sizeof(*snapshot));
+            if (grown == NULL) {
+                snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop snapshot allocation failure; stopping server loop");
+                break;
+            }
+            snapshot = grown;
+            snapshot_capacity = snapshot_count;
+        }
+
         start_index = snapshot_count > 0U ? server->tls_handshake_cursor % snapshot_count : 0U;
-        if (poll_fds == NULL || (snapshot_count > 0U && snapshot == NULL)) { snotice_broadcast(server, SNOTICE_FLOOD, "Event-loop allocation failure; stopping server loop"); free(poll_fds); free(snapshot); return; }
-        for (index = 0U; index < server->listener_count; ++index) { poll_fds[index].fd = server->listen_fds[index]; poll_fds[index].events = POLLIN; }
-        poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns); poll_fds[dns_index].events = POLLIN;
-        poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl); poll_fds[dnsbl_index].events = POLLIN;
+        for (index = 0U; index < server->listener_count; ++index) {
+            poll_fds[index].fd = server->listen_fds[index];
+            poll_fds[index].events = POLLIN;
+            poll_fds[index].revents = 0;
+        }
+        poll_fds[dns_index].fd = dns_resolver_result_fd(&server->dns);
+        poll_fds[dns_index].events = POLLIN;
+        poll_fds[dns_index].revents = 0;
+        poll_fds[dnsbl_index].fd = dnsbl_resolver_result_fd(&server->dnsbl);
+        poll_fds[dnsbl_index].events = POLLIN;
+        poll_fds[dnsbl_index].revents = 0;
         for (index = 0U; index < snapshot_count; ++index) {
             Client *poll_client;
             snapshot[index].client = server->clients[index];
@@ -585,6 +622,7 @@ void server_run(Server *server) {
             poll_client = snapshot[index].client;
             poll_fds[client_base + index].fd = poll_client->fd;
             poll_fds[client_base + index].events = POLLIN;
+            poll_fds[client_base + index].revents = 0;
             if (poll_client->tls_state == CLIENT_TLS_HANDSHAKE && poll_client->tls_want_write) {
                 poll_fds[client_base + index].events |= POLLOUT;
             } else if (poll_client->tls_state == CLIENT_TLS_ESTABLISHED && poll_client->ssl != NULL && poll_client->input_retry_pending) {
@@ -596,7 +634,10 @@ void server_run(Server *server) {
             }
         }
         ready = poll(poll_fds, (nfds_t)total, buffered_pending ? 0 : 1000);
-        if (ready < 0 && errno != EINTR) { perror("poll"); free(snapshot); free(poll_fds); return; }
+        if (ready < 0 && errno != EINTR) {
+            perror("poll");
+            break;
+        }
         if (ready > 0) {
             for (index = 0U; index < server->listener_count; ++index) if ((poll_fds[index].revents & POLLIN) != 0) accept_clients(server, server->listen_fds[index], server->listener_tls[index] != 0U);
             if ((poll_fds[dns_index].revents & POLLIN) != 0) drain_dns_results(server);
@@ -645,10 +686,11 @@ void server_run(Server *server) {
             server->tls_handshake_cursor = (start_index + SERVER_TLS_HANDSHAKE_BUDGET) % snapshot_count;
         else
             server->tls_handshake_cursor = 0U;
-        free(snapshot); free(poll_fds);
         channel_log_rotate_all(time(NULL));
         if (!server->restart_requested) expire_connection_lookups(server);
     }
+    free(snapshot);
+    free(poll_fds);
 }
 
 void server_destroy(Server *server) {
