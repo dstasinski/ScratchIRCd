@@ -97,9 +97,6 @@ def rfc1459_collate(left, right):
 def mask_rows(path):
     con = sqlite3.connect(path)
     try:
-        # chanserv.db declares channel keys with the server's custom IRCNOCASE
-        # collation. Standalone SQLite clients must register it before querying
-        # tables whose schema/foreign keys refer to that collation.
         con.create_collation("IRCNOCASE", rfc1459_collate)
         return con.execute(
             "SELECT type,mask,protected_authorized FROM channel_masks "
@@ -124,6 +121,8 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv_persistence.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
+    mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
+    admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-cspersist-") as td:
         port = free_port()
@@ -139,6 +138,9 @@ def main():
             f.write(f"chanserv_db = {chanserv_db}\n")
             f.write(f"history_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
+            f.write("netadmin_name = root\n")
+            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
@@ -149,6 +151,8 @@ def main():
             register(alice, "Alice")
             alice.send("NICKSERV REGISTER chanpass")
             alice.expect("Nickname registered and identified.")
+            alice.send("OPER root adminpass")
+            alice.expect(" 381 Alice :You are now a Network Administrator")
             alice.send("JOIN #persist")
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistence test")
@@ -165,14 +169,10 @@ def main():
             alice.send("MODE #persist +I Invite!*@*")
             alice.expect(" MODE #persist +I Invite!*@*")
 
-            # Updating boolean MLOCK triggers a channel restore. Parameterized
-            # modes must survive that restore unchanged.
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
             assert_parameter_modes(alice, "Alice")
 
-            # Parameterized MLOCK is intentionally unsupported. Reject it
-            # cleanly rather than partially applying or changing runtime state.
             alice.send("CHANSERV SET #persist MLOCK +k secret")
             alice.expect("Invalid persistent mode lock. Only boolean channel modes are supported.")
             assert_parameter_modes(alice, "Alice")
@@ -182,13 +182,9 @@ def main():
             alice.send("MODE #persist -n")
             alice.expect(" 974 Alice n :Mode is locked by ChanServ")
 
-            # Diagnose the live MODE layer before persistence/restart. If this
-            # fails, +I was never added to Channel.invite_exception_list.
             alice.send("MODE #persist I")
             alice.expect(" Invite!*@* ")
 
-            # Diagnose the persistence boundary before shutdown. Type 3 is
-            # CHANSERV_MASK_INVEX; the exact row must already be in SQLite.
             rows = mask_rows(chanserv_db)
             assert (3, "Invite!*@*", 0) in rows, f"missing invex DB row; rows={rows!r}"
         finally:
