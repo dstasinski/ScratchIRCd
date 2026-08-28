@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure STATS k/z/g preserves policy identity within IRC wire limits."""
+"""Ensure STATS and LIST preserve identity while respecting IRC wire limits."""
 
 import os
 import socket
@@ -94,9 +94,10 @@ def main():
         bans_db = os.path.join(td, "bans.db")
         config = os.path.join(td, "ircd.conf")
         password_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+        server_name = "s" * 63
 
         with open(config, "w", encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n")
+            f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 8\ndns_timeout_seconds = 1\n")
             f.write(f"operators_db = {td}/operators.db\n")
@@ -167,12 +168,28 @@ def main():
             assert len(g_rows) == 1, lines
             assert geo_value in g_rows[0] and setter in g_rows[0], g_rows[0]
             assert reason not in g_rows[0], g_rows[0]
+
+            # LIST adds server/nick/channel/numeric framing around the stored
+            # topic. A legal 390-byte topic must still produce numeric 322 even
+            # when the fixed fields consume enough space to require truncation.
+            channel = "#" + ("c" * 62)
+            topic = "t" * 390
+            client.send(f"JOIN {channel}")
+            client.collect_until(f" 366 alice {channel} ")
+            client.send(f"TOPIC {channel} :{topic}")
+            client.collect_until(f" TOPIC {channel} :")
+            client.send("LIST")
+            lines = client.collect_until(" 323 alice :End of /LIST")
+            assert_wire_safe(lines)
+            list_rows = [line for line in lines if f" 322 alice {channel} " in line]
+            assert len(list_rows) == 1, lines
+            assert list_rows[0].endswith(":" + ("t" * (len(list_rows[0].rsplit(":", 1)[1])))), list_rows[0]
         finally:
             if client is not None:
                 client.close()
             stop(proc)
 
-    print("STATS envelope integration tests passed")
+    print("STATS/LIST envelope integration tests passed")
 
 
 if __name__ == "__main__":
