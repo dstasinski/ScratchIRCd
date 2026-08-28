@@ -43,6 +43,11 @@ static void presence_on_client_free(Client *client) {
     presence_watch_offline(active_server, client, NULL);
 }
 
+void presence_reset_runtime_state(void) {
+    active_server = NULL;
+    client_set_free_hook(NULL);
+}
+
 int presence_silence_add(Client *client, const char *mask) {
     ClientSilenceEntry *entry;
     if (client == NULL || mask == NULL || *mask == '\0') return -1;
