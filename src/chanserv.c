@@ -8,6 +8,7 @@
 #include "chanserv.h"
 #include "chanserv_db.h"
 #include "chanserv_persist.h"
+#include "irc.h"
 #include "modes.h"
 #include "nickserv_db.h"
 
@@ -17,8 +18,33 @@
 #include <time.h>
 
 static void cs_notice(Server *server, Client *client, const char *text) {
-    client_sendf(client, ":ChanServ!service@%s NOTICE %s :%s",
-                 server->config.server_name, client->nick, text);
+    int prefix_length;
+    size_t payload_limit;
+    size_t text_length;
+    size_t offset = 0U;
+
+    if (server == NULL || client == NULL || text == NULL) return;
+    prefix_length = snprintf(NULL, 0, ":ChanServ!service@%s NOTICE %s :",
+                             server->config.server_name, client->nick);
+    if (prefix_length < 0 || (size_t)prefix_length >= IRC_LINE_CONTENT_MAX)
+        return;
+    payload_limit = IRC_LINE_CONTENT_MAX - (size_t)prefix_length;
+    text_length = strlen(text);
+
+    if (text_length == 0U) {
+        client_sendf(client, ":ChanServ!service@%s NOTICE %s :",
+                     server->config.server_name, client->nick);
+        return;
+    }
+
+    while (offset < text_length && !client->output_overflowed) {
+        size_t remaining = text_length - offset;
+        size_t chunk = remaining < payload_limit ? remaining : payload_limit;
+        client_sendf(client, ":ChanServ!service@%s NOTICE %s :%.*s",
+                     server->config.server_name, client->nick,
+                     (int)chunk, text + offset);
+        offset += chunk;
+    }
 }
 
 static int valid_channel_name(const char *name) {
@@ -148,12 +174,22 @@ static void load_channel_policy(Server *server, Channel *channel, int force) {
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
     found = chanserv_db_get(&db, channel->name, &record);
     if (found == 1 && record.enabled) {
+        size_t topic_limit = irc_topic_limit(server);
         cache_policy(channel, &record);
         channel->modes = (ChannelModeSet)record.mode_lock;
         channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
-        (void)snprintf(channel->topic, sizeof(channel->topic), "%s", record.topic);
-        (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter), "%s", record.topic_setter);
-        channel->topic_time = (time_t)record.topic_time;
+        if (strlen(record.topic) <= topic_limit) {
+            (void)snprintf(channel->topic, sizeof(channel->topic), "%s", record.topic);
+            (void)snprintf(channel->topic_setter, sizeof(channel->topic_setter), "%s", record.topic_setter);
+            channel->topic_time = (time_t)record.topic_time;
+        } else {
+            channel->topic[0] = '\0';
+            channel->topic_setter[0] = '\0';
+            channel->topic_time = (time_t)0;
+            fprintf(stderr,
+                    "ChanServ: persistent topic for %s is %zu bytes, above active TOPICLEN=%zu; live topic left unset\n",
+                    record.name, strlen(record.topic), topic_limit);
+        }
         (void)chanserv_persist_restore(server->config.chanserv_db, channel);
     } else if (found == 0 || (found == 1 && !record.enabled)) {
         clear_cached_policy(channel);
@@ -364,7 +400,7 @@ static void command_set(Server *server, Client *client, char *params) {
     if (strcasecmp(field,"TOPIC")==0) {
         char setter[IRC_CHANNEL_TOPIC_SETTER_MAX+1U]; long long now=(long long)time(NULL); Channel *channel;
         if(*value==':')++value;
-        if(strlen(value)>IRC_CHANNEL_TOPIC_MAX){chanserv_db_close(&db);cs_notice(server,client,"Topic is too long.");return;}
+        if(strlen(value)>irc_topic_limit(server)){chanserv_db_close(&db);cs_notice(server,client,"Topic is too long for this server's advertised TOPICLEN.");return;}
         (void)snprintf(setter,sizeof(setter),"%s!%s@%s",client->nick,client->user,client->display_host);
         if(chanserv_db_set_topic(&db,name,value,setter,now)!=0){chanserv_db_close(&db);cs_notice(server,client,"Failed to store persistent topic.");return;}
         chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_refresh_channel(server,channel);
