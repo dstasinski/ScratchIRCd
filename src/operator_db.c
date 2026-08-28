@@ -26,8 +26,26 @@ static const char *schema_sql =
     "PRIMARY KEY(\"name\")"
     ");";
 
-static void copy_text(char *dest, size_t size, const unsigned char *value) {
-    (void)snprintf(dest, size, "%s", value != NULL ? (const char *)value : "");
+static int text_fits(const char *text, size_t max_length, int allow_empty) {
+    size_t length;
+    if (text == NULL) return 0;
+    length = strnlen(text, max_length + 1U);
+    if (length > max_length) return 0;
+    return allow_empty || length != 0U;
+}
+
+static int copy_text_column(sqlite3_stmt *stmt, int column,
+                            char *destination, size_t destination_size) {
+    const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
+    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
 }
 
 static int persisted_vhosts_valid(sqlite3 *handle) {
@@ -35,7 +53,7 @@ static int persisted_vhosts_valid(sqlite3 *handle) {
     int rc;
     if (handle == NULL) return -1;
     if (sqlite3_prepare_v2(handle,
-            "SELECT 1 FROM operators WHERE length(vhost)>?1 LIMIT 1",
+            "SELECT 1 FROM operators WHERE length(CAST(vhost AS BLOB))>?1 LIMIT 1",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)IRC_HOST_MAX);
     rc = sqlite3_step(stmt);
@@ -105,15 +123,25 @@ void operator_db_close(OperatorDb *db) {
     }
 }
 
-static void record_from_stmt(sqlite3_stmt *stmt, OperatorRecord *record) {
+static int record_from_stmt(sqlite3_stmt *stmt, OperatorRecord *record) {
+    if (stmt == NULL || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
-    copy_text(record->name, sizeof(record->name), sqlite3_column_text(stmt, 0));
-    copy_text(record->password_hash, sizeof(record->password_hash), sqlite3_column_text(stmt, 1));
-    copy_text(record->permissions, sizeof(record->permissions), sqlite3_column_text(stmt, 2));
-    copy_text(record->vhost, sizeof(record->vhost), sqlite3_column_text(stmt, 3));
+    if (copy_text_column(stmt, 0, record->name, sizeof(record->name)) != 0 ||
+        copy_text_column(stmt, 1, record->password_hash, sizeof(record->password_hash)) != 0 ||
+        copy_text_column(stmt, 2, record->permissions, sizeof(record->permissions)) != 0 ||
+        copy_text_column(stmt, 3, record->vhost, sizeof(record->vhost)) != 0 ||
+        record->name[0] == '\0' || record->password_hash[0] == '\0') {
+        memset(record, 0, sizeof(*record));
+        return -1;
+    }
     record->enabled = sqlite3_column_int(stmt, 4);
     record->created_at = sqlite3_column_int64(stmt, 5);
     record->updated_at = sqlite3_column_int64(stmt, 6);
+    return 0;
+}
+
+static int name_valid(const char *name) {
+    return text_fits(name, IRCD_OPER_NAME_MAX, 0);
 }
 
 int operator_db_get(OperatorDb *db, const char *name, OperatorRecord *record) {
@@ -123,13 +151,17 @@ int operator_db_get(OperatorDb *db, const char *name, OperatorRecord *record) {
     sqlite3_stmt *stmt = NULL;
     int rc;
 
-    if (db == NULL || db->handle == NULL || name == NULL || record == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name) || record == NULL) return -1;
+    memset(record, 0, sizeof(*record));
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     (void)sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        record_from_stmt(stmt, record);
+        if (record_from_stmt(stmt, record) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         sqlite3_finalize(stmt);
         return 1;
     }
@@ -145,7 +177,10 @@ int operator_db_add(OperatorDb *db, const OperatorRecord *record) {
     int rc;
 
     if (db == NULL || db->handle == NULL || record == NULL ||
-        strlen(record->vhost) > IRC_HOST_MAX) return -1;
+        !name_valid(record->name) ||
+        !text_fits(record->password_hash, IRCD_OPER_HASH_MAX, 0) ||
+        !text_fits(record->permissions, IRCD_OPER_FLAGS_MAX, 1) ||
+        !text_fits(record->vhost, IRCD_OPER_VHOST_MAX, 1)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, record->name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, record->password_hash, -1, SQLITE_TRANSIENT);
@@ -160,7 +195,7 @@ int operator_db_add(OperatorDb *db, const OperatorRecord *record) {
 int operator_db_delete(OperatorDb *db, const char *name) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name)) return -1;
     if (sqlite3_prepare_v2(db->handle, "DELETE FROM operators WHERE name=?1", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
@@ -168,10 +203,12 @@ int operator_db_delete(OperatorDb *db, const char *name) {
     return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
 }
 
-static int update_text(OperatorDb *db, const char *sql, const char *name, const char *value) {
+static int update_text(OperatorDb *db, const char *sql, const char *name,
+                       const char *value, size_t value_max, int allow_empty) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL || value == NULL) return -1;
+    if (db == NULL || db->handle == NULL || sql == NULL || !name_valid(name) ||
+        !text_fits(value, value_max, allow_empty)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, value, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
@@ -183,32 +220,31 @@ static int update_text(OperatorDb *db, const char *sql, const char *name, const 
 int operator_db_set_name(OperatorDb *db, const char *name, const char *new_name) {
     return update_text(db,
         "UPDATE operators SET name=?1,updated_at=unixepoch() WHERE name=?2",
-        name, new_name);
+        name, new_name, IRCD_OPER_NAME_MAX, 0);
 }
 
 int operator_db_set_password(OperatorDb *db, const char *name, const char *password_hash) {
     return update_text(db,
         "UPDATE operators SET password_hash=?1,updated_at=unixepoch() WHERE name=?2",
-        name, password_hash);
+        name, password_hash, IRCD_OPER_HASH_MAX, 0);
 }
 
 int operator_db_set_permissions(OperatorDb *db, const char *name, const char *permissions) {
     return update_text(db,
         "UPDATE operators SET permissions=?1,updated_at=unixepoch() WHERE name=?2",
-        name, permissions);
+        name, permissions, IRCD_OPER_FLAGS_MAX, 1);
 }
 
 int operator_db_set_vhost(OperatorDb *db, const char *name, const char *vhost) {
-    if (vhost == NULL || strlen(vhost) > IRC_HOST_MAX) return -1;
     return update_text(db,
         "UPDATE operators SET vhost=?1,updated_at=unixepoch() WHERE name=?2",
-        name, vhost);
+        name, vhost, IRCD_OPER_VHOST_MAX, 1);
 }
 
 int operator_db_set_enabled(OperatorDb *db, const char *name, int enabled) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || name == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !name_valid(name)) return -1;
     if (sqlite3_prepare_v2(db->handle,
             "UPDATE operators SET enabled=?1,updated_at=unixepoch() WHERE name=?2",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
@@ -231,7 +267,10 @@ int operator_db_list(OperatorDb *db, OperatorDbListCallback callback, void *cont
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         OperatorRecord record;
-        record_from_stmt(stmt, &record);
+        if (record_from_stmt(stmt, &record) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         if (callback(&record, context) != 0) {
             sqlite3_finalize(stmt);
             return 0;
