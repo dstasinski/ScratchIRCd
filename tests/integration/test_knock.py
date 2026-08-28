@@ -158,6 +158,28 @@ def main():
             owner.send("MODE #knock +i")
             owner.expect(" MODE #knock +i")
 
+            unknown_nick = "u" * 496
+            assert len(("INVITE " + unknown_nick + " #knock").encode()) == 510
+            owner.send("INVITE " + unknown_nick + " #knock")
+            unknown_line = owner.expect(" 401 Owner ")
+            assert len(unknown_line.encode()) <= 510, unknown_line
+            assert unknown_line.endswith(" :No such nick/channel"), unknown_line
+            unknown_echo = unknown_line.split(" 401 Owner ", 1)[1].rsplit(
+                " :No such nick/channel", 1)[0]
+            assert 0 < len(unknown_echo) < len(unknown_nick), unknown_line
+            assert unknown_nick.startswith(unknown_echo), unknown_echo
+
+            invalid_invite_channel = "#" + ("c" * 496)
+            assert len(("INVITE Guest " + invalid_invite_channel).encode()) == 510
+            owner.send("INVITE Guest " + invalid_invite_channel)
+            invalid_line = owner.expect(" 403 Owner ")
+            assert len(invalid_line.encode()) <= 510, invalid_line
+            assert invalid_line.endswith(" :No such channel"), invalid_line
+            invalid_echo = invalid_line.split(" 403 Owner ", 1)[1].rsplit(
+                " :No such channel", 1)[0]
+            assert 0 < len(invalid_echo) < len(invalid_invite_channel), invalid_line
+            assert invalid_invite_channel.startswith(invalid_echo), invalid_echo
+
             guest.send("KNOCK #knock :please invite me")
             owner.expect(" KNOCK #knock :please invite me")
             guest.expect("NOTICE Guest :KNOCK delivered to #knock channel staff")
