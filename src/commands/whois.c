@@ -81,6 +81,27 @@ static void send_whois_channels(Server *server,Client *client,Client *target){
                      client->nick,target->nick,channels);
 }
 
+static void send_missing_whois(Server *server,Client *client,const char *query){
+    int missing_base;
+    int end_base;
+    size_t base;
+    size_t length;
+    if(server==NULL||client==NULL||query==NULL)return;
+    missing_base=snprintf(NULL,0,":%s 401 %s  :No such nick/channel",
+                          server->config.server_name,client->nick);
+    end_base=snprintf(NULL,0,":%s 318 %s  :End of /WHOIS list.",
+                      server->config.server_name,client->nick);
+    if(missing_base<0||end_base<0)return;
+    base=(size_t)(missing_base>end_base?missing_base:end_base);
+    if(base>IRC_LINE_CONTENT_MAX)return;
+    length=strlen(query);
+    if(length>IRC_LINE_CONTENT_MAX-base)length=IRC_LINE_CONTENT_MAX-base;
+    client_sendf(client,":%s 401 %s %.*s :No such nick/channel",
+                 server->config.server_name,client->nick,(int)length,query);
+    client_sendf(client,":%s 318 %s %.*s :End of /WHOIS list.",
+                 server->config.server_name,client->nick,(int)length,query);
+}
+
 CommandResult command_whois(Server *server,Client *client,char *params){
     char *target_name;
     Client *target;
@@ -91,8 +112,7 @@ CommandResult command_whois(Server *server,Client *client,char *params){
     }
     target=hash_get(&server->clients_by_nick,target_name);
     if(target==NULL){
-        client_sendf(client,ERR_NOSUCHNICK,server->config.server_name,client->nick,target_name);
-        client_sendf(client,RPL_ENDOFWHOIS,server->config.server_name,client->nick,target_name);
+        send_missing_whois(server,client,target_name);
         return COMMAND_KEEP_CLIENT;
     }
     if(target!=client&&client_mode_has(target->modes,CLIENT_MODE_WHOIS_NOTICE)&&
