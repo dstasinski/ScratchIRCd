@@ -48,6 +48,8 @@ int geoban_db_add(GeoBanDb *db, GeoBanType type, const char *value,
 int geoban_db_delete(GeoBanDb *db, GeoBanType type, const char *value);
 int geoban_db_list(GeoBanDb *db, GeoBanListCallback callback, void *context);
 int geoban_db_match(GeoBanDb *db, const ClientGeoIP *geoip, GeoBanRecord *record);
+/** Return non-zero when one active GeoBAN record matches supplied GeoIP metadata. */
+int geoban_record_matches(const GeoBanRecord *record, const ClientGeoIP *geoip);
 
 const char *geoban_type_name(GeoBanType type);
 int geoban_type_parse(const char *text, GeoBanType *type);
