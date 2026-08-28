@@ -103,14 +103,36 @@ HistoryDb *history_db_shared(const char *path) {
     return &shared_db;
 }
 
+static int record_field_valid(const char *text, size_t size) {
+    size_t length;
+    if (text == NULL || size == 0U) return 0;
+    length = strnlen(text, size);
+    if (length >= size) return 0;
+    return memchr(text, '\r', length) == NULL &&
+           memchr(text, '\n', length) == NULL;
+}
+
+static int history_record_valid(const HistoryRecord *record) {
+    if (record == NULL ||
+        !record_field_valid(record->target, sizeof(record->target)) ||
+        !record_field_valid(record->command, sizeof(record->command)) ||
+        !record_field_valid(record->nick, sizeof(record->nick)) ||
+        !record_field_valid(record->user, sizeof(record->user)) ||
+        !record_field_valid(record->host, sizeof(record->host)) ||
+        !record_field_valid(record->account, sizeof(record->account)) ||
+        !record_field_valid(record->text, sizeof(record->text)))
+        return 0;
+    return strcmp(record->command, "PRIVMSG") == 0 ||
+           strcmp(record->command, "NOTICE") == 0;
+}
+
 int history_db_add(HistoryDb *db, const HistoryRecord *record) {
     static const char *sql =
         "INSERT INTO history(target,command,nick,user,host,account,text,created_at_ms) "
         "VALUES(?,?,?,?,?,?,?,?)";
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || record == NULL) return -1;
-    if (strcmp(record->command, "PRIVMSG") != 0 && strcmp(record->command, "NOTICE") != 0) return -1;
+    if (db == NULL || db->handle == NULL || !history_record_valid(record)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, record->target, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, record->command, -1, SQLITE_TRANSIENT);
