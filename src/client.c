@@ -82,6 +82,7 @@ static int transport_write(Client *client, const char *data, size_t length, size
         size_t chunk;
         int rc;
         if (client->input_retry_pending) return 0;
+        (void)SSL_set_mode(client->ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
         if (client->output_retry_pending) {
             if (client->output_retry_length == 0U || length < client->output_retry_length)
                 return -1;
