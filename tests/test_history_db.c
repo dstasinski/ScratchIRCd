@@ -6,9 +6,33 @@
 #include <string.h>
 #include <unistd.h>
 
+static void clear_history(HistoryDb *db) {
+    assert(db != NULL && db->handle != NULL);
+    assert(sqlite3_exec(db->handle, "DELETE FROM history", NULL, NULL, NULL) == SQLITE_OK);
+}
+
+static void inject_history_row(HistoryDb *db, const char *command,
+                               const char *text, int text_bytes) {
+    sqlite3_stmt *stmt = NULL;
+    assert(db != NULL && db->handle != NULL);
+    assert(sqlite3_prepare_v2(db->handle,
+        "INSERT INTO history(target,command,nick,user,host,account,text,created_at_ms) "
+        "VALUES('#test',?1,'Alice','alice','cloak.example','Alice',?2,1000)",
+        -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_text(stmt, 1, command, -1, SQLITE_TRANSIENT);
+    if (text_bytes >= 0)
+        sqlite3_bind_text(stmt, 2, text, text_bytes, SQLITE_TRANSIENT);
+    else
+        sqlite3_bind_text(stmt, 2, text, -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+}
+
 int main(void) {
     char path[256];
     char path2[256];
+    char long_text[IRCD_HISTORY_TEXT_MAX + 2U];
+    char embedded_text[] = {'a', 'b', '\0', 'c', 'd'};
     HistoryDb db = {0};
     HistoryDb *shared1;
     HistoryDb *shared2;
@@ -69,6 +93,42 @@ int main(void) {
     assert(count == 3U);
     assert(strcmp(rows[0].text, "row-3") == 0);
     assert(strcmp(rows[2].text, "row-5") == 0);
+
+    /* Bypass the public writer to simulate corrupt or legacy SQLite rows.
+     * Reads must fail closed rather than truncating or replaying malformed IRC. */
+    clear_history(&db);
+    memset(long_text, 'X', sizeof(long_text) - 1U);
+    long_text[sizeof(long_text) - 1U] = '\0';
+    assert(strlen(long_text) == IRCD_HISTORY_TEXT_MAX + 1U);
+    inject_history_row(&db, "PRIVMSG", long_text, -1);
+    count = 99U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) != 0);
+    assert(count == 0U);
+
+    clear_history(&db);
+    inject_history_row(&db, "PRIVMSG", embedded_text, (int)sizeof(embedded_text));
+    count = 99U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) != 0);
+    assert(count == 0U);
+
+    clear_history(&db);
+    inject_history_row(&db, "PRIVMSG", "bad\nline", -1);
+    count = 99U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) != 0);
+    assert(count == 0U);
+
+    clear_history(&db);
+    inject_history_row(&db, "PRIVMSG", "bad\rline", -1);
+    count = 99U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) != 0);
+    assert(count == 0U);
+
+    clear_history(&db);
+    inject_history_row(&db, "JOIN", "not a message", -1);
+    count = 99U;
+    assert(history_db_latest(&db, "#test", 8U, rows, 8U, &count) != 0);
+    assert(count == 0U);
+
     history_db_close(&db);
 
     /* The shared API keeps one open handle for repeated hot-path calls. */
