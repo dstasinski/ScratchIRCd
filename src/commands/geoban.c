@@ -81,15 +81,15 @@ static int require_geoban(Client *client, Server *server) {
     return 1;
 }
 
-static void disconnect_matches(Server *server, Client *setter, const char *reason) {
-    GeoBanDb db = {0};
+static void disconnect_matches(Server *server, Client *setter, GeoBanDb *db,
+                               const char *reason) {
     size_t i = 0U;
-    if (geoban_db_open(&db, server->config.bans_db) != 0) return;
+    if (server == NULL || db == NULL || db->handle == NULL) return;
     while (i < server->client_count) {
         Client *target = server->clients[i];
         GeoBanRecord match;
         if (target != setter && target->registered && target->geoip_complete &&
-            geoban_db_match(&db, &target->geoip, &match) == 1) {
+            geoban_db_match(db, &target->geoip, &match) == 1) {
             snotice_broadcast(server, SNOTICE_GEOBANS,
                               "GeoBAN matched %s [real_ip=%s] by %s {%s}",
                               command_reply_nick(target), target->real_ip,
@@ -103,7 +103,6 @@ static void disconnect_matches(Server *server, Client *setter, const char *reaso
         }
         ++i;
     }
-    geoban_db_close(&db);
 }
 
 CommandResult command_geoban(Server *server, Client *client, char *params) {
@@ -168,7 +167,6 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
                      server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
-    geoban_db_close(&db);
 
     client_sendf(client, ":%s NOTICE %s :GEOBAN added: %s {%s} %s",
                  server->config.server_name, client->nick,
@@ -177,7 +175,8 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
     snotice_broadcast(server, SNOTICE_GEOBANS,
                       "%s added GEOBAN %s {%s} (%s)", client->nick,
                       geoban_type_name(type), value, reason);
-    disconnect_matches(server, client, reason);
+    disconnect_matches(server, client, &db, reason);
+    geoban_db_close(&db);
     return COMMAND_KEEP_CLIENT;
 }
 
