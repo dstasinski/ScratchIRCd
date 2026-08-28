@@ -70,8 +70,22 @@ static size_t count_bulk_expired(size_t total) {
     return count;
 }
 
+static size_t count_bulk_rotated(size_t total, const char *suffix) {
+    char path[128];
+    size_t i, count = 0U;
+    for (i = 0U; i < total; ++i) {
+        (void)snprintf(path, sizeof(path), "logs/Bulk%03zu.log.%s", i, suffix);
+        if (access(path, F_OK) == 0) ++count;
+    }
+    return count;
+}
+
 int main(void) {
-    enum { BULK_EXPIRED_FILES = 300, DISABLE_BACKLOG_ROWS = 1025 };
+    enum {
+        BULK_EXPIRED_FILES = 300,
+        BULK_ROTATION_STATES = 300,
+        DISABLE_BACKLOG_ROWS = 1025
+    };
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
     char original[1024];
@@ -84,12 +98,14 @@ int main(void) {
     Server server;
     Channel channel;
     Channel transient;
+    Channel bulk_channel;
     Client client;
     ChanServDb db = {0};
     ChanServLogQueueRecord rows[8];
     size_t fetched = 0U;
     size_t remaining;
     size_t remaining_before_restart;
+    size_t rotated;
     size_t i;
     struct tm now_tm, next_tm;
     time_t now, next_midnight;
@@ -101,6 +117,7 @@ int main(void) {
     memset(&server, 0, sizeof(server));
     memset(&channel, 0, sizeof(channel));
     memset(&transient, 0, sizeof(transient));
+    memset(&bulk_channel, 0, sizeof(bulk_channel));
     memset(&client, 0, sizeof(client));
     server.config.channel_log_queue_max_rows = IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS;
     (void)snprintf(db_path, sizeof(db_path), "%s/chanserv.db", tmp);
@@ -304,6 +321,39 @@ int main(void) {
     }
     assert(remaining == 0U);
     assert(access(fresh_log, F_OK) == 0);
+
+    /* Daily rotation-state maintenance must also be bounded and resumable.
+     * Build more cached enabled states than one maintenance pass can inspect,
+     * flush their current-day events, then prove the next-day files appear in
+     * a subset on the first pass and all appear after subsequent cursor passes. */
+    assert(chanserv_db_open(&db, db_path) == 0);
+    for (i = 0U; i < BULK_ROTATION_STATES; ++i) {
+        char name[IRC_CHANNEL_NAME_MAX + 1U];
+        (void)snprintf(name, sizeof(name), "#Bulk%03zu", i);
+        assert(chanserv_db_create(&db, name, "Alice", "rotation budget") == 0);
+        assert(chanserv_db_logging_set(&db, name, 1) == 0);
+    }
+    chanserv_db_close(&db);
+
+    assert(channel_log_init(&server) == 0);
+    for (i = 0U; i < BULK_ROTATION_STATES; ++i) {
+        (void)snprintf(bulk_channel.name, sizeof(bulk_channel.name), "#Bulk%03zu", i);
+        channel_log_message(&server, &bulk_channel, &client, "rotation cursor", 0);
+    }
+    channel_log_flush_due(&server, now + IRCD_CHANNEL_LOG_BATCH_SECONDS + 1);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 0U);
+    chanserv_db_close(&db);
+    assert(count_bulk_rotated(BULK_ROTATION_STATES, new_suffix) == 0U);
+
+    channel_log_rotate_all(next_midnight);
+    rotated = count_bulk_rotated(BULK_ROTATION_STATES, new_suffix);
+    assert(rotated > 0U && rotated < BULK_ROTATION_STATES);
+    for (i = 0U; i < 4U && rotated < BULK_ROTATION_STATES; ++i) {
+        channel_log_rotate_all(next_midnight);
+        rotated = count_bulk_rotated(BULK_ROTATION_STATES, new_suffix);
+    }
+    assert(rotated == BULK_ROTATION_STATES);
 
     assert(chdir(original) == 0);
     return 0;
