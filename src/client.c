@@ -10,6 +10,7 @@
 #include <time.h>
 
 #define IRCV3_SERVER_TAG_SECTION_MAX 4096U
+#define CLIENT_OUTPUT_FLUSH_BUDGET_BYTES 65536U
 
 static ClientFreeHook client_free_hook = NULL;
 
@@ -74,18 +75,26 @@ static int transport_write(Client *client, const char *data, size_t length, size
     if (client->ssl != NULL && client->tls_state != CLIENT_TLS_ESTABLISHED) {
         client->output_retry_pending = 0;
         client->output_want_read = 0;
+        client->output_retry_length = 0U;
         return 0;
     }
     if (client->tls_state == CLIENT_TLS_ESTABLISHED && client->ssl != NULL) {
         size_t chunk;
         int rc;
         if (client->input_retry_pending) return 0;
-        chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
+        if (client->output_retry_pending) {
+            if (client->output_retry_length == 0U || length < client->output_retry_length)
+                return -1;
+            chunk = client->output_retry_length;
+        } else {
+            chunk = length > (size_t)INT_MAX ? (size_t)INT_MAX : length;
+        }
         rc = SSL_write(client->ssl, data, (int)chunk);
         if (rc > 0) {
             *written = (size_t)rc;
             client->output_retry_pending = 0;
             client->output_want_read = 0;
+            client->output_retry_length = 0U;
             return 1;
         }
         {
@@ -93,11 +102,13 @@ static int transport_write(Client *client, const char *data, size_t length, size
             if (error == SSL_ERROR_WANT_READ) {
                 client->output_retry_pending = 1;
                 client->output_want_read = 1;
+                client->output_retry_length = chunk;
                 return 0;
             }
             if (error == SSL_ERROR_WANT_WRITE) {
                 client->output_retry_pending = 1;
                 client->output_want_read = 0;
+                client->output_retry_length = chunk;
                 return 0;
             }
         }
@@ -106,6 +117,7 @@ static int transport_write(Client *client, const char *data, size_t length, size
     {
         ssize_t rc = send(client->fd, data, length, MSG_NOSIGNAL);
         client->output_retry_pending = 0;
+        client->output_retry_length = 0U;
         if (rc > 0) { *written = (size_t)rc; return 1; }
         if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return 0;
         return -1;
@@ -113,18 +125,27 @@ static int transport_write(Client *client, const char *data, size_t length, size
 }
 
 int client_flush_output(Client *client) {
+    size_t flushed = 0U;
     if (client == NULL) return -1;
-    while (client->outbuf_len != 0U) {
+    while (client->outbuf_len != 0U && flushed < CLIENT_OUTPUT_FLUSH_BUDGET_BYTES) {
         size_t written = 0U;
-        int rc = transport_write(client, client->outbuf + client->outbuf_start, client->outbuf_len, &written);
+        size_t remaining_budget = CLIENT_OUTPUT_FLUSH_BUDGET_BYTES - flushed;
+        size_t attempt = client->outbuf_len < remaining_budget ? client->outbuf_len : remaining_budget;
+        int rc;
+        if (client->output_retry_pending && client->output_retry_length > attempt)
+            attempt = client->output_retry_length;
+        rc = transport_write(client, client->outbuf + client->outbuf_start, attempt, &written);
         if (rc < 0) return -1;
         if (rc == 0) return 0;
         client->outbuf_start += written;
         client->outbuf_len -= written;
+        flushed += written;
     }
+    if (client->outbuf_len != 0U) return 0;
     client->outbuf_start = 0U;
     client->output_retry_pending = 0;
     client->output_want_read = 0;
+    client->output_retry_length = 0U;
     return 1;
 }
 
