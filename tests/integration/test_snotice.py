@@ -83,12 +83,35 @@ def main():
             mode_token=mode_line.split(" 221 Admin ",1)[1].split()[0]
             assert "s" in mode_token.lstrip("+"),mode_line
 
+            # Unknown KILL targets are raw client query tokens rather than
+            # validated nicknames. A maximum legal request must still receive
+            # numeric 401 within the IRC content envelope.
+            missing_target="U"*502
+            assert len(("KILL "+missing_target+" :x").encode())==510
+            admin.send("KILL "+missing_target+" :x")
+            missing_line=admin.expect(" 401 Admin ")
+            assert len(missing_line.encode())<=510,missing_line
+            assert missing_line.endswith(" :No such nick/channel"),missing_line
+            missing_echo=missing_line.split(" 401 Admin ",1)[1].rsplit(" :No such nick/channel",1)[0]
+            assert 0<len(missing_echo)<len(missing_target),missing_line
+            assert missing_target.startswith(missing_echo),missing_echo
+
             # A user-derived operator event may be longer than one IRC NOTICE
             # after the server adds its prefix. It must be chunked, not dropped.
+            # The victim-facing KILL line has a different server prefix budget;
+            # preserve the action there by trimming only the reason.
             longvictim=IRC(p);longvictim.send("NICK LongVictim");longvictim.send("USER longvictim 0 * :Long Victim");longvictim.expect(" 001 LongVictim ")
             admin.lines(.5)
-            long_reason="R"*400
+            long_reason="R"*493
+            assert len(("KILL LongVictim :"+long_reason).encode())==510
             admin.send("KILL LongVictim :"+long_reason)
+            victim_lines=longvictim.lines(1.0)
+            kill_wire=next((x for x in victim_lines if " KILL LongVictim :" in x),None)
+            assert kill_wire is not None,victim_lines
+            assert len(kill_wire.encode())<=510,kill_wire
+            victim_reason=kill_wire.split(" KILL LongVictim :",1)[1]
+            assert 0<len(victim_reason)<len(long_reason),kill_wire
+            assert long_reason.startswith(victim_reason),victim_reason
             notice_lines=admin.lines(1.5)
             notice_prefix=":test.local NOTICE Admin :*** "
             notice_payloads=[x[len(notice_prefix):] for x in notice_lines if x.startswith(notice_prefix)]
