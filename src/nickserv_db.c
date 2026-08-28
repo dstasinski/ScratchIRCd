@@ -126,7 +126,9 @@ static int text_fits(const char *text, size_t max_length, int allow_empty) {
     size_t length;
     if (text == NULL) return 0;
     length = strnlen(text, max_length + 1U);
-    if (length > max_length) return 0;
+    if (length > max_length || memchr(text, '\r', length) != NULL ||
+        memchr(text, '\n', length) != NULL)
+        return 0;
     return allow_empty || length != 0U;
 }
 
@@ -138,8 +140,11 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
     if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
     text = sqlite3_column_text(stmt, column);
     bytes = sqlite3_column_bytes(stmt, column);
-    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
-    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
     memcpy(destination, text, (size_t)bytes);
     destination[bytes] = '\0';
     return 0;
