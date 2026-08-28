@@ -87,6 +87,8 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
+    mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
+    admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-") as td:
         port = free_port()
@@ -102,6 +104,9 @@ def main():
             f.write(f"chanserv_db = {chanserv_db}\n")
             f.write(f"history_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
+            f.write("netadmin_name = root\n")
+            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
@@ -112,6 +117,8 @@ def main():
             register(alice, "Alice")
             alice.send("NICKSERV REGISTER chanpass")
             alice.expect("Nickname registered and identified.")
+            alice.send("OPER root adminpass")
+            alice.expect(" 381 Alice :You are now a Network Administrator")
 
             bob = IRCClient(port)
             register(bob, "Bob")
@@ -122,6 +129,15 @@ def main():
             register(carol, "Carol")
             carol.send("NICKSERV REGISTER carolpass")
             carol.expect("Nickname registered and identified.")
+
+            # Registered users/channel owners may not create persistent
+            # registrations through either service entry point.
+            bob.send("JOIN #denied")
+            bob.expect(" 366 Bob #denied ")
+            bob.send("CHANSERV REGISTER #denied :must fail")
+            bob.expect(" 481 Bob ")
+            bob.send("PRIVMSG ChanServ :REGISTER #denied :must also fail")
+            bob.expect(" 481 Bob ")
 
             alice.send("JOIN #persist")
             alice.expect(" JOIN #persist")
@@ -138,9 +154,6 @@ def main():
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
 
-            # ChanServ persistent topics obey the same TOPICLEN advertised to
-            # clients. The 311-byte rejection must leave the prior 310-byte
-            # persistent/live value unchanged.
             safe_topic = "T" * 310
             unsafe_topic = "U" * 311
             alice.send(f"CHANSERV SET #persist TOPIC :{safe_topic}")
@@ -152,12 +165,9 @@ def main():
             alice.send("TOPIC #persist")
             alice.expect(f" 332 Alice #persist :{safe_topic}")
 
-            # Restore the fixture topic used by the restart/persistence checks.
             alice.send("CHANSERV SET #persist TOPIC :Persistent ChanServ topic")
             alice.expect("Persistent topic updated.")
 
-            # Ordinary TOPIC changes are runtime-only.  They may change the
-            # live topic, but must not overwrite ChanServ's persistent topic.
             alice.send("TOPIC #persist :Runtime topic override")
             alice.expect(" TOPIC #persist :Runtime topic override")
             alice.send("TOPIC #persist")
@@ -188,7 +198,6 @@ def main():
 
             observer = IRCClient(port)
             register(observer, "Observer")
-            # 0.27 legitimately splits ISUPPORT over multiple numeric 005 lines.
             isupport = observer.expect("PCHANNELS=#persist")
             assert any(" 005 Observer " in line and "PCHANNELS=#persist" in line
                        for line in isupport), isupport
@@ -224,7 +233,6 @@ def main():
             guardian_lines = guardian.expect(" 366 Guardian #persist ")
             assert any("&Guardian" in line for line in guardian_lines if " 353 Guardian " in line), guardian_lines
 
-            # An ordinary OP cannot strip +a, ban, or kick a protected member.
             bob.send("MODE #persist -a Guardian")
             bob.expect(" 482 Helper #persist ")
             bob.send("MODE #persist +b Guardian!*@*")
@@ -232,7 +240,6 @@ def main():
             bob.send("KICK #persist Guardian :not allowed")
             bob.expect(" 484 Helper #persist ")
 
-            # OWNER may ban a protected member; the authorization survives reconnect.
             traveler.send("MODE #persist +b Guardian!*@*")
             traveler.expect(" MODE #persist +b Guardian!*@*")
             guardian.send("PART #persist :testing protected ban")
@@ -245,7 +252,6 @@ def main():
             guardian_lines = guardian.expect(" 366 Guardian #persist ")
             assert any("&Guardian" in line for line in guardian_lines if " 353 Guardian " in line), guardian_lines
 
-            # OWNER may grant +a manually; a PROTECTED member may kick another +a.
             traveler.send("MODE #persist +a Helper")
             traveler.expect(" MODE #persist +a Helper")
             guardian.send("KICK #persist Helper :protected hierarchy")
@@ -255,8 +261,17 @@ def main():
             traveler.expect("Access entry removed.")
             traveler.send("CHANSERV ACCESS #persist DEL Carol")
             traveler.expect("Access entry removed.")
+
+            # Founder status alone no longer permits dropping a registration.
             traveler.send("CHANSERV DROP #persist")
-            traveler.expect("Channel registration dropped.")
+            traveler.expect(" 481 Traveler ")
+            traveler.send("PRIVMSG ChanServ :DROP #persist")
+            traveler.expect(" 481 Traveler ")
+            traveler.send("OPER root adminpass")
+            traveler.expect(" 381 Traveler :You are now a Network Administrator")
+            traveler.send("CHANSERV DROP #persist")
+            traveler.expect("ChanServ channel deleted.")
+
             traveler.send("MODE #persist")
             modes = traveler.expect(" 324 Traveler #persist ")
             mode_line = next(line for line in modes if " 324 Traveler #persist " in line)
@@ -265,7 +280,6 @@ def main():
             fresh = IRCClient(port)
             try:
                 register(fresh, "Fresh")
-                # PCHANNELS is on the second 005 line in 0.27; verify it there.
                 isupport = fresh.expect("PCHANNELS=")
                 pchannel_lines = [line for line in isupport
                                   if " 005 Fresh " in line and "PCHANNELS=" in line]
