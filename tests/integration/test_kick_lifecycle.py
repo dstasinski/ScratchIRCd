@@ -140,6 +140,29 @@ def main():
             owner.send("MODE #kickrank +v Voice"); voice.expect(" MODE #kickrank +v Voice")
             owner.send("MODE #kickrank +o ChanOp"); oper.expect(" MODE #kickrank +o ChanOp")
 
+            # KICK's channel and nick tokens are raw query text until lookup or
+            # validation succeeds. Maximum legal requests must still receive
+            # their 403/401 errors within the IRC content envelope.
+            invalid_channel = "#" + ("c" * 502)
+            assert len(("KICK " + invalid_channel + " X").encode()) == 510
+            owner.send("KICK " + invalid_channel + " X")
+            invalid_line = owner.expect(" 403 Owner ")
+            assert len(invalid_line.encode()) <= 510, invalid_line
+            invalid_echo = invalid_line.split(" 403 Owner ", 1)[1].rsplit(
+                " :No such channel", 1)[0]
+            assert 0 < len(invalid_echo) < len(invalid_channel), invalid_line
+            assert invalid_channel.startswith(invalid_echo), invalid_echo
+
+            unknown_nick = "u" * 495
+            assert len(("KICK #kickrank " + unknown_nick).encode()) == 510
+            owner.send("KICK #kickrank " + unknown_nick)
+            unknown_line = owner.expect(" 401 Owner ")
+            assert len(unknown_line.encode()) <= 510, unknown_line
+            unknown_echo = unknown_line.split(" 401 Owner ", 1)[1].rsplit(
+                " :No such nick/channel", 1)[0]
+            assert 0 < len(unknown_echo) < len(unknown_nick), unknown_line
+            assert unknown_nick.startswith(unknown_echo), unknown_echo
+
             # Halfop may kick a lower-ranked voice but not an operator.
             half.send("KICK #kickrank ChanOp :too high")
             half.expect(" 484 Half #kickrank ")
