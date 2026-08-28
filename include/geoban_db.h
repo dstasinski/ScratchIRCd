@@ -40,6 +40,8 @@ typedef int (*GeoBanListCallback)(const GeoBanRecord *record, void *context);
 
 int geoban_db_open(GeoBanDb *db, const char *path);
 void geoban_db_close(GeoBanDb *db);
+/** Reset process-local maintenance throttle state for shutdown or RESTART. */
+void geoban_db_reset_runtime_state(void);
 int geoban_db_add(GeoBanDb *db, GeoBanType type, const char *value,
                   const char *reason, const char *set_by,
                   unsigned int duration_seconds);
