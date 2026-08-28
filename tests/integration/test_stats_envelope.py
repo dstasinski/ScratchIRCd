@@ -114,6 +114,7 @@ def main():
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, cwd=td)
         client = None
+        viewer = None
         try:
             wait_listen(port, proc)
             client = IRCClient(port)
@@ -169,22 +170,34 @@ def main():
             assert geo_value in g_rows[0] and setter in g_rows[0], g_rows[0]
             assert reason not in g_rows[0], g_rows[0]
 
-            # LIST adds server/nick/channel/numeric framing around the stored
-            # topic. A legal 390-byte topic must still produce numeric 322 even
-            # when the fixed fields consume enough space to require truncation.
+            # With a 63-byte server name, irc_topic_limit() advertises 344.
+            # That topic is legal for TOPIC/332, but numeric 322 has slightly
+            # more fixed framing. A 31-byte requesting nick therefore forces
+            # LIST to trim only the displayed trailing topic instead of losing
+            # the channel row entirely.
             channel = "#" + ("c" * 62)
-            topic = "t" * 390
+            topic = "t" * 344
             client.send(f"JOIN {channel}")
             client.collect_until(f" 366 alice {channel} ")
             client.send(f"TOPIC {channel} :{topic}")
             client.collect_until(f" TOPIC {channel} :")
-            client.send("LIST")
-            lines = client.collect_until(" 323 alice :End of /LIST")
+
+            viewer_nick = "v" * 31
+            viewer = IRCClient(port)
+            viewer.send(f"NICK {viewer_nick}")
+            viewer.send(f"USER viewer 0 * :List Viewer")
+            viewer.collect_until(f" 001 {viewer_nick} ")
+            viewer.send("LIST")
+            lines = viewer.collect_until(f" 323 {viewer_nick} :End of /LIST")
             assert_wire_safe(lines)
-            list_rows = [line for line in lines if f" 322 alice {channel} " in line]
+            list_rows = [line for line in lines if f" 322 {viewer_nick} {channel} " in line]
             assert len(list_rows) == 1, lines
-            assert list_rows[0].endswith(":" + ("t" * (len(list_rows[0].rsplit(":", 1)[1])))), list_rows[0]
+            displayed_topic = list_rows[0].rsplit(":", 1)[1]
+            assert displayed_topic and set(displayed_topic) == {"t"}, list_rows[0]
+            assert len(displayed_topic) < len(topic), list_rows[0]
         finally:
+            if viewer is not None:
+                viewer.close()
             if client is not None:
                 client.close()
             stop(proc)
