@@ -68,6 +68,28 @@ def wait_queue_row(db_path, text, duration=3.0):
         time.sleep(.02)
     return count
 
+def rfc1459_fold(text):
+    table=str.maketrans({"{":"[","}":"]","|":"\\","~":"^"})
+    return text.lower().translate(table)
+
+def rfc1459_collate(left,right):
+    left_folded=rfc1459_fold(left); right_folded=rfc1459_fold(right)
+    return (left_folded>right_folded)-(left_folded<right_folded)
+
+def seed_backlog(db_path,channel,rows):
+    with sqlite3.connect(db_path) as db:
+        db.create_collation("IRCNOCASE",rfc1459_collate)
+        old=int(time.time())-600
+        db.executemany(
+            "INSERT INTO channel_log_queue(channel,event_time,body) VALUES(?,?,?)",
+            ((channel,old,f"seeded backlog {index}") for index in range(rows)),
+        )
+        db.commit()
+
+def queue_count(db_path):
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT COUNT(*) FROM channel_log_queue").fetchone()[0]
+
 def main():
     if len(sys.argv)!=3: raise SystemExit("usage: test_channel_logging.py scratchircd scratchircd-mkpasswd")
     binary=os.path.abspath(sys.argv[1]); mkpasswd=os.path.abspath(sys.argv[2])
@@ -119,7 +141,18 @@ def main():
             user.send("PRIVMSG #PersistLog :after-restart")
             count=wait_queue_row(db_path,"after-restart")
             assert count == 1, count
+
+            # A logging-disable command must not synchronously drain an
+            # arbitrary durable backlog in the single event loop. Seed enough
+            # rows that one 1024-row administrative batch cannot empty it.
+            seed_backlog(db_path,"#PersistLog",2048)
+            before_disable=queue_count(db_path)
+            assert before_disable >= 2050,before_disable
             admin.send("CHANSERV SET #PersistLog LOGGING OFF"); admin.expect("Channel logging disabled.")
+            after_disable=queue_count(db_path)
+            assert after_disable >= before_disable-1024, (before_disable,after_disable)
+            assert after_disable > 0,after_disable
+
             suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
             assert os.path.exists(path),path
             with open(path,"r",encoding="utf-8",errors="replace") as f:text=f.read()
