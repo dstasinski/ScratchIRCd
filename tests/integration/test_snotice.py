@@ -71,11 +71,22 @@ def main():
             reg_notice=admin.expect("NickServ registration: account=Other")
             assert "service-secret" not in reg_notice,reg_notice
 
+            # ChanServ REGISTER is intentionally network-admin-only. Identify
+            # the already-opered Admin account, then have the netadmin create
+            # the registration so this test continues to cover ChanServ's
+            # registration SNOTICE without depending on the retired founder
+            # self-registration policy.
+            admin.send("NICKSERV REGISTER admin-service-secret")
+            admin.expect("Nickname registered and identified")
+            admin_reg_notice=admin.expect("NickServ registration: account=Admin")
+            assert "admin-service-secret" not in admin_reg_notice,admin_reg_notice
+            admin.send("JOIN #svc")
+            admin.expect(" JOIN #svc")
             other.send("JOIN #svc")
             other.expect(" JOIN #svc")
-            other.send("CHANSERV REGISTER #svc :SNOTICE test")
-            other.expect("Channel registered successfully")
-            admin.expect("ChanServ registration: channel=#svc founder=Other")
+            admin.send("CHANSERV REGISTER #svc :SNOTICE test")
+            admin.expect("Channel registered successfully")
+            admin.expect("ChanServ registration: channel=#svc founder=Admin")
 
             admin.send("SETHOST Other vhost.example")
             admin.expect("SETHOST by Admin: Other")
