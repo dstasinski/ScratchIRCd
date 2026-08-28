@@ -82,17 +82,26 @@ def main():
             mode_line=admin.expect(" 221 Admin ")
             mode_token=mode_line.split(" 221 Admin ",1)[1].split()[0]
             assert "s" in mode_token.lstrip("+"),mode_line
+
+            # Success and the self-generated service SNOTICE can arrive in the
+            # same socket read. Collect them together instead of using two
+            # sequential expect() calls, whose helper intentionally consumes
+            # all complete lines in each read batch.
             admin.send("NICKSERV REGISTER admin-service-secret")
-            admin.expect("Nickname registered and identified")
-            admin_reg_notice=admin.expect("NickServ registration: account=Admin")
+            registration_lines=admin.lines(1.5)
+            assert any("Nickname registered and identified" in x for x in registration_lines),registration_lines
+            admin_reg_notice=next((x for x in registration_lines if "NickServ registration: account=Admin" in x),None)
+            assert admin_reg_notice is not None,registration_lines
             assert "admin-service-secret" not in admin_reg_notice,admin_reg_notice
+
             admin.send("JOIN #svc")
             admin.expect(" JOIN #svc")
             other.send("JOIN #svc")
             other.expect(" JOIN #svc")
             admin.send("CHANSERV REGISTER #svc :SNOTICE test")
-            admin.expect("Channel registered successfully")
-            admin.expect("ChanServ registration: channel=#svc founder=Admin")
+            channel_registration_lines=admin.lines(1.5)
+            assert any("Channel registered successfully" in x for x in channel_registration_lines),channel_registration_lines
+            assert any("ChanServ registration: channel=#svc founder=Admin" in x for x in channel_registration_lines),channel_registration_lines
 
             admin.send("SETHOST Other vhost.example")
             admin.expect("SETHOST by Admin: Other")
