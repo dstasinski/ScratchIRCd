@@ -8,6 +8,25 @@
 #include <strings.h>
 #include <time.h>
 
+static void send_whois_user(Server *server,Client *client,const Client *target){
+    char realname[IRC_REALNAME_MAX+1U];
+    int overhead;
+    size_t limit;
+    size_t length;
+    if(server==NULL||client==NULL||target==NULL)return;
+    overhead=snprintf(NULL,0,RPL_WHOISUSER,server->config.server_name,client->nick,
+                      target->nick,target->user,target->display_host,"");
+    if(overhead<0||(size_t)overhead>IRC_LINE_CONTENT_MAX)return;
+    limit=IRC_LINE_CONTENT_MAX-(size_t)overhead;
+    if(limit>IRC_REALNAME_MAX)limit=IRC_REALNAME_MAX;
+    length=strlen(target->realname);
+    if(length>limit)length=limit;
+    memcpy(realname,target->realname,length);
+    realname[length]='\0';
+    client_sendf(client,RPL_WHOISUSER,server->config.server_name,client->nick,
+                 target->nick,target->user,target->display_host,realname);
+}
+
 static int whois_channels_payload_fits(const Server *server,const Client *client,
                                        const Client *target,const char *channels){
     int written;
@@ -81,8 +100,7 @@ CommandResult command_whois(Server *server,Client *client,char *params){
         client_sendf(target,":%s NOTICE %s :*** %s!%s@%s did a /WHOIS on you",
                      server->config.server_name,target->nick,client->nick,
                      client->user,client->display_host);
-    client_sendf(client,RPL_WHOISUSER,server->config.server_name,client->nick,
-                 target->nick,target->user,target->display_host,target->realname);
+    send_whois_user(server,client,target);
     client_sendf(client,RPL_WHOISSERVER,server->config.server_name,client->nick,
                  target->nick,server->config.server_name,server->config.network_name);
     if(target->away[0]!='\0')
