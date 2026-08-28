@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,6 +117,11 @@ int main(void) {
     assert(channel_mask_add(&source.exception_list, "Friend!*@*") == 0);
     assert(channel_mask_add(&source.invite_exception_list, "Invite!*@*") == 0);
 
+    if ((uintmax_t)SIZE_MAX > (uintmax_t)INT64_MAX) {
+        source.user_limit = (size_t)((uintmax_t)INT64_MAX + 1U);
+        assert(chanserv_persist_save(path, &source) == -1);
+        source.user_limit = 25U;
+    }
     assert(chanserv_persist_save(path, &source) == 0);
 
     memset(&restored, 0, sizeof(restored));
