@@ -7,4 +7,92 @@
 #include <stdio.h>
 #include <string.h>
 
-CommandResult command_kill(Server *server,Client *client,char *params){char *nick;char *reason;Client *target;char quit_reason[IRC_QUIT_REASON_MAX+1U];if(command_require_registered(client))return COMMAND_KEEP_CLIENT;if(!oper_permission_has(client->oper_permissions,OPER_PERMISSION_KILL)){client_sendf(client,ERR_NOPRIVILEGES,server->config.server_name,client->nick);return COMMAND_KEEP_CLIENT;}if(params==NULL){client_sendf(client,ERR_NEEDMOREPARAMS,server->config.server_name,client->nick,"KILL");return COMMAND_KEEP_CLIENT;}nick=strtok(params," ");reason=strtok(NULL,"");if(reason!=NULL&&*reason==':')++reason;if(nick==NULL||reason==NULL||*reason=='\0'){client_sendf(client,ERR_NEEDMOREPARAMS,server->config.server_name,client->nick,"KILL");return COMMAND_KEEP_CLIENT;}target=hash_get(&server->clients_by_nick,nick);if(target==NULL){client_sendf(client,ERR_NOSUCHNICK,server->config.server_name,client->nick,nick);return COMMAND_KEEP_CLIENT;}if(client_mode_has(target->modes,CLIENT_MODE_SERVICE)||(client_mode_has(target->modes,CLIENT_MODE_NETADMIN)&&!client_mode_has(client->modes,CLIENT_MODE_NETADMIN))){client_sendf(client,ERR_KILLDENY,server->config.server_name,client->nick,target->nick);return COMMAND_KEEP_CLIENT;}(void)snprintf(quit_reason,sizeof(quit_reason),"Killed (%s (%s))",client->nick,reason);snotice_broadcast(server,SNOTICE_KILLS,"KILL by %s [%s]: %s!%s@%s [real_ip=%s] (%s)",client->nick,client->oper_name,target->nick,target->user,target->display_host,target->real_ip,reason);client_sendf(target,":%s KILL %s :%s",server->config.server_name,target->nick,reason);if(target==client){(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",quit_reason);return COMMAND_DISCONNECT_CLIENT;}server_disconnect(server,target,quit_reason);return COMMAND_KEEP_CLIENT;}
+static void send_missing_kill_target(Server *server, Client *client,
+                                     const char *query) {
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL || query == NULL) return;
+    base_length = snprintf(NULL, 0, ":%s 401 %s  :No such nick/channel",
+                           server->config.server_name, client->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s 401 %s %.*s :No such nick/channel",
+                 server->config.server_name, client->nick,
+                 (int)length, query);
+}
+
+static void send_kill_notification(Server *server, Client *target,
+                                   const char *reason) {
+    int base_length;
+    size_t length;
+    if (server == NULL || target == NULL || reason == NULL) return;
+    base_length = snprintf(NULL, 0, ":%s KILL %s :",
+                           server->config.server_name, target->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(reason);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(target, ":%s KILL %s :%.*s",
+                 server->config.server_name, target->nick,
+                 (int)length, reason);
+}
+
+CommandResult command_kill(Server *server, Client *client, char *params) {
+    char *nick;
+    char *reason;
+    Client *target;
+    char quit_reason[IRC_QUIT_REASON_MAX + 1U];
+
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+    if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_KILL)) {
+        client_sendf(client, ERR_NOPRIVILEGES,
+                     server->config.server_name, client->nick);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (params == NULL) {
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, "KILL");
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    nick = strtok(params, " ");
+    reason = strtok(NULL, "");
+    if (reason != NULL && *reason == ':') ++reason;
+    if (nick == NULL || reason == NULL || *reason == '\0') {
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, "KILL");
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    target = hash_get(&server->clients_by_nick, nick);
+    if (target == NULL) {
+        send_missing_kill_target(server, client, nick);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (client_mode_has(target->modes, CLIENT_MODE_SERVICE) ||
+        (client_mode_has(target->modes, CLIENT_MODE_NETADMIN) &&
+         !client_mode_has(client->modes, CLIENT_MODE_NETADMIN))) {
+        client_sendf(client, ERR_KILLDENY,
+                     server->config.server_name, client->nick, target->nick);
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    (void)snprintf(quit_reason, sizeof(quit_reason),
+                   "Killed (%s (%s))", client->nick, reason);
+    snotice_broadcast(server, SNOTICE_KILLS,
+                      "KILL by %s [%s]: %s!%s@%s [real_ip=%s] (%s)",
+                      client->nick, client->oper_name,
+                      target->nick, target->user, target->display_host,
+                      target->real_ip, reason);
+    send_kill_notification(server, target, reason);
+
+    if (target == client) {
+        (void)snprintf(client->quit_reason, sizeof(client->quit_reason),
+                       "%s", quit_reason);
+        return COMMAND_DISCONNECT_CLIENT;
+    }
+    server_disconnect(server, target, quit_reason);
+    return COMMAND_KEEP_CLIENT;
+}
