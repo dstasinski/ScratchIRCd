@@ -12,6 +12,23 @@
 #include <stdio.h>
 #include <string.h>
 
+static void send_no_such_channel_query(Server *server, Client *client,
+                                       const char *query) {
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL) return;
+    if (query == NULL) query = "*";
+    base_length = snprintf(NULL, 0, ":%s 403 %s  :No such channel",
+                           server->config.server_name, client->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s 403 %s %.*s :No such channel",
+                 server->config.server_name, client->nick,
+                 (int)length, query);
+}
+
 static void join_one(Server *server, Client *client, const char *name,
                      const char *key, unsigned int redirect_depth) {
     Channel *channel;
@@ -24,9 +41,7 @@ static void join_one(Server *server, Client *client, const char *name,
     int banned;
 
     if (!channel_name_valid(name)) {
-        client_sendf(client, ERR_NOSUCHCHANNEL,
-                     server->config.server_name, client->nick,
-                     name != NULL ? name : "*");
+        send_no_such_channel_query(server, client, name);
         return;
     }
     if (client->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) {
@@ -210,9 +225,7 @@ CommandResult command_part(Server *server, Client *client, char *params) {
     if (reason != NULL && *reason == ':') ++reason;
 
     if (!channel_name_valid(name)) {
-        client_sendf(client, ERR_NOSUCHCHANNEL,
-                     server->config.server_name, client->nick,
-                     name != NULL ? name : "*");
+        send_no_such_channel_query(server, client, name);
         return COMMAND_KEEP_CLIENT;
     }
     channel = hash_get(&server->channels_by_name, name);
