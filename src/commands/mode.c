@@ -17,9 +17,11 @@
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
+#include "usermode_policy.h"
 
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +64,7 @@ static int client_mode_self_settable(char letter) {
         case 's':
         case 'T':
         case 'w':
+        case 'x':
             return 1;
         default:
             return 0;
@@ -285,6 +288,11 @@ static CommandResult mode_user(Server *server, Client *client,
                          server->config.server_name, client->nick);
             continue;
         }
+        if (letter == 'x') {
+            if (sign == '+') usermode_apply_cloak(server, client);
+            else usermode_remove_cloak(client);
+            continue;
+        }
         if (sign == '+') client->modes = client_mode_add(client->modes, bit);
         else client->modes = client_mode_remove(client->modes, bit);
     }
@@ -403,7 +411,8 @@ static CommandResult mode_channel(Server *server, Client *client,
         if (letter == 'l') {
             if (sign == '+') {
                 unsigned long value;
-                if (param == NULL || parse_uint(param, &value) != 0 || value == 0UL) {
+                if (param == NULL || parse_uint(param, &value) != 0 || value == 0UL ||
+                    (uintmax_t)value > (uintmax_t)INT64_MAX) {
                     client_sendf(client, ERR_NEEDMOREPARAMS,
                                  server->config.server_name, client->nick, "MODE");
                     if (param != NULL) ++argi;
