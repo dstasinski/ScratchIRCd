@@ -15,13 +15,20 @@
 #include <time.h>
 #include <unistd.h>
 
-/* This unit test has no live IRC clients; it only needs to satisfy the
- * channel-log module's observability hook when exercising a full backlog. */
+static size_t snotice_count;
+static char last_snotice[512];
+
+/* This unit test has no live IRC clients; capture channel-log observability
+ * notices so durable-queue failures can be proven visible to operators. */
 void snotice_broadcast(struct Server *server, SnoticeMask category,
                        const char *fmt, ...) {
+    va_list args;
     (void)server;
     (void)category;
-    (void)fmt;
+    ++snotice_count;
+    va_start(args, fmt);
+    (void)vsnprintf(last_snotice, sizeof(last_snotice), fmt, args);
+    va_end(args);
 }
 
 static int read_file(const char *path, char *buffer, size_t size) {
@@ -181,6 +188,34 @@ int main(void) {
     assert(strcmp(rows[0].body, "first inserted") == 0 && rows[0].event_time == 500);
     assert(strcmp(rows[1].body, "second inserted") == 0 && rows[1].event_time == 400);
     assert(chanserv_db_logging_queue_delete_through(&db, "#Clock", rows[1].id) == 0);
+    assert(queue_count(&db) == 0U);
+
+    /* A malformed durable row must stall safely rather than be truncated and
+     * deleted, and that stall must be observable to administrators. */
+    {
+        sqlite3_stmt *stmt = NULL;
+        char corrupt_body[sizeof(rows[0].body) + 1U];
+        memset(corrupt_body, 'X', sizeof(corrupt_body) - 1U);
+        corrupt_body[sizeof(corrupt_body) - 1U] = '\0';
+        assert(sqlite3_prepare_v2(db.db,
+               "INSERT INTO channel_log_queue(channel,event_time,body) VALUES(?1,1,?2)",
+               -1, &stmt, NULL) == SQLITE_OK);
+        sqlite3_bind_text(stmt, 1, "#Corrupt", -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, corrupt_body, -1, SQLITE_TRANSIENT);
+        assert(sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+    }
+    assert(queue_count(&db) == 1U);
+    chanserv_db_close(&db);
+    snotice_count = 0U;
+    last_snotice[0] = '\0';
+    channel_log_flush_due(&server, now + IRCD_CHANNEL_LOG_BATCH_SECONDS + 1);
+    assert(snotice_count == 1U);
+    assert(strstr(last_snotice, "flush stalled during queue fetch/decode") != NULL);
+    assert(strstr(last_snotice, "queued rows retained for retry") != NULL);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1U);
+    assert(sqlite3_exec(db.db, "DELETE FROM channel_log_queue", NULL, NULL, NULL) == SQLITE_OK);
     assert(queue_count(&db) == 0U);
 
     /* Simulate an in-process RESTART after the channel state has been cached as
