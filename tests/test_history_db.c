@@ -37,6 +37,7 @@ int main(void) {
     HistoryDb *shared1;
     HistoryDb *shared2;
     HistoryRecord record;
+    HistoryRecord malformed;
     HistoryRecord rows[8];
     size_t count = 0U;
     int i;
@@ -67,6 +68,18 @@ int main(void) {
     (void)snprintf(record.text, sizeof(record.text), "third");
     record.created_at_ms = 3000;
     assert(history_db_add(&db, &record) == 0);
+
+    /* The public writer validates fixed arrays before any unbounded string
+     * operation or SQLite bind. Malformed internal records must be refused. */
+    malformed = record;
+    memset(malformed.command, 'X', sizeof(malformed.command));
+    assert(history_db_add(&db, &malformed) != 0);
+    malformed = record;
+    (void)snprintf(malformed.text, sizeof(malformed.text), "bad\nline");
+    assert(history_db_add(&db, &malformed) != 0);
+    malformed = record;
+    (void)snprintf(malformed.host, sizeof(malformed.host), "bad\rhost");
+    assert(history_db_add(&db, &malformed) != 0);
 
     memset(rows, 0, sizeof(rows));
     assert(history_db_latest(&db, "#test", 2U, rows, 8U, &count) == 0);
