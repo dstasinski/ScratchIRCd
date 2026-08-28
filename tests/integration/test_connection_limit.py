@@ -204,6 +204,29 @@ def main():
                 except socket.timeout:
                     pass
             assert closed or b"Too many concurrent connections" in response, response
+
+            # WEBIRC metadata is persisted in fixed-size identity fields. Reject
+            # values that cannot be represented exactly instead of silently
+            # truncating them and accepting a different gateway identity.
+            web6 = connect(port); sockets.append(web6); assert accepted(web6)
+            overlong_gateway = b"g" * 128
+            web6.sendall(b"WEBIRC gateway-secret " + overlong_gateway +
+                         b" host.example 198.51.100.60\r\n")
+            deadline = time.monotonic() + 2.0
+            response = b""
+            closed = False
+            while time.monotonic() < deadline:
+                try:
+                    chunk = web6.recv(4096)
+                    if not chunk:
+                        closed = True
+                        break
+                    response += chunk
+                    if b"Invalid WEBIRC parameters" in response:
+                        break
+                except socket.timeout:
+                    pass
+            assert closed or b"Invalid WEBIRC parameters" in response, response
         finally:
             for sock in sockets:
                 try: sock.close()
