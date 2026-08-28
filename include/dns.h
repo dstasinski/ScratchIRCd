@@ -2,6 +2,7 @@
 #define IRCD_DNS_H
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include "config.h"
 
@@ -25,6 +26,8 @@ typedef struct DnsResolver {
     int result_read_fd;
     int result_write_fd;
     int running;
+    /** Stop after the currently executing lookup; do not drain queued work. */
+    atomic_int stopping;
 } DnsResolver;
 
 int dns_resolver_init(DnsResolver *resolver);
