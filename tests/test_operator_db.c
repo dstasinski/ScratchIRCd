@@ -19,6 +19,21 @@ static int count_record(const OperatorRecord *record, void *context) {
     return 0;
 }
 
+static void inject_oversized_vhost(sqlite3 *db, const char *name) {
+    sqlite3_stmt *stmt = NULL;
+    char vhost[IRC_HOST_MAX + 2U];
+    memset(vhost, 'v', IRC_HOST_MAX + 1U);
+    vhost[IRC_HOST_MAX + 1U] = '\0';
+    assert(sqlite3_prepare_v2(db,
+        "UPDATE operators SET vhost=?1 WHERE name=?2",
+        -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_text(stmt, 1, vhost, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(stmt) == SQLITE_DONE);
+    assert(sqlite3_changes(db) == 1);
+    sqlite3_finalize(stmt);
+}
+
 int main(void) {
     char path[128];
     OperatorDb db;
@@ -62,10 +77,11 @@ int main(void) {
     assert(operator_db_list(&db, count_record, NULL) == 0);
     assert(seen_count == 1);
 
-    assert(operator_db_delete(&db, "renamedoper") == 0);
-    assert(operator_db_get(&db, "renamedoper", &got) == 0);
-
+    inject_oversized_vhost(db.handle, "RenamedOper");
     operator_db_close(&db);
+    assert(operator_db_open(&db, path) != 0);
+    assert(db.handle == NULL);
+
     unlink(path);
     return 0;
 }
