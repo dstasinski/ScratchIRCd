@@ -403,7 +403,7 @@ static int drain_buffered_client_input(Server *server, size_t *global_budget) {
         if (disconnect) {
             server_disconnect(server, client, client->quit_reason[0] != '\0' ? client->quit_reason : IRC_DEFAULT_QUIT_REASON);
             if (server->client_count == 0U) break;
-            index = (index + 1U) % server->client_count;
+            if (index >= server->client_count) index = 0U;
             continue;
         }
         if (client_pending) pending = 1;
