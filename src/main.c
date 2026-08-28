@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         server.started_at = time(NULL);
+        command_common_set_server_name(config.server_name);
 
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
