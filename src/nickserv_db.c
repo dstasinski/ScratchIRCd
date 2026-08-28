@@ -109,6 +109,19 @@ static int migrate_schema(sqlite3 *handle) {
     return sqlite3_exec(handle, "PRAGMA user_version=1", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
+static int persisted_vhosts_valid(sqlite3 *handle) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (handle == NULL) return -1;
+    if (sqlite3_prepare_v2(handle,
+            "SELECT 1 FROM nickserv_accounts WHERE length(vhost)>?1 LIMIT 1",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)IRC_HOST_MAX);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 static void copy_text(char *dest, size_t size, const unsigned char *text) {
     (void)snprintf(dest, size, "%s", text != NULL ? (const char *)text : "");
 }
@@ -148,7 +161,7 @@ int nickserv_db_open(NickServDb *db, const char *path) {
         nickserv_db_close(db);
         return -1;
     }
-    if (migrate_schema(db->handle) != 0) {
+    if (migrate_schema(db->handle) != 0 || persisted_vhosts_valid(db->handle) != 0) {
         nickserv_db_close(db);
         return -1;
     }
@@ -205,7 +218,8 @@ int nickserv_db_add(NickServDb *db, const NickServAccount *account) {
     size_t count = 0U;
     int rc;
 
-    if (db == NULL || db->handle == NULL || account == NULL) return -1;
+    if (db == NULL || db->handle == NULL || account == NULL ||
+        strlen(account->vhost) > IRC_HOST_MAX) return -1;
     if (account_count(db, &count) != 0 || count >= IRCD_NICKSERV_ACCOUNT_HARD_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, account->name, -1, SQLITE_TRANSIENT);
@@ -249,6 +263,7 @@ int nickserv_db_set_password(NickServDb *db, const char *name, const char *passw
 }
 
 int nickserv_db_set_vhost(NickServDb *db, const char *name, const char *vhost) {
+    if (vhost == NULL || strlen(vhost) > IRC_HOST_MAX) return -1;
     return set_text(db,
         "UPDATE nickserv_accounts SET vhost=?1,updated_at=unixepoch() WHERE name=?2",
         name, vhost);
