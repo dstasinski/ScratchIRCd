@@ -6,7 +6,6 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -285,7 +284,7 @@ static int write_queue_record(const ChanServLogQueueRecord *record) {
     return 0;
 }
 
-/* max_rows == 0 means explicitly drain the whole channel (admin use). */
+/* Administrative per-channel work is bounded just like automatic flushing. */
 static int flush_channel(Server *server, const char *name, size_t max_rows,
                          size_t *flushed_out) {
     ChanServDb *db;
@@ -293,7 +292,7 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
     size_t count;
     size_t total = 0U;
     if (flushed_out != NULL) *flushed_out = 0U;
-    if (!server || !name) return -1;
+    if (!server || !name || max_rows == 0U) return -1;
     active_server = server;
     db = shared_db(server);
     if (db == NULL || ensure_queue_count(server) != 0) return -1;
@@ -301,7 +300,7 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
         size_t i;
         size_t capacity = CHANNEL_LOG_FLUSH_FETCH_ROWS;
         long long last_id = 0;
-        if (max_rows != 0U && max_rows - total < capacity)
+        if (max_rows - total < capacity)
             capacity = max_rows - total;
         if (capacity == 0U) break;
         if (chanserv_db_logging_queue_fetch(db, name, rows, capacity, &count) != 0) return -1;
@@ -316,36 +315,37 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
         total += count;
         if (log_queue_count < server->config.channel_log_queue_max_rows)
             log_queue_full_notice_time = 0;
-        if (max_rows != 0U && total >= max_rows) break;
+        if (total >= max_rows) break;
     }
     if (flushed_out != NULL) *flushed_out = total;
     return 0;
 }
 
-static long long oldest_for(Server *server, const char *name) {
+/* Return non-zero only when the channel queue is definitely empty. Decode or
+ * database errors fail closed so a corrupt durable row never causes an early
+ * closing boundary to be written ahead of data that still needs attention. */
+static int channel_queue_empty(Server *server, const char *name) {
     ChanServDb *db;
     ChanServLogQueueRecord row;
-    size_t count = 0;
-    long long when = 0;
+    size_t count = 0U;
     if (!server || !name || (db = shared_db(server)) == NULL) return 0;
-    if (chanserv_db_logging_queue_fetch(db, name, &row, 1, &count) == 0 && count == 1)
-        when = row.event_time;
-    return when;
+    if (chanserv_db_logging_queue_fetch(db, name, &row, 1U, &count) != 0) return 0;
+    return count == 0U;
 }
 
 /* Automatic work is globally oldest-first so a large backlog in one channel
- * cannot starve other queued channels. cutoff is inclusive. max_rows==0 drains
- * all matching rows and is reserved for shutdown. */
+ * cannot starve other queued channels. Every pass has an explicit row budget. */
 static void flush_queued(Server *server, long long cutoff, size_t max_rows) {
     ChanServDb *db;
     ChanServLogQueueRecord rows[CHANNEL_LOG_FLUSH_FETCH_ROWS];
     size_t total = 0U;
-    if (!server || (db = shared_db(server)) == NULL || ensure_queue_count(server) != 0) return;
+    if (!server || max_rows == 0U || (db = shared_db(server)) == NULL ||
+        ensure_queue_count(server) != 0) return;
     for (;;) {
         size_t i, count = 0U;
         size_t capacity = CHANNEL_LOG_FLUSH_FETCH_ROWS;
         ChanServLogQueueRecord *last;
-        if (max_rows != 0U && max_rows - total < capacity)
+        if (max_rows - total < capacity)
             capacity = max_rows - total;
         if (capacity == 0U) break;
         if (chanserv_db_logging_queue_fetch_due(db, cutoff, rows, capacity, &count) != 0 || count == 0U)
@@ -360,7 +360,7 @@ static void flush_queued(Server *server, long long cutoff, size_t max_rows) {
         total += count;
         if (log_queue_count < server->config.channel_log_queue_max_rows)
             log_queue_full_notice_time = 0;
-        if (max_rows != 0U && total >= max_rows) break;
+        if (total >= max_rows) break;
     }
 }
 
@@ -398,13 +398,6 @@ void channel_log_flush_due(Server *server, time_t now) {
     }
 }
 
-void channel_log_flush_all(Server *server) {
-    if (server) {
-        active_server = server;
-        flush_queued(server, LLONG_MAX, 0U);
-    }
-}
-
 void channel_log_rotate_all(time_t now) {
     ChannelLogState *state;
     struct tm local;
@@ -419,7 +412,7 @@ void channel_log_rotate_all(time_t now) {
         /* Do not close yesterday's file ahead of durable queued records that
          * still belong in it. Automatic passes continue draining the globally
          * oldest records in bounded chunks; rotation completes when empty. */
-        if (oldest_for(active_server, state->channel) != 0) continue;
+        if (!channel_queue_empty(active_server, state->channel)) continue;
         ensure_file(state, now);
     }
 }
@@ -445,11 +438,14 @@ int channel_log_handle_chanserv(Server *server, Client *client, const char *text
     if (db_get_enabled(server, channel, &registered, &current) != 0 || !registered) { cs_notice(server, client, "Channel is not registered."); return 1; }
     enable = strcasecmp(value, "ON") == 0;
     state = state_for(channel, 1);
-    if (!enable) (void)flush_channel(server, channel, 0U, NULL);
+    if (!enable)
+        (void)flush_channel(server, channel, CHANNEL_LOG_FLUSH_DUE_MAX_ROWS, NULL);
     if (db_set_enabled(server, channel, enable) != 0) { cs_notice(server, client, "Unable to update channel logging."); return 1; }
     if (state) {
         state->known = 1;
-        if (!enable && state->enabled && state->date_suffix[0] && localtime_r(&(time_t){time(NULL)}, &local) != NULL)
+        if (!enable && state->enabled && state->date_suffix[0] &&
+            channel_queue_empty(server, state->channel) &&
+            localtime_r(&(time_t){time(NULL)}, &local) != NULL)
             boundary(state->channel, state->date_suffix, &local, 0);
         state->enabled = enable;
         if (enable) { now = time(NULL); ensure_file(state, now); }
