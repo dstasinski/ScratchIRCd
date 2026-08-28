@@ -40,7 +40,7 @@ static int stats_ban_row(const BanRecord *record, void *context) {
                      record->mask, record->set_by, record->expires_at,
                      record->reason);
     }
-    return 0;
+    return stats->client->output_overflowed ? 1 : 0;
 }
 
 static int stats_geoban_row(const GeoBanRecord *record, void *context) {
@@ -53,7 +53,7 @@ static int stats_geoban_row(const GeoBanRecord *record, void *context) {
                  stats->server->config.server_name, stats->client->nick,
                  geoban_type_name(record->type), record->value,
                  record->set_by, record->expires_at, record->reason);
-    return 0;
+    return stats->client->output_overflowed ? 1 : 0;
 }
 
 static int stats_require_oper(Server *server, Client *client) {
@@ -165,7 +165,6 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
         StatsBanContext context = {server, client, 'k'};
         if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
         if (ban_db_open(&db, server->config.bans_db) == 0) {
-            (void)ban_db_purge_expired(&db);
             (void)ban_db_list(&db, BAN_TYPE_KLINE, stats_ban_row, &context);
             ban_db_close(&db);
         }
@@ -175,7 +174,6 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
         StatsBanContext context = {server, client, 'z'};
         if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
         if (ban_db_open(&db, server->config.bans_db) == 0) {
-            (void)ban_db_purge_expired(&db);
             (void)ban_db_list(&db, BAN_TYPE_ZLINE, stats_ban_row, &context);
             ban_db_close(&db);
         }
@@ -205,8 +203,9 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
         selector = '?';
     }
 
-    client_sendf(client, RPL_ENDOFSTATS,
-                 server->config.server_name, client->nick, selector);
+    if (!client->output_overflowed)
+        client_sendf(client, RPL_ENDOFSTATS,
+                     server->config.server_name, client->nick, selector);
     return COMMAND_KEEP_CLIENT;
 }
 
