@@ -49,21 +49,29 @@ int main(void) {
     snprintf(geo.country_code, sizeof(geo.country_code), "ru");
     assert(geoban_db_match(&db, &geo, &match) == 1);
     assert(match.type == GEOBAN_COUNTRY);
+    assert(geoban_record_matches(&match, &geo));
 
     memset(&geo, 0, sizeof(geo));
     snprintf(geo.region_code, sizeof(geo.region_code), "az");
     assert(geoban_db_match(&db, &geo, &match) == 1);
     assert(match.type == GEOBAN_REGION);
+    assert(geoban_record_matches(&match, &geo));
 
     memset(&geo, 0, sizeof(geo));
     geo.asn = 22773U;
     assert(geoban_db_match(&db, &geo, &match) == 1);
     assert(match.type == GEOBAN_ASN);
+    assert(geoban_record_matches(&match, &geo));
 
     memset(&geo, 0, sizeof(geo));
     snprintf(geo.organization, sizeof(geo.organization), "ACME Example Network LLC West");
     assert(geoban_db_match(&db, &geo, &match) == 1);
     assert(match.type == GEOBAN_ORG);
+    assert(geoban_record_matches(&match, &geo));
+
+    memset(&geo, 0, sizeof(geo));
+    snprintf(geo.organization, sizeof(geo.organization), "Unrelated Transit LLC");
+    assert(!geoban_record_matches(&match, &geo));
 
     listed = 0;
     assert(geoban_db_list(&db, count_record, NULL) == 0);
