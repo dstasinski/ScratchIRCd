@@ -23,6 +23,17 @@ static int load_single_option(const char *line) {
     return rc;
 }
 
+static int load_server_name_length(size_t length) {
+    char line[IRC_SERVER_NAME_MAX + 32U];
+    size_t prefix = strlen("server_name = ");
+    assert(length + prefix + 2U <= sizeof(line));
+    memcpy(line, "server_name = ", prefix);
+    memset(line + prefix, 's', length);
+    line[prefix + length] = '\n';
+    line[prefix + length + 1U] = '\0';
+    return load_single_option(line);
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-config-XXXXXX";
     int fd = mkstemp(path);
@@ -136,6 +147,8 @@ int main(void) {
     assert(config.nickserv_reset_seconds == 1200U);
     assert(config.nickserv_verify_seconds == 7200U);
 
+    assert(load_server_name_length(IRC_SERVER_NAME_MAX) == 0);
+    assert(load_server_name_length(IRC_SERVER_NAME_MAX + 1U) != 0);
     assert(load_single_option("max_channels = 0\n") != 0);
     assert(load_single_option("max_channels = 262145\n") != 0);
     assert(load_single_option("max_channels = 262144\n") == 0);
