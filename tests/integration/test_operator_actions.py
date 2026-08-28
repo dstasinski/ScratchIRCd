@@ -100,11 +100,12 @@ def main():
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+        server_name = "s" * 63
 
         open(motd, "w", encoding="utf-8").write("test\n")
         open(rules, "w", encoding="utf-8").write("test\n")
         with open(config, "w", encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n")
+            f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
             f.write(f"motd_file = {motd}\nrules_file = {rules}\n")
@@ -139,6 +140,35 @@ def main():
             admin.expect("Nickname registered and identified.")
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
+
+            # NSINFO must not silently disappear when every persisted identity
+            # field is valid but the rendered NOTICE exceeds one IRC envelope.
+            long_account = "n" * 31
+            long_vhost = "v" * 63
+            long_email = "e" * 64 + "@" + "d" * 185 + ".com"
+            assert len(long_email) == 254
+            long_client = IRCClient(port); clients.append(long_client)
+            register(long_client, long_account)
+            long_client.send("NICKSERV REGISTER longpass")
+            long_client.expect("Nickname registered and identified.")
+            admin.send(f"NSSET {long_account} VHOST {long_vhost}")
+            admin.expect("NickServ account updated.")
+            admin.send(f"NSSET {long_account} EMAIL {long_email}")
+            admin.expect("NickServ account updated.")
+            admin.send(f"NSINFO {long_account}")
+            info_head = admin.expect(f"NICKSERV {long_account} enabled=1")
+            info_tail = admin.expect(long_email[-32:])
+            info_lines = info_head + info_tail
+            prefix = f":{server_name} NOTICE alice :"
+            payloads = [line[len(prefix):] for line in info_lines if line.startswith(prefix)]
+            expected_info = (
+                f"NICKSERV {long_account} enabled=1 vhost={long_vhost} "
+                f"email={long_email} email_verified=1 created="
+            )
+            joined_payload = "".join(payloads)
+            assert expected_info in joined_payload, payloads
+            assert " updated=" in joined_payload, payloads
+            assert all(len(line.encode()) <= 510 for line in info_lines), info_lines
 
             # Netadmin creates the registration, then assigns founder ownership
             # to the ordinary account. Founder status still does not imply oper
