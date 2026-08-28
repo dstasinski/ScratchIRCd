@@ -1,6 +1,8 @@
 #ifndef IRCD_IRC_H
 #define IRCD_IRC_H
 
+#include <stddef.h>
+
 #include "server.h"
 
 /**
@@ -10,5 +12,8 @@
  * of 1 requests that the caller disconnect the client (QUIT); 0 keeps it.
  */
 int irc_handle_line(Server *server, Client *client, char *line);
+
+/** Largest topic guaranteed to fit both query and relay wire envelopes. */
+size_t irc_topic_limit(const Server *server);
 
 #endif /* IRCD_IRC_H */
