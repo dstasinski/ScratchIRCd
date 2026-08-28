@@ -91,6 +91,9 @@ int main(void) {
     assert(operator_db_set_password(&db, "TestOper", long_hash) == -1);
     assert(operator_db_set_permissions(&db, "TestOper", long_permissions) == -1);
     assert(operator_db_set_vhost(&db, "TestOper", long_vhost) == -1);
+    assert(operator_db_set_name(&db, "TestOper", "Bad\nName") == -1);
+    assert(operator_db_set_permissions(&db, "TestOper", "can_kill\rcan_kline") == -1);
+    assert(operator_db_set_vhost(&db, "TestOper", "bad\nhost") == -1);
 
     memset(&invalid, 0, sizeof(invalid));
     snprintf(invalid.name, sizeof(invalid.name), "%s", "Invalid");
@@ -114,6 +117,12 @@ int main(void) {
     assert(operator_db_get(&db, "TestOper", &got) == 1);
 
     raw_set_text(db.handle, "permissions", "TestOper", long_permissions);
+    assert(operator_db_get(&db, "TestOper", &got) == -1);
+    assert(operator_db_list(&db, count_record, NULL) == -1);
+    raw_set_text(db.handle, "permissions", "TestOper", "can_kill,can_kline");
+    assert(operator_db_get(&db, "TestOper", &got) == 1);
+
+    raw_set_text(db.handle, "permissions", "TestOper", "can_kill\ncan_kline");
     assert(operator_db_get(&db, "TestOper", &got) == -1);
     assert(operator_db_list(&db, count_record, NULL) == -1);
     raw_set_text(db.handle, "permissions", "TestOper", "can_kill,can_kline");
