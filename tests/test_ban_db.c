@@ -70,6 +70,8 @@ int main(void) {
                         "baduser@example.test", NULL, &match) == 1);
     assert(strcmp(match.reason, "testing kline") == 0);
     assert(match.expires_at == 0);
+    assert(ban_record_matches(&match, "baduser@example.test", NULL));
+    assert(!ban_record_matches(&match, "gooduser@example.test", NULL));
 
     /* Matching must remain a WAL-safe read operation even while another
      * connection owns the database writer slot. The old pre-match DELETE
@@ -87,11 +89,14 @@ int main(void) {
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "192.0.2.44", NULL, &match) == 1);
     assert(strcmp(match.reason, "testing legacy wildcard zline") == 0);
+    assert(ban_record_matches(&match, "192.0.2.44", NULL));
 
     /* IPv4 CIDR matching is numeric and respects prefix boundaries. */
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "203.0.113.25", NULL, &match) == 1);
     assert(strcmp(match.mask, "203.0.113.0/24") == 0);
+    assert(ban_record_matches(&match, "203.0.113.25", NULL));
+    assert(!ban_record_matches(&match, "203.0.114.25", NULL));
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "203.0.114.25", NULL, &match) == 0);
 
@@ -99,6 +104,7 @@ int main(void) {
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "2001:0db8:1234:abcd::1", NULL, &match) == 1);
     assert(strcmp(match.mask, "2001:db8:1234::/48") == 0);
+    assert(ban_record_matches(&match, "2001:0db8:1234:abcd::1", NULL));
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "2001:db8:1235::1", NULL, &match) == 0);
 
@@ -106,6 +112,7 @@ int main(void) {
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "2001:0db8:0:0:0:0:0:1", NULL, &match) == 1);
     assert(strcmp(match.mask, "2001:db8::1") == 0);
+    assert(ban_record_matches(&match, "2001:0db8:0:0:0:0:0:1", NULL));
 
     assert(ban_db_match(&db, BAN_TYPE_ZLINE,
                         "198.51.100.9", NULL, &match) == 0);
