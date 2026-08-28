@@ -131,14 +131,20 @@ static int state_enabled(Server *server, const char *name) {
     int registered = 0, enabled = 0;
     if (!server || !name) return 0;
     active_server = server;
+    state = state_for(name, 0);
+    if (state != NULL) return state->enabled;
+
+    /* Transient and logging-disabled channels do not need rotation state.
+     * Query before allocating so ordinary channel-name churn cannot grow this
+     * process-lifetime cache without bound. */
+    if (db_get_enabled(server, name, &registered, &enabled) != 0 ||
+        !registered || !enabled)
+        return 0;
     state = state_for(name, 1);
-    if (!state) return 0;
-    if (!state->known) {
-        if (db_get_enabled(server, name, &registered, &enabled) != 0) return 0;
-        state->known = 1;
-        state->enabled = registered && enabled;
-    }
-    return state->enabled;
+    if (state == NULL) return 0;
+    state->known = 1;
+    state->enabled = 1;
+    return 1;
 }
 
 static void safe_component(const char *name, char *out, size_t size) {
