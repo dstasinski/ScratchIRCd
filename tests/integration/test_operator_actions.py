@@ -132,38 +132,41 @@ def main():
             receiver = IRCClient(port); clients.append(receiver)
             register(admin, "alice")
             register(receiver, "bob")
+
+            receiver.send("NICKSERV REGISTER bobpass")
+            receiver.expect("Nickname registered and identified.")
+            admin.send("NICKSERV REGISTER alicepass")
+            admin.expect("Nickname registered and identified.")
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
 
-            # Channel logging is persistent ChanServ state but only opers and
-            # above may toggle it, even when a non-oper is the channel founder.
-            receiver.send("NICKSERV REGISTER bobpass")
-            receiver.expect("Nickname registered and identified.")
+            # Netadmin creates the registration, then assigns founder ownership
+            # to the ordinary account. Founder status still does not imply oper
+            # authority over channel logging.
+            admin.send("JOIN #OpsLog")
+            admin.expect(" 366 alice #OpsLog ")
+            admin.send("CHANSERV REGISTER #OpsLog :operator logging test")
+            admin.expect("Channel registered successfully.")
+            admin.send("CSSET #OpsLog FOUNDER Bob")
+            admin.expect("ChanServ channel updated.")
             receiver.send("JOIN #OpsLog")
             receiver.expect(" 366 bob #OpsLog ")
-            receiver.send("CHANSERV REGISTER #OpsLog :operator logging test")
-            receiver.expect("Channel registered successfully.")
             receiver.send("CHANSERV SET #OpsLog LOGGING ON")
             receiver.expect("Only IRC operators and network administrators may change channel logging.")
             admin.send("CHANSERV SET #OpsLog LOGGING ON")
             admin.expect("Channel logging enabled.")
 
-            admin.send("JOIN #OpsLog")
-            admin.expect(" 366 alice #OpsLog ")
             receiver.send("PRIVMSG #OpsLog :logged message")
             admin.expect("PRIVMSG #OpsLog :logged message")
             receiver.send("NOTICE #OpsLog :logged notice")
             admin.expect("NOTICE #OpsLog :logged notice")
 
-            # #OpsLog is registered, so its ChanServ mode lock rejects +s.
-            # That rejected MODE must still never appear in the logfile.
             receiver.send("MODE #OpsLog +s")
             receiver.expect(" 974 bob s :Mode is locked by ChanServ")
             receiver.send("MODE #OpsLog")
             mode_lines = receiver.expect(" 324 bob #OpsLog +r")
             assert any(" 324 bob #OpsLog +r" in line for line in mode_lines), mode_lines
 
-            # Explicit QUIT is logged once by the central disconnect path.
             quitter = IRCClient(port); clients.append(quitter)
             register(quitter, "quitter")
             quitter.send("JOIN #OpsLog")
@@ -172,7 +175,6 @@ def main():
             quitter.close(); clients.remove(quitter)
             admin.expect(" QUIT :logging quit test")
 
-            # An abrupt socket loss reaches the same central path and is logged.
             dropper = IRCClient(port); clients.append(dropper)
             register(dropper, "dropper")
             dropper.send("JOIN #OpsLog")
@@ -210,7 +212,7 @@ def main():
             receiver.send("STATS")
             stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
             assert any("STATS u - server uptime" in line for line in stats_help), stats_help
-            assert any("STATS g - persistent GeoBAN policies" in line for line in stats_help), stats_help
+            assert any("STATS g - persistent GeoBan policies" in line for line in stats_help), stats_help
 
             receiver.send("STATS k")
             receiver.expect(" 481 bob ")
@@ -257,8 +259,6 @@ def main():
             admin.send("ZLINE -127.0.0.1")
             admin.expect("NOTICE alice :ZLINE removed: 127.0.0.1")
 
-            # Nickname shorthand: KLINE resolves to *@real_host (or *@real_ip),
-            # uses configured duration/reason, disconnects matching clients, and expires.
             nickkline = IRCClient(port); clients.append(nickkline)
             register(nickkline, "nickkline")
             admin.send("KLINE nickkline")
@@ -268,7 +268,6 @@ def main():
             after_kline = IRCClient(port); clients.append(after_kline)
             register(after_kline, "afterkline")
 
-            # Nickname shorthand: ZLINE resolves to the target's exact real_ip.
             nickzline = IRCClient(port); clients.append(nickzline)
             register(nickzline, "nickzline")
             admin.send("ZLINE nickzline")
