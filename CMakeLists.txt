@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ScratchIRCd
-    VERSION 0.32.0
+    VERSION 0.33.0
     DESCRIPTION "Single-server IRC daemon written from scratch in C"
     LANGUAGES C
 )
@@ -98,7 +98,7 @@ add_test(NAME dnsbl COMMAND test_dnsbl)
 add_executable(test_runtime_config tests/test_runtime_config.c src/runtime_config.c)
 target_include_directories(test_runtime_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(test_runtime_config PRIVATE _POSIX_C_SOURCE=200809L)
-add_test(NAME runtime_config COMMAND test_runtime_config)
+add_test(NAME runtime_config COMMAND test_runtime_config ${CMAKE_CURRENT_SOURCE_DIR}/ircd.conf.example)
 
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
