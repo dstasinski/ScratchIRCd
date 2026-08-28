@@ -97,7 +97,7 @@ def assert_base_isupport(lines, nick):
         "CASEMAPPING=rfc1459", "CHANTYPES=#&", "PREFIX=(qaohv)~&@%+",
         "CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz", "CHANLIMIT=#&:32",
         "NICKLEN=31", "USERLEN=31", "HOSTLEN=63", "CHANNELLEN=63",
-        "TOPICLEN=390", "KICKLEN=255", "MODES=32", "NETWORK=RuntimeNet",
+        "TOPICLEN=310", "KICKLEN=255", "MODES=32", "NETWORK=RuntimeNet",
         "EXCEPTS=e", "INVEX=I", "MAXLIST=b:100,e:100,I:100",
         "WATCH=128", "SILENCE=64",
         "TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1",
