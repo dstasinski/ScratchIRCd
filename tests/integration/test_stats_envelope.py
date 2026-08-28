@@ -233,6 +233,33 @@ def main():
             assert whowas_query.startswith(whowas_echo), whowas_echo
             assert f" 406 alice {whowas_echo} :There was no such nickname" in whowas_missing[0], whowas_missing[0]
 
+            # WHO and NAMES also terminate with the client-supplied query token.
+            # Bound those echoes so maximum legal queries still receive their
+            # terminators under a maximum-length server prefix.
+            who_query = "y" * 506
+            assert len(("WHO " + who_query).encode()) == 510
+            client.send("WHO " + who_query)
+            lines = client.collect_until(" :End of /WHO list.")
+            assert_wire_safe(lines)
+            who_end = [line for line in lines if " 315 alice " in line]
+            assert len(who_end) == 1, lines
+            who_echo = who_end[0].split(" 315 alice ", 1)[1].rsplit(
+                " :End of /WHO list.", 1)[0]
+            assert 0 < len(who_echo) < len(who_query), who_end[0]
+            assert who_query.startswith(who_echo), who_echo
+
+            names_query = "#" + ("n" * 503)
+            assert len(("NAMES " + names_query).encode()) == 510
+            client.send("NAMES " + names_query)
+            lines = client.collect_until(" :End of /NAMES list.")
+            assert_wire_safe(lines)
+            names_end = [line for line in lines if " 366 alice " in line]
+            assert len(names_end) == 1, lines
+            names_echo = names_end[0].split(" 366 alice ", 1)[1].rsplit(
+                " :End of /NAMES list.", 1)[0]
+            assert 0 < len(names_echo) < len(names_query), names_end[0]
+            assert names_query.startswith(names_echo), names_echo
+
             # File-backed text may contain physical lines far longer than one
             # IRC numeric. Preserve all text by chunking each logical line.
             client.send("MOTD")
