@@ -11,7 +11,7 @@ typedef struct WebIrcGatewayConfig {
 } WebIrcGatewayConfig;
 
 typedef struct ServerConfig {
-    char server_name[IRC_HOST_MAX + 1U];
+    char server_name[IRC_SERVER_NAME_MAX + 1U];
     char network_name[IRCD_NETWORK_NAME_MAX + 1U];
     char bind_address[IRC_HOST_MAX + 1U];
     char port[IRCD_PORT_TEXT_MAX + 1U];
