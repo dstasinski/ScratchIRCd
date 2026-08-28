@@ -11,7 +11,9 @@ static int account_arg_fits(const char *account) {
     size_t length;
     if (account == NULL) return 0;
     length = strlen(account);
-    return length != 0U && length <= IRC_NICK_MAX;
+    return length != 0U && length <= IRC_NICK_MAX &&
+           memchr(account, '\r', length) == NULL &&
+           memchr(account, '\n', length) == NULL;
 }
 
 static int copy_text_column(sqlite3_stmt *stmt, int column,
@@ -21,8 +23,11 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
     if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
     text = sqlite3_column_text(stmt, column);
     bytes = sqlite3_column_bytes(stmt, column);
-    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
-    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
     memcpy(destination, text, (size_t)bytes);
     destination[bytes] = '\0';
     return 0;
