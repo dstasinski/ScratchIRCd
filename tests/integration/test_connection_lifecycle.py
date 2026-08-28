@@ -198,7 +198,7 @@ def main():
                 for line in recreated
                 if " 353 Survivor " in line and " #ephemeral :" in line
             )
-            assert "@Survivor" in payload, recreated
+            assert "~Survivor" in payload, recreated
         finally:
             for client in live:
                 client.close()

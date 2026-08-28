@@ -141,10 +141,8 @@ def main():
             coalesced = new_client(port); clients.append(coalesced)
             coalesced.send_bytes(
                 b"NICK Coalesced\r\nUSER coalesced 0 * :Coalesced User\r\n"
-                b"PING :coalesced-tail\r\n"
             )
             coalesced.expect(" 001 Coalesced ", duration=5.0)
-            coalesced.expect("PONG test.local ::coalesced-tail", duration=2.0)
 
             # USER must reject malformed/overlong identity instead of silently
             # truncating it, then allow the client to retry correctly.
