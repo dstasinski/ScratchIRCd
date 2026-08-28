@@ -14,6 +14,7 @@
 #include "numerics.h"
 #include "usermode_policy.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -121,12 +122,36 @@ static int check_mlock(Server *server, Client *client, Channel *channel,
     return 1;
 }
 
+/* SQLite INTEGER is signed 64-bit. Keep every live +l value representable so
+ * a later registration or an already-registered channel can always persist
+ * exactly. Invalid non-decimal tokens are left for the mature core parser. */
+static int user_limit_exceeds_persistable_range(const char *param) {
+    static const char maximum[] = "9223372036854775807";
+    const char *digits;
+    const char *p;
+    size_t length;
+
+    if (param == NULL || *param == '\0') return 0;
+    digits = param;
+    if (*digits == '+') ++digits;
+    if (*digits == '-') return 1;
+    if (*digits == '\0') return 0;
+    for (p = digits; *p != '\0'; ++p)
+        if (!isdigit((unsigned char)*p)) return 0;
+    while (digits[0] == '0' && digits[1] != '\0') ++digits;
+    length = strlen(digits);
+    if (length != sizeof(maximum) - 1U)
+        return length > sizeof(maximum) - 1U;
+    return strcmp(digits, maximum) > 0;
+}
+
 /**
- * Validate +B/+L destinations before the mature MODE parser stores them.
- * This prevents silent truncation and pointless self-redirects.
+ * Validate channel-mode parameters before the mature MODE parser stores them.
+ * This prevents redirect truncation/self-loops and values that cannot be
+ * represented by persistent channel policy.
  */
-static int validate_redirect_modes(Server *server, Client *client,
-                                   Channel *channel, const char *params) {
+static int validate_channel_mode_params(Server *server, Client *client,
+                                        Channel *channel, const char *params) {
     char copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *target, *modes, *argv[IRC_MODE_MAX_PARAMS], *token;
     size_t argc = 0U, argi = 0U, i;
@@ -155,6 +180,12 @@ static int validate_redirect_modes(Server *server, Client *client,
         else if ((letter == 'b' || letter == 'e' || letter == 'I') && param != NULL)
             consumes = 1;
 
+        if (letter == 'l' && sign == '+' && param != NULL &&
+            user_limit_exceeds_persistable_range(param)) {
+            client_sendf(client, ERR_NEEDMOREPARAMS,
+                         server->config.server_name, client->nick, "MODE");
+            return 0;
+        }
         if ((letter == 'L' || letter == 'B') && sign == '+') {
             if (param == NULL || strchr(IRC_CHANNEL_PREFIXES, param[0]) == NULL ||
                 strlen(param) > IRC_CHANNEL_NAME_MAX ||
@@ -261,7 +292,7 @@ CommandResult command_mode(Server *server, Client *client, char *params) {
         }
         if (!check_mlock(server, client, channel, mode_string))
             return COMMAND_KEEP_CLIENT;
-        if (!validate_redirect_modes(server, client, channel, params))
+        if (!validate_channel_mode_params(server, client, channel, params))
             return COMMAND_KEEP_CLIENT;
         if (channel != NULL) {
             old_join_count = channel->join_throttle_count;
