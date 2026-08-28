@@ -27,11 +27,8 @@ void channel_log_quit(Server *server, Channel *channel, Client *client,
 void channel_log_message(Server *server, Channel *channel, Client *client,
                          const char *text, int is_notice);
 
-/** Flush queues whose oldest record has waited at least five minutes. */
+/** Flush one bounded batch whose oldest records have waited at least five minutes. */
 void channel_log_flush_due(Server *server, time_t now);
-
-/** Flush every queued event, used for disable/shutdown/restart boundaries. */
-void channel_log_flush_all(Server *server);
 
 /** Rotate/flush known logs from the existing server event-loop clock. */
 void channel_log_rotate_all(time_t now);
