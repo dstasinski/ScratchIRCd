@@ -83,6 +83,7 @@ int main(void) {
     const char *fresh_log = "logs/Fresh.log.01Jan2099";
     Server server;
     Channel channel;
+    Channel transient;
     Client client;
     ChanServDb db = {0};
     ChanServLogQueueRecord rows[8];
@@ -99,11 +100,13 @@ int main(void) {
 
     memset(&server, 0, sizeof(server));
     memset(&channel, 0, sizeof(channel));
+    memset(&transient, 0, sizeof(transient));
     memset(&client, 0, sizeof(client));
     server.config.channel_log_queue_max_rows = IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS;
     (void)snprintf(db_path, sizeof(db_path), "%s/chanserv.db", tmp);
     (void)snprintf(server.config.chanserv_db, sizeof(server.config.chanserv_db), "%s", db_path);
     (void)snprintf(channel.name, sizeof(channel.name), "#Rotate");
+    (void)snprintf(transient.name, sizeof(transient.name), "#Transient");
     (void)snprintf(client.nick, sizeof(client.nick), "Alice");
     (void)snprintf(client.user, sizeof(client.user), "alice");
     (void)snprintf(client.display_host, sizeof(client.display_host), "cloak.example");
@@ -115,6 +118,24 @@ int main(void) {
     chanserv_db_close(&db);
 
     assert(channel_log_init(&server) == 0);
+
+    /* An unregistered channel must not create a persistent negative cache
+     * entry. Registering/enabling it later in the same process must take effect
+     * immediately without requiring RESTART. This also prevents arbitrary
+     * transient channel-name churn from growing the logging state list. */
+    channel_log_message(&server, &transient, &client, "unregistered", 0);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 0U);
+    assert(chanserv_db_create(&db, transient.name, "Alice", "late registration") == 0);
+    assert(chanserv_db_logging_set(&db, transient.name, 1) == 0);
+    chanserv_db_close(&db);
+    channel_log_message(&server, &transient, &client, "enabled without restart", 0);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1U);
+    assert(sqlite3_exec(db.db, "DELETE FROM channel_log_queue", NULL, NULL, NULL) == SQLITE_OK);
+    assert(queue_count(&db) == 0U);
+    chanserv_db_close(&db);
+
     now = time(NULL);
     assert(localtime_r(&now, &now_tm) != NULL);
     (void)strftime(old_suffix, sizeof(old_suffix), "%d%b%Y", &now_tm);
