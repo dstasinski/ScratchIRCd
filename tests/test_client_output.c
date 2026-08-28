@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -20,6 +21,38 @@ static void fill_until_queued(Client *client) {
     for (attempts = 0; attempts < 10000 && !client_output_pending(client); ++attempts)
         assert(client_send_raw(client, block, sizeof(block)) >= 0);
     assert(client_output_pending(client));
+}
+
+static void test_flush_budget(void) {
+    int fds[2];
+    Client *client;
+    size_t before;
+    size_t consumed;
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+    nonblock(fds[0]);
+    nonblock(fds[1]);
+    client = client_create(fds[0], 5U, AF_UNIX, "127.0.0.1");
+    assert(client != NULL);
+    client_set_output_limit(client, 262144U);
+
+    client->outbuf_capacity = 131072U;
+    client->outbuf = malloc(client->outbuf_capacity);
+    assert(client->outbuf != NULL);
+    memset(client->outbuf, 'Q', client->outbuf_capacity);
+    client->outbuf_start = 0U;
+    client->outbuf_len = client->outbuf_capacity;
+    before = client->outbuf_len;
+
+    assert(client_flush_output(client) >= 0);
+    assert(client_output_pending(client));
+    consumed = before - client->outbuf_len;
+    assert(consumed > 0U);
+    assert(consumed <= 65536U);
+
+    client_free(client);
+    close(fds[0]);
+    close(fds[1]);
 }
 
 static void test_tls_send_waits_for_input_retry(void) {
@@ -47,6 +80,7 @@ static void test_tls_send_waits_for_input_retry(void) {
     assert(client_output_pending(client));
     assert(client->outbuf_len == sizeof(payload) - 1U);
     assert(client->output_retry_pending == 0);
+    assert(client->output_retry_length == 0U);
     rc = recv(fds[1], &byte, 1U, 0);
     assert(rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK));
 
@@ -152,6 +186,7 @@ int main(void) {
     close(fds[0]);
     close(fds[1]);
 
+    test_flush_budget();
     test_tls_send_waits_for_input_retry();
     test_tagged_line_framing();
     return 0;
