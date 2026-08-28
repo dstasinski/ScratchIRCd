@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define TEST_IRCV3_SERVER_TAG_SECTION_MAX 4096U
+
 static void nonblock(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     assert(flags >= 0);
@@ -94,9 +96,8 @@ static void test_tagged_line_framing(void) {
     int fds[2];
     Client *client;
     char untagged[IRC_LINE_CONTENT_MAX + 2U];
-    char tagged[IRCD_OUTPUT_BUFFER_SIZE];
-    static const char tag[] = "@time=2026-08-27T22:41:00.000Z ";
-    size_t tag_len = sizeof(tag) - 1U;
+    char tagged[TEST_IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX + 2U];
+    size_t separator = TEST_IRCV3_SERVER_TAG_SECTION_MAX - 1U;
 
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
     nonblock(fds[0]);
@@ -111,15 +112,20 @@ static void test_tagged_line_framing(void) {
     untagged[IRC_LINE_CONTENT_MAX + 1U] = '\0';
     assert(client_send_line(client, untagged) < 0);
 
-    assert(tag_len + IRC_LINE_CONTENT_MAX + 1U < sizeof(tagged));
-    memcpy(tagged, tag, tag_len);
-    memset(tagged + tag_len, 'T', IRC_LINE_CONTENT_MAX);
-    tagged[tag_len + IRC_LINE_CONTENT_MAX] = '\0';
-    assert(strlen(tagged) > IRC_LINE_CONTENT_MAX);
+    /* Exercise the exact server-tag allowance rather than only a short @time
+     * prefix. The tag section includes its separating space; the ordinary IRC
+     * message remains independently bounded to 510 bytes. */
+    tagged[0] = '@';
+    memset(tagged + 1U, 'a', separator - 1U);
+    tagged[separator] = ' ';
+    memset(tagged + separator + 1U, 'T', IRC_LINE_CONTENT_MAX);
+    tagged[separator + 1U + IRC_LINE_CONTENT_MAX] = '\0';
+    assert(separator + 1U == TEST_IRCV3_SERVER_TAG_SECTION_MAX);
+    assert(strlen(tagged) == TEST_IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX);
     assert(client_send_line(client, tagged) >= 0);
 
-    tagged[tag_len + IRC_LINE_CONTENT_MAX] = 'T';
-    tagged[tag_len + IRC_LINE_CONTENT_MAX + 1U] = '\0';
+    tagged[separator + 1U + IRC_LINE_CONTENT_MAX] = 'T';
+    tagged[separator + 1U + IRC_LINE_CONTENT_MAX + 1U] = '\0';
     assert(client_send_line(client, tagged) < 0);
 
     client_free(client);
