@@ -2,6 +2,10 @@
 
 ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally single-server and will never link to other IRC servers. Development currently happens directly on the `Genesis` branch.
 
+## Release status
+
+The `Genesis` branch contains a broad development implementation. Implemented features are not automatically part of the supported release surface. The first release gate is [Milestone 1: Minimum Secure IRC Server](MILESTONE-1.md), which certifies a deliberately bounded core before advanced services and integrations are promoted into supported releases.
+
 ## Current foundation
 
 The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, IRCv3 CAP negotiation with SASL PLAIN and persistent channel history, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account/channel/history persistence, a virtual NickServ service with nickname and email-based account recovery, and a virtual ChanServ service for registered persistent channels.
