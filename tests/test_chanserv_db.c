@@ -89,6 +89,9 @@ int main(void) {
     assert(chanserv_db_create(&db, long_name, "Alice", "bad name") == -1);
     assert(chanserv_db_create(&db, "#BadFounder", long_founder, "bad founder") == -1);
     assert(chanserv_db_create(&db, "#BadDescription", "Alice", long_description) == -1);
+    assert(chanserv_db_create(&db, "#Bad\nName", "Alice", "bad name") == -1);
+    assert(chanserv_db_create(&db, "#BadFounder", "Ali\rce", "bad founder") == -1);
+    assert(chanserv_db_create(&db, "#BadDescription", "Alice", "bad\ndescription") == -1);
 
     generation = chanserv_db_pchannels_generation();
     assert(chanserv_db_create(&db, "#Test", "Alice", "Example channel") == 0);
@@ -100,6 +103,12 @@ int main(void) {
     assert(chanserv_db_set_topic(&db, "#Test", long_topic,
                                   "Alice!alice@example", 1) == -1);
     assert(chanserv_db_set_topic(&db, "#Test", "valid", long_setter, 1) == -1);
+    assert(chanserv_db_set_founder(&db, "#Test", "Ali\nce") == -1);
+    assert(chanserv_db_set_description(&db, "#Test", "bad\rdescription") == -1);
+    assert(chanserv_db_set_topic(&db, "#Test", "bad\ntopic",
+                                  "Alice!alice@example", 1) == -1);
+    assert(chanserv_db_set_topic(&db, "#Test", "valid",
+                                  "Alice!alice\r@example", 1) == -1);
     assert(chanserv_db_get(&db, long_name, &record) == -1);
 
     assert(chanserv_db_create(&db, "#Second", "Alice", "Second channel") == 0);
@@ -129,7 +138,7 @@ int main(void) {
     assert(record.topic_time == 12345);
 
     /* Externally edited/legacy rows must fail closed rather than being
-     * silently truncated into different valid-looking IRC identities/state. */
+     * silently truncated or admitting multi-line IRC state. */
     raw_set_channel_text(db.db, "founder", "#Test", long_founder);
     assert(chanserv_db_get(&db, "#Test", &record) == -1);
     raw_set_channel_text(db.db, "founder", "#Test", "Alice");
@@ -140,7 +149,17 @@ int main(void) {
     raw_set_channel_text(db.db, "description", "#Test", "Example channel");
     assert(chanserv_db_get(&db, "#Test", &record) == 1);
 
+    raw_set_channel_text(db.db, "description", "#Test", "Example\nchannel");
+    assert(chanserv_db_get(&db, "#Test", &record) == -1);
+    raw_set_channel_text(db.db, "description", "#Test", "Example channel");
+    assert(chanserv_db_get(&db, "#Test", &record) == 1);
+
     raw_set_channel_text(db.db, "topic", "#Test", long_topic);
+    assert(chanserv_db_get(&db, "#Test", &record) == -1);
+    raw_set_channel_text(db.db, "topic", "#Test", "Persistent topic");
+    assert(chanserv_db_get(&db, "#Test", &record) == 1);
+
+    raw_set_channel_text(db.db, "topic", "#Test", "Persistent\rtopic");
     assert(chanserv_db_get(&db, "#Test", &record) == -1);
     raw_set_channel_text(db.db, "topic", "#Test", "Persistent topic");
     assert(chanserv_db_get(&db, "#Test", &record) == 1);
@@ -155,6 +174,11 @@ int main(void) {
     raw_set_channel_text(db.db, "name", long_name, "#Test");
     assert(chanserv_db_get(&db, "#Test", &record) == 1);
 
+    raw_set_channel_text(db.db, "name", "#Test", "#Te\nst");
+    assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == -1);
+    raw_set_channel_text(db.db, "name", "#Te\nst", "#Test");
+    assert(chanserv_db_get(&db, "#Test", &record) == 1);
+
     assert(CHANSERV_ACCESS_VOICE == 1);
     assert(CHANSERV_ACCESS_HALFOP == 2);
     assert(CHANSERV_ACCESS_OP == 3);
@@ -163,6 +187,7 @@ int main(void) {
 
     assert(chanserv_db_access_set(&db, "#TEST", long_account, CHANSERV_ACCESS_OP) == -1);
     assert(chanserv_db_access_set(&db, long_name, "Bob", CHANSERV_ACCESS_OP) == -1);
+    assert(chanserv_db_access_set(&db, "#TEST", "Bo\nb", CHANSERV_ACCESS_OP) == -1);
     assert(chanserv_db_access_set(&db, "#TEST", "Bob", CHANSERV_ACCESS_OP) == 0);
     assert(chanserv_db_access_get(&db, "#test", "bob", &access) == 1);
     assert(strcmp(access.account, "Bob") == 0);
@@ -173,12 +198,17 @@ int main(void) {
     raw_set_access_account(db.db, "#Test", long_account, "Bob");
     assert(chanserv_db_access_get(&db, "#Test", "Bob", &access) == 1);
 
+    raw_set_access_account(db.db, "#Test", "Bob", "Bo\nb");
+    assert(chanserv_db_access_list(&db, "#Test", list, sizeof(list)) == -1);
+    raw_set_access_account(db.db, "#Test", "Bo\nb", "Bob");
+    assert(chanserv_db_access_get(&db, "#Test", "Bob", &access) == 1);
+
     assert(chanserv_db_access_set(&db, "#TEST", "Carol",
                                   CHANSERV_ACCESS_PROTECTED) == 0);
     assert(chanserv_db_access_get(&db, "#test", "carol", &access) == 1);
     assert(access.level == CHANSERV_ACCESS_PROTECTED);
 
-    assert(chanserv_db_access_set(&db, "#TEST", "Dave", CHANSERV_ACCESS_VOICE) != 0);
+    assert(chanserv_db_access_set(&db, "#test", "Dave", CHANSERV_ACCESS_VOICE) != 0);
     assert(chanserv_db_access_get(&db, "#test", "Dave", &access) == 0);
 
     assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
