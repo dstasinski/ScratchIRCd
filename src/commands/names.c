@@ -71,13 +71,18 @@ static void send_names_for_channel(Server *server, Client *client,
             continue;
         }
 
-        if (used != 0U) send_names_chunk(server, client, marker, channel, names);
+        if (used != 0U) {
+            send_names_chunk(server, client, marker, channel, names);
+            if (client->output_overflowed) return;
+        }
         (void)snprintf(names, sizeof(names), "%s", token);
         used = strlen(names);
     }
 
-    if (used != 0U || channel->member_count == 0U)
+    if (used != 0U || channel->member_count == 0U) {
         send_names_chunk(server, client, marker, channel, names);
+        if (client->output_overflowed) return;
+    }
 
     client_sendf(client, RPL_ENDOFNAMES, server->config.server_name,
                  client->nick, channel->name);
@@ -101,7 +106,8 @@ CommandResult command_names(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    for (size_t bucket = 0U; bucket < server->channels_by_name.bucket_count;
+    for (size_t bucket = 0U;
+         bucket < server->channels_by_name.bucket_count && !client->output_overflowed;
          ++bucket) {
         HashEntry *entry;
         for (entry = server->channels_by_name.buckets[bucket]; entry != NULL;
@@ -109,6 +115,7 @@ CommandResult command_names(Server *server, Client *client, char *params) {
             Channel *channel = entry->value;
             if (visibility_names_channel(client, channel)) {
                 send_names_for_channel(server, client, channel);
+                if (client->output_overflowed) break;
             }
         }
     }
