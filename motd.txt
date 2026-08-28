@@ -1,0 +1,7 @@
+Welcome to ScratchIRCd.
+
+This server is running a development build of ScratchIRCd, a standalone
+single-server IRC daemon. Server linking is intentionally unsupported.
+
+Please read the network rules with /RULES and contact the server administrator
+if you need assistance.

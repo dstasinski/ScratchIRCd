@@ -47,7 +47,7 @@ CommandResult command_user(Server *server, Client *client, char *params) {
     char *unused;
     char *realname;
 
-    if (client->registered) {
+    if (client->registered || client->user[0] != '\0') {
         client_sendf(client, ERR_ALREADYREGISTRED,
                      server->config.server_name, command_reply_nick(client));
         return COMMAND_KEEP_CLIENT;

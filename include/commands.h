@@ -18,6 +18,8 @@ void command_common_set_server_name(const char *server_name);
 /** Reset process-local command caches/handles for shutdown or in-process RESTART. */
 void command_common_reset_state(void);
 void command_motd_reset_cache(void);
+/** Send the configured MOTD sequence to a registered client. */
+void command_send_motd(Server *server, Client *client);
 void command_rules_reset_cache(void);
 /** Charge the shared weighted budget used for database/enumeration work. */
 int command_expensive_allow(Server *server, Client *client,

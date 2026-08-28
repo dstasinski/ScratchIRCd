@@ -58,21 +58,27 @@ static void send_cached_motd_lines(Server *server, Client *client,
     }
 }
 
-CommandResult command_motd(Server *server, Client *client, char *params) {
+void command_send_motd(Server *server, Client *client) {
     const char *text;
     size_t length = 0U;
-    (void)params;
 
-    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+    if (server == NULL || client == NULL || !client->registered) return;
     text = text_file_cache_get(&motd_cache, server->config.motd_file, &length);
     if (text == NULL) {
         client_sendf(client, ERR_NOMOTD, server->config.server_name, client->nick);
-        return COMMAND_KEEP_CLIENT;
+        return;
     }
 
     client_sendf(client, RPL_MOTDSTART, server->config.server_name,
                  client->nick, server->config.server_name);
     send_cached_motd_lines(server, client, text, length);
-    client_sendf(client, RPL_ENDOFMOTD, server->config.server_name, client->nick);
+    if (!client->output_overflowed)
+        client_sendf(client, RPL_ENDOFMOTD, server->config.server_name, client->nick);
+}
+
+CommandResult command_motd(Server *server, Client *client, char *params) {
+    (void)params;
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+    command_send_motd(server, client);
     return COMMAND_KEEP_CLIENT;
 }
