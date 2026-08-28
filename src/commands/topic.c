@@ -10,6 +10,7 @@
 
 #include "commands.h"
 #include "config.h"
+#include "irc.h"
 #include "ircv3.h"
 #include "modes.h"
 #include "numerics.h"
@@ -90,11 +91,9 @@ CommandResult command_topic(Server *server, Client *client, char *params) {
     if (*topic == ':') ++topic;
 
     /* TOPICLEN is derived from the configured server-name envelope so every
-     * accepted topic is guaranteed to fit a later 332 reply for the longest
-     * legal requester nick and channel name. The source-prefixed live
-     * broadcast is checked separately because its envelope depends on the
-     * setter's user/display_host identity. */
-    if (strlen(topic) > command_topic_limit(server) ||
+     * accepted topic is guaranteed to fit both a later 332 reply and every
+     * legal source-prefixed live TOPIC relay. */
+    if (strlen(topic) > irc_topic_limit(server) ||
         !ircv3_message_wire_fits(client, "TOPIC", channel->name, topic)) {
         client_sendf(client,
                      ":%s 417 %s TOPIC :Topic would exceed the IRC line limit",
