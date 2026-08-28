@@ -58,6 +58,27 @@ static unsigned int general_flood_cost(const char *command) {
     return 1U;
 }
 
+static void send_bounded_command_numeric(Server *server, Client *client,
+                                         int numeric, const char *command,
+                                         const char *text) {
+    const char *reply_nick;
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL || text == NULL) return;
+    if (command == NULL || *command == '\0') command = "*";
+    reply_nick = command_reply_nick(client);
+    base_length = snprintf(NULL, 0, ":%s %03d %s  :%s",
+                           server->config.server_name, numeric,
+                           reply_nick, text);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(command);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s %03d %s %.*s :%s",
+                 server->config.server_name, numeric, reply_nick,
+                 (int)length, command, text);
+}
+
 static int general_flood_allow(Server *server, Client *client,
                                const char *command, unsigned int cost) {
     time_t now;
@@ -106,9 +127,8 @@ static int general_flood_allow(Server *server, Client *client,
         return 0;
     }
 
-    client_sendf(client, ":%s 263 %s %s :Flood protection - please slow down",
-                 server->config.server_name, command_reply_nick(client),
-                 command != NULL ? command : "*");
+    send_bounded_command_numeric(server, client, 263, command,
+                                 "Flood protection - please slow down");
     return -1;
 }
 
@@ -230,6 +250,6 @@ CommandResult command_dispatch(Server *server,Client *client,const char *command
             return command_table[index].handler(server,client,params);
         }
     }
-    client_sendf(client,ERR_UNKNOWNCOMMAND,server->config.server_name,command_reply_nick(client),command);
+    send_bounded_command_numeric(server, client, 421, command, "Unknown command");
     return COMMAND_KEEP_CLIENT;
 }
