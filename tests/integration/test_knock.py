@@ -95,6 +95,17 @@ def register(client, nick):
     client.expect(f" 001 {nick} ")
 
 
+def assert_bounded_403(client, command, query, nick):
+    assert len((command + " " + query).encode()) == 510
+    client.send(command + " " + query)
+    line = client.expect(f" 403 {nick} ")
+    assert len(line.encode()) <= 510, line
+    assert line.endswith(" :No such channel"), line
+    echo = line.split(f" 403 {nick} ", 1)[1].rsplit(" :No such channel", 1)[0]
+    assert 0 < len(echo) < len(query), line
+    assert query.startswith(echo), echo
+
+
 def stop_server(proc):
     if proc.poll() is not None:
         return
@@ -142,16 +153,10 @@ def main():
             register(owner, "Owner")
             register(guest, "Guest")
 
-            missing_channel = "#" + ("x" * 503)
-            assert len(("KNOCK " + missing_channel).encode()) == 510
-            guest.send("KNOCK " + missing_channel)
-            missing_line = guest.expect(" 403 Guest ")
-            assert len(missing_line.encode()) <= 510, missing_line
-            assert missing_line.endswith(" :No such channel"), missing_line
-            missing_echo = missing_line.split(" 403 Guest ", 1)[1].rsplit(
-                " :No such channel", 1)[0]
-            assert 0 < len(missing_echo) < len(missing_channel), missing_line
-            assert missing_channel.startswith(missing_echo), missing_echo
+            assert_bounded_403(guest, "KNOCK", "#" + ("x" * 503), "Guest")
+            assert_bounded_403(guest, "JOIN", "#" + ("j" * 504), "Guest")
+            assert_bounded_403(guest, "PART", "#" + ("p" * 504), "Guest")
+            assert_bounded_403(guest, "TOPIC", "#" + ("t" * 503), "Guest")
 
             owner.send("JOIN #knock")
             owner.expect(" JOIN #knock")
