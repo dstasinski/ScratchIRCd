@@ -137,6 +137,22 @@ def main():
             assert any("Bob:3" in line for line in access), access
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
+
+            # ChanServ persistent topics obey the same TOPICLEN advertised to
+            # clients. The 311-byte rejection must leave the prior 310-byte
+            # persistent/live value unchanged.
+            safe_topic = "T" * 310
+            unsafe_topic = "U" * 311
+            alice.send(f"CHANSERV SET #persist TOPIC :{safe_topic}")
+            alice.expect("Persistent topic updated.")
+            alice.send("TOPIC #persist")
+            alice.expect(f" 332 Alice #persist :{safe_topic}")
+            alice.send(f"CHANSERV SET #persist TOPIC :{unsafe_topic}")
+            alice.expect("Topic is too long for this server's advertised TOPICLEN.")
+            alice.send("TOPIC #persist")
+            alice.expect(f" 332 Alice #persist :{safe_topic}")
+
+            # Restore the fixture topic used by the restart/persistence checks.
             alice.send("CHANSERV SET #persist TOPIC :Persistent ChanServ topic")
             alice.expect("Persistent topic updated.")
 
