@@ -76,8 +76,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-memoserv-") as td:
         port = free_port(); conf = os.path.join(td, "ircd.conf")
         memoserv_db = os.path.join(td, "memoserv.db")
+        server_name = "s" * 63
         with open(conf, "w", encoding="utf-8") as f:
-            f.write("server_name = test.local\nnetwork_name = TestNet\n")
+            f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
             for name in ("operators", "bans", "nickserv", "chanserv", "memoserv", "history"):
@@ -126,7 +127,7 @@ def main():
             # when MemoServ metadata makes a single NOTICE exceed 510 bytes.
             traveler.send(f"MEMOSERV READ {second_id}")
             read_lines = traveler.collect_for(1.0)
-            prefix = ":MemoServ!service@test.local NOTICE Traveler :"
+            prefix = f":MemoServ!service@{server_name} NOTICE Traveler :"
             payloads = [line[len(prefix):] for line in read_lines if line.startswith(prefix)]
             assert len(payloads) >= 2, read_lines
             assert long_text in "".join(payloads), payloads
