@@ -741,8 +741,35 @@ void server_run(Server *server) {
 
 void server_destroy(Server *server) {
     size_t index;
+    size_t destroy_count;
     if (server == NULL) return;
-    while (server->client_count > 0U) server_disconnect(server, server->clients[server->client_count - 1U], IRCD_SHUTDOWN_REASON);
+
+    /* Full process/restart teardown does not need peer-to-peer QUIT/WATCH
+     * fanout: every connection is about to be closed. Preserve the durable
+     * channel-log QUIT records, then free the two sides of channel membership
+     * independently. This keeps teardown proportional to clients plus their
+     * bounded channel memberships instead of repeatedly unlinking and scanning
+     * the shrinking live population. Set client_count to zero first so logging
+     * diagnostics and client-free hooks cannot broadcast into clients already
+     * being dismantled. */
+    destroy_count = server->client_count;
+    server->client_count = 0U;
+    for (index = 0U; index < destroy_count; ++index) {
+        Client *client = server->clients[index];
+        ClientChannelLink *link;
+        int fd;
+        if (client == NULL) continue;
+        if (client->registered) {
+            for (link = client->channels; link != NULL; link = link->next) {
+                if (link->channel != NULL)
+                    channel_log_quit(server, link->channel, client,
+                                     IRCD_SHUTDOWN_REASON);
+            }
+        }
+        fd = client->fd;
+        client_free(client);
+        close(fd);
+    }
     free(server->clients); server->clients = NULL; server->client_capacity = 0U;
     if (server->listen_fds != NULL) { for (index = 0U; index < server->listener_count; ++index) close(server->listen_fds[index]); free(server->listen_fds); server->listen_fds = NULL; }
     free(server->listener_tls); server->listener_tls = NULL; server->listener_count = 0U;
