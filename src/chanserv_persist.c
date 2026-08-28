@@ -11,6 +11,8 @@
 #include "chanserv_persist.h"
 #include "sqlite_policy.h"
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -61,6 +63,32 @@ static int exec_sql(sqlite3 *db, const char *sql) {
         return -1;
     }
     return 0;
+}
+
+static int copy_stmt_text(sqlite3_stmt *stmt, int column,
+                          char *destination, size_t destination_size) {
+    const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
+static int text_fits(const char *text, size_t maximum) {
+    size_t length;
+    if (text == NULL) return 0;
+    length = strnlen(text, maximum + 1U);
+    return length <= maximum &&
+           memchr(text, '\r', length) == NULL &&
+           memchr(text, '\n', length) == NULL;
 }
 
 static void close_shared(void) {
@@ -178,6 +206,10 @@ static int save_masks(sqlite3 *db, const char *channel,
         "INSERT INTO channel_masks(channel,type,mask,protected_authorized) "
         "VALUES(?1,?2,?3,?4)", -1, &stmt, NULL) != SQLITE_OK) return -1;
     for (entry = list; entry != NULL; entry = entry->next) {
+        if (!text_fits(entry->mask, IRC_CHANNEL_MASK_MAX)) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         sqlite3_reset(stmt);
         sqlite3_clear_bindings(stmt);
         sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
@@ -197,7 +229,11 @@ int chanserv_persist_save(const char *path, const Channel *channel) {
     sqlite3 *db;
     sqlite3_stmt *stmt = NULL;
     int ok = -1;
-    if (path == NULL || channel == NULL) return -1;
+    if (path == NULL || channel == NULL ||
+        !text_fits(channel->name, IRC_CHANNEL_NAME_MAX) ||
+        !text_fits(channel->key, IRC_CHANNEL_KEY_MAX) ||
+        !text_fits(channel->limit_redirect, IRC_CHANNEL_NAME_MAX) ||
+        !text_fits(channel->ban_redirect, IRC_CHANNEL_NAME_MAX)) return -1;
     db = ready_db(path);
     if (db == NULL) return -1;
     if (exec_sql(db, "BEGIN IMMEDIATE;") != 0) goto done;
@@ -212,8 +248,8 @@ int chanserv_persist_save(const char *path, const Channel *channel) {
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, channel->key, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 3, (sqlite3_int64)channel->user_limit);
-    sqlite3_bind_int(stmt, 4, (int)channel->join_throttle_count);
-    sqlite3_bind_int(stmt, 5, (int)channel->join_throttle_seconds);
+    sqlite3_bind_int64(stmt, 4, (sqlite3_int64)channel->join_throttle_count);
+    sqlite3_bind_int64(stmt, 5, (sqlite3_int64)channel->join_throttle_seconds);
     sqlite3_bind_text(stmt, 6, channel->limit_redirect, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 7, channel->ban_redirect, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_DONE) goto rollback;
@@ -254,18 +290,23 @@ static int restore_masks(sqlite3 *db, Channel *channel) {
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         int type = sqlite3_column_int(stmt, 0);
-        const char *mask = (const char *)sqlite3_column_text(stmt, 1);
         int authorized = sqlite3_column_int(stmt, 2);
-        ChannelMaskEntry **list = NULL;
-        if (mask == NULL) continue;
+        char mask[IRC_CHANNEL_MASK_MAX + 1U];
+        ChannelMaskEntry **list;
+        if (copy_stmt_text(stmt, 1, mask, sizeof(mask)) != 0 || mask[0] == '\0' ||
+            (authorized != 0 && authorized != 1)) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         switch (type) {
             case CHANSERV_MASK_BAN: list = &channel->ban_list; break;
             case CHANSERV_MASK_EXCEPTION: list = &channel->exception_list; break;
             case CHANSERV_MASK_INVEX: list = &channel->invite_exception_list; break;
-            default: break;
+            default:
+                sqlite3_finalize(stmt);
+                return -1;
         }
-        if (list != NULL &&
-            channel_mask_add_authorized(list, mask, authorized) != 0) {
+        if (channel_mask_add_authorized(list, mask, authorized) != 0) {
             sqlite3_finalize(stmt);
             return -1;
         }
@@ -279,7 +320,8 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
     sqlite3_stmt *stmt = NULL;
     int rc;
     int result = -1;
-    if (path == NULL || channel == NULL) return -1;
+    if (path == NULL || channel == NULL ||
+        !text_fits(channel->name, IRC_CHANNEL_NAME_MAX)) return -1;
     db = ready_db(path);
     if (db == NULL) return -1;
 
@@ -299,18 +341,21 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        const char *key = (const char *)sqlite3_column_text(stmt, 0);
-        const char *limit_redirect = (const char *)sqlite3_column_text(stmt, 4);
-        const char *ban_redirect = (const char *)sqlite3_column_text(stmt, 5);
-        (void)snprintf(channel->key, sizeof(channel->key), "%s",
-                       key != NULL ? key : "");
-        channel->user_limit = (size_t)sqlite3_column_int64(stmt, 1);
-        channel->join_throttle_count = (unsigned int)sqlite3_column_int(stmt, 2);
-        channel->join_throttle_seconds = (unsigned int)sqlite3_column_int(stmt, 3);
-        (void)snprintf(channel->limit_redirect, sizeof(channel->limit_redirect), "%s",
-                       limit_redirect != NULL ? limit_redirect : "");
-        (void)snprintf(channel->ban_redirect, sizeof(channel->ban_redirect), "%s",
-                       ban_redirect != NULL ? ban_redirect : "");
+        sqlite3_int64 user_limit = sqlite3_column_int64(stmt, 1);
+        sqlite3_int64 join_count = sqlite3_column_int64(stmt, 2);
+        sqlite3_int64 join_seconds = sqlite3_column_int64(stmt, 3);
+        if (copy_stmt_text(stmt, 0, channel->key, sizeof(channel->key)) != 0 ||
+            copy_stmt_text(stmt, 4, channel->limit_redirect,
+                           sizeof(channel->limit_redirect)) != 0 ||
+            copy_stmt_text(stmt, 5, channel->ban_redirect,
+                           sizeof(channel->ban_redirect)) != 0 ||
+            user_limit < 0 || (uint64_t)user_limit > (uint64_t)SIZE_MAX ||
+            join_count < 0 || (uint64_t)join_count > (uint64_t)UINT_MAX ||
+            join_seconds < 0 || (uint64_t)join_seconds > (uint64_t)UINT_MAX)
+            goto done;
+        channel->user_limit = (size_t)user_limit;
+        channel->join_throttle_count = (unsigned int)join_count;
+        channel->join_throttle_seconds = (unsigned int)join_seconds;
     } else if (rc != SQLITE_DONE) goto done;
     sqlite3_finalize(stmt); stmt = NULL;
 
@@ -319,5 +364,16 @@ int chanserv_persist_restore(const char *path, Channel *channel) {
 
 done:
     if (stmt != NULL) sqlite3_finalize(stmt);
+    if (result != 0) {
+        channel->key[0] = '\0';
+        channel->user_limit = 0U;
+        channel->join_throttle_count = 0U;
+        channel->join_throttle_seconds = 0U;
+        channel->limit_redirect[0] = '\0';
+        channel->ban_redirect[0] = '\0';
+        channel_mask_clear(&channel->ban_list);
+        channel_mask_clear(&channel->exception_list);
+        channel_mask_clear(&channel->invite_exception_list);
+    }
     return result;
 }
