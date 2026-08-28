@@ -71,7 +71,7 @@ static size_t count_bulk_expired(size_t total) {
 }
 
 int main(void) {
-    enum { BULK_EXPIRED_FILES = 300 };
+    enum { BULK_EXPIRED_FILES = 300, DISABLE_BACKLOG_ROWS = 1025 };
     char template_path[] = "/tmp/scratchircd-channel-log-XXXXXX";
     char *tmp = mkdtemp(template_path);
     char original[1024];
@@ -209,6 +209,29 @@ int main(void) {
     assert(strcmp(rows[0].body, "first inserted") == 0 && rows[0].event_time == 500);
     assert(strcmp(rows[1].body, "second inserted") == 0 && rows[1].event_time == 400);
     assert(chanserv_db_logging_queue_delete_through(&db, "#Clock", rows[1].id) == 0);
+    assert(queue_count(&db) == 0U);
+
+    /* The administrative LOGGING OFF path is independently bounded to one
+     * 1024-row drain. There is no event loop in this unit test, so automatic
+     * background flush passes cannot make this assertion scheduler-dependent. */
+    for (i = 0U; i < DISABLE_BACKLOG_ROWS; ++i)
+        assert(chanserv_db_logging_queue_add(&db, channel.name,
+                                             600 + (long long)i,
+                                             "bounded disable backlog") == 0);
+    assert(queue_count(&db) == DISABLE_BACKLOG_ROWS);
+    chanserv_db_close(&db);
+    client.modes = client_mode_add(client.modes, CLIENT_MODE_OPER);
+    client.output_overflowed = 1;
+    assert(channel_log_handle_chanserv(&server, &client,
+                                       "SET #Rotate LOGGING OFF") == 1);
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1U);
+    assert(sqlite3_exec(db.db, "DELETE FROM channel_log_queue", NULL, NULL, NULL) == SQLITE_OK);
+    chanserv_db_close(&db);
+    assert(channel_log_handle_chanserv(&server, &client,
+                                       "SET #Rotate LOGGING ON") == 1);
+    client.output_overflowed = 0;
+    assert(chanserv_db_open(&db, db_path) == 0);
     assert(queue_count(&db) == 0U);
 
     /* A malformed durable row must stall safely rather than be truncated and
