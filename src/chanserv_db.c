@@ -69,6 +69,22 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
     return 0;
 }
 
+static int text_arg_fits(const char *text, size_t maximum, int allow_empty) {
+    size_t length;
+    if (text == NULL) return 0;
+    length = strlen(text);
+    if ((!allow_empty && length == 0U) || length > maximum) return 0;
+    return 1;
+}
+
+static int channel_arg_fits(const char *name) {
+    return text_arg_fits(name, IRC_CHANNEL_NAME_MAX, 0);
+}
+
+static int account_arg_fits(const char *account) {
+    return text_arg_fits(account, IRC_NICK_MAX, 0);
+}
+
 static int column_exists(sqlite3 *db, const char *column) {
     sqlite3_stmt *stmt = NULL;
     int found = 0;
@@ -207,7 +223,7 @@ void chanserv_db_close(ChanServDb *db) {
 int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->db == NULL || name == NULL || record == NULL) return -1;
+    if (db == NULL || db->db == NULL || !channel_arg_fits(name) || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
     if (sqlite3_prepare_v2(db->db,
         "SELECT name,founder,description,enabled,mode_lock,topic,topic_setter,topic_time,created_at,updated_at FROM channels WHERE name=?1",
@@ -238,15 +254,18 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
 
 int chanserv_db_create(ChanServDb *db, const char *name, const char *founder, const char *description) {
     sqlite3_stmt *stmt = NULL;
+    const char *stored_description = description != NULL ? description : "";
     int rc, changed;
-    if (db == NULL || db->db == NULL || name == NULL || founder == NULL) return -1;
+    if (db == NULL || db->db == NULL || !channel_arg_fits(name) ||
+        !account_arg_fits(founder) ||
+        !text_arg_fits(stored_description, IRCD_CHANSERV_DESCRIPTION_MAX, 1)) return -1;
     if (sqlite3_prepare_v2(db->db,
         "INSERT INTO channels(name,founder,description) "
         "SELECT ?1,?2,?3 WHERE (SELECT COUNT(*) FROM channels) < ?4",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt,2,founder,-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt,3,description != NULL ? description : "",-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt,3,stored_description,-1,SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt,4,(sqlite3_int64)IRCD_CHANSERV_REGISTRATION_HARD_MAX);
     rc=sqlite3_step(stmt);
     changed=sqlite3_changes(db->db);
@@ -257,20 +276,26 @@ int chanserv_db_create(ChanServDb *db, const char *name, const char *founder, co
 
 static int update_text(ChanServDb *db, const char *name, const char *column, const char *value) {
     char sql[192]; sqlite3_stmt *stmt=NULL; int rc;
-    if (db==NULL || db->db==NULL || name==NULL || value==NULL) return -1;
+    if (db==NULL || db->db==NULL || !channel_arg_fits(name) || value==NULL) return -1;
     (void)snprintf(sql,sizeof(sql),"UPDATE channels SET %s=?1,updated_at=unixepoch() WHERE name=?2",column);
     if(sqlite3_prepare_v2(db->db,sql,-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,value,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
 }
 
-int chanserv_db_set_description(ChanServDb *db,const char *name,const char *description){return update_text(db,name,"description",description);}
-int chanserv_db_set_founder(ChanServDb *db,const char *name,const char *founder){return update_text(db,name,"founder",founder);}
+int chanserv_db_set_description(ChanServDb *db,const char *name,const char *description){
+    if(!text_arg_fits(description,IRCD_CHANSERV_DESCRIPTION_MAX,1))return -1;
+    return update_text(db,name,"description",description);
+}
+int chanserv_db_set_founder(ChanServDb *db,const char *name,const char *founder){
+    if(!account_arg_fits(founder))return -1;
+    return update_text(db,name,"founder",founder);
+}
 
 int chanserv_db_set_enabled(ChanServDb *db, const char *name, int enabled) {
     sqlite3_stmt *stmt=NULL;
     int rc, changed;
-    if(db==NULL||db->db==NULL||name==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(name))return -1;
     if(sqlite3_prepare_v2(db->db,"UPDATE channels SET enabled=?1,updated_at=unixepoch() WHERE name=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_int(stmt,1,enabled?1:0); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); changed=sqlite3_changes(db->db); sqlite3_finalize(stmt);
@@ -280,7 +305,7 @@ int chanserv_db_set_enabled(ChanServDb *db, const char *name, int enabled) {
 
 int chanserv_db_set_mode_lock(ChanServDb *db, const char *name, uint64_t mode_lock) {
     sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||name==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(name))return -1;
     if(sqlite3_prepare_v2(db->db,"UPDATE channels SET mode_lock=?1,updated_at=unixepoch() WHERE name=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_int64(stmt,1,(sqlite3_int64)mode_lock); sqlite3_bind_text(stmt,2,name,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
@@ -289,7 +314,9 @@ int chanserv_db_set_mode_lock(ChanServDb *db, const char *name, uint64_t mode_lo
 int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
                           const char *setter, long long topic_time) {
     sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||name==NULL||topic==NULL||setter==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(name)||
+       !text_arg_fits(topic,IRC_CHANNEL_TOPIC_MAX,1)||
+       !text_arg_fits(setter,IRC_CHANNEL_TOPIC_SETTER_MAX,1))return -1;
     if(sqlite3_prepare_v2(db->db,
         "UPDATE channels SET topic=?1,topic_setter=?2,topic_time=?3,updated_at=unixepoch() WHERE name=?4",
         -1,&stmt,NULL)!=SQLITE_OK)return -1;
@@ -301,7 +328,7 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
 int chanserv_db_delete(ChanServDb *db, const char *name) {
     sqlite3_stmt *stmt=NULL;
     int rc, changed;
-    if(db==NULL||db->db==NULL||name==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(name))return -1;
     if(sqlite3_prepare_v2(db->db,"DELETE FROM channels WHERE name=?1",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,name,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); changed=sqlite3_changes(db->db); sqlite3_finalize(stmt);
@@ -320,10 +347,15 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
         "SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        const char *name = (const char *)sqlite3_column_text(stmt, 0);
-        size_t n = name != NULL ? strlen(name) : 0U;
-        size_t need = n + (used != 0U ? 1U : 0U);
-        if (n == 0U) continue;
+        const unsigned char *raw = sqlite3_column_text(stmt, 0);
+        int bytes = sqlite3_column_bytes(stmt, 0);
+        const char *name = (const char *)raw;
+        size_t n;
+        size_t need;
+        if(raw==NULL||bytes<=0)continue;
+        n=(size_t)bytes;
+        if(n>IRC_CHANNEL_NAME_MAX||strlen(name)!=n){truncated=1;break;}
+        need = n + (used != 0U ? 1U : 0U);
         if (need >= size - used) {
             truncated = 1;
             break;
@@ -341,7 +373,7 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
 int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccessLevel level) {
     sqlite3_stmt *stmt=NULL; int rc, changed;
-    if(db==NULL||db->db==NULL||channel==NULL||account==NULL||
+    if(db==NULL||db->db==NULL||!channel_arg_fits(channel)||!account_arg_fits(account)||
        level<CHANSERV_ACCESS_VOICE||
        (level>CHANSERV_ACCESS_OWNER && level!=CHANSERV_ACCESS_PROTECTED)) return -1;
     if(sqlite3_prepare_v2(db->db,
@@ -360,7 +392,7 @@ int chanserv_db_access_set(ChanServDb *db, const char *channel, const char *acco
 
 int chanserv_db_access_delete(ChanServDb *db, const char *channel, const char *account) {
     sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||channel==NULL||account==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(channel)||!account_arg_fits(account))return -1;
     if(sqlite3_prepare_v2(db->db,"DELETE FROM access WHERE channel=?1 AND account=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0?0:-1;
@@ -369,7 +401,7 @@ int chanserv_db_access_delete(ChanServDb *db, const char *channel, const char *a
 int chanserv_db_access_get(ChanServDb *db, const char *channel, const char *account,
                            ChanServAccess *record) {
     sqlite3_stmt *stmt=NULL; int rc;
-    if(db==NULL||db->db==NULL||channel==NULL||account==NULL||record==NULL)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(channel)||!account_arg_fits(account)||record==NULL)return -1;
     memset(record,0,sizeof(*record));
     if(sqlite3_prepare_v2(db->db,"SELECT channel,account,level FROM access WHERE channel=?1 AND account=?2",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,account,-1,SQLITE_TRANSIENT);
@@ -388,7 +420,7 @@ int chanserv_db_access_foreach(ChanServDb *db, const char *channel,
                                ChanServAccessCallback callback, void *context) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->db == NULL || channel == NULL || callback == NULL) return -1;
+    if (db == NULL || db->db == NULL || !channel_arg_fits(channel) || callback == NULL) return -1;
     if (sqlite3_prepare_v2(db->db,
         "SELECT channel,account,level FROM access WHERE channel=?1 "
         "ORDER BY level DESC,account COLLATE NOCASE",
@@ -416,13 +448,22 @@ int chanserv_db_access_foreach(ChanServDb *db, const char *channel,
 
 int chanserv_db_access_list(ChanServDb *db, const char *channel, char *buffer, size_t size) {
     sqlite3_stmt *stmt=NULL; size_t used=0U; int rc; int truncated=0;
-    if(db==NULL||db->db==NULL||channel==NULL||buffer==NULL||size==0U)return -1;
+    if(db==NULL||db->db==NULL||!channel_arg_fits(channel)||buffer==NULL||size==0U)return -1;
     buffer[0]='\0';
     if(sqlite3_prepare_v2(db->db,"SELECT account,level FROM access WHERE channel=?1 ORDER BY level DESC,account COLLATE NOCASE",-1,&stmt,NULL)!=SQLITE_OK)return -1;
     sqlite3_bind_text(stmt,1,channel,-1,SQLITE_TRANSIENT);
     while((rc=sqlite3_step(stmt))==SQLITE_ROW){
-        const char *account=(const char *)sqlite3_column_text(stmt,0); int level=sqlite3_column_int(stmt,1); char item[96];
-        int written=snprintf(item,sizeof(item),"%s%s:%d",used?" ":"",account,level); size_t n=written>0?(size_t)written:0U;
+        const unsigned char *raw=(const unsigned char *)sqlite3_column_text(stmt,0);
+        int bytes=sqlite3_column_bytes(stmt,0);
+        const char *account=(const char *)raw;
+        int level=sqlite3_column_int(stmt,1);
+        char item[96];
+        int written;
+        size_t n;
+        if(raw==NULL||bytes<0||(size_t)bytes>IRC_NICK_MAX||
+           (bytes!=0&&memchr(raw,'\0',(size_t)bytes)!=NULL)){truncated=1;break;}
+        written=snprintf(item,sizeof(item),"%s%s:%d",used?" ":"",account,level);
+        n=written>0?(size_t)written:0U;
         if(written<0||n>=sizeof(item)||n>=size-used){truncated=1;break;}
         memcpy(buffer+used,item,n); used+=n; buffer[used]='\0';
     }
