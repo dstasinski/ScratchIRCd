@@ -23,7 +23,33 @@ static int require_netadmin(Server *server, Client *client) {
 }
 
 static void notice(Server *server, Client *client, const char *text) {
-    client_sendf(client, ":%s NOTICE %s :%s", server->config.server_name, client->nick, text);
+    int prefix_length;
+    size_t payload_limit;
+    size_t text_length;
+    size_t offset = 0U;
+
+    if (server == NULL || client == NULL || text == NULL) return;
+    prefix_length = snprintf(NULL, 0, ":%s NOTICE %s :",
+                             server->config.server_name, client->nick);
+    if (prefix_length < 0 || (size_t)prefix_length >= IRC_LINE_CONTENT_MAX)
+        return;
+    payload_limit = IRC_LINE_CONTENT_MAX - (size_t)prefix_length;
+    text_length = strlen(text);
+
+    if (text_length == 0U) {
+        client_sendf(client, ":%s NOTICE %s :",
+                     server->config.server_name, client->nick);
+        return;
+    }
+
+    while (offset < text_length && !client->output_overflowed) {
+        size_t remaining = text_length - offset;
+        size_t chunk = remaining < payload_limit ? remaining : payload_limit;
+        client_sendf(client, ":%s NOTICE %s :%.*s",
+                     server->config.server_name, client->nick,
+                     (int)chunk, text + offset);
+        offset += chunk;
+    }
 }
 
 CommandResult command_csinfo(Server *server, Client *client, char *params) {
