@@ -174,7 +174,8 @@ fail:
 
 void dnsbl_resolver_destroy(DnsblResolver *resolver) {
     if (resolver == NULL) return;
-    atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
+    if (resolver->running)
+        atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
     if (resolver->request_write_fd >= 0) { close(resolver->request_write_fd); resolver->request_write_fd = -1; }
     if (resolver->running) { (void)pthread_join(resolver->thread, NULL); resolver->running = 0; }
     if (resolver->request_read_fd >= 0) close(resolver->request_read_fd);
