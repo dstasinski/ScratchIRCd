@@ -13,8 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define BAN_DB_SCHEMA_VERSION 1
+#define BAN_PURGE_INTERVAL_SECONDS 300
+
+static time_t ban_last_purge;
+static char ban_last_purge_path[IRCD_CONFIG_PATH_MAX + 1U];
 
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS bans ("
@@ -195,6 +200,25 @@ int ban_db_purge_expired(BanDb *db) {
         NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
+static int purge_expired_due(BanDb *db, const char *path) {
+    time_t now;
+    if (db == NULL || db->handle == NULL || path == NULL) return -1;
+    now = time(NULL);
+    if (ban_last_purge != (time_t)0 && now >= ban_last_purge &&
+        (now - ban_last_purge) < BAN_PURGE_INTERVAL_SECONDS &&
+        strcmp(ban_last_purge_path, path) == 0)
+        return 0;
+    if (ban_db_purge_expired(db) != 0) return -1;
+    ban_last_purge = now;
+    (void)snprintf(ban_last_purge_path, sizeof(ban_last_purge_path), "%s", path);
+    return 0;
+}
+
+void ban_db_reset_runtime_state(void) {
+    ban_last_purge = (time_t)0;
+    ban_last_purge_path[0] = '\0';
+}
+
 int ban_db_open(BanDb *db, const char *path) {
     char *error = NULL;
     if (db == NULL || path == NULL || *path == '\0') return -1;
@@ -213,7 +237,7 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
-    if (migrate_schema(db) != 0) {
+    if (migrate_schema(db) != 0 || purge_expired_due(db, path) != 0) {
         ban_db_close(db);
         return -1;
     }
@@ -284,7 +308,6 @@ int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *conte
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || callback == NULL) return -1;
-    if (ban_db_purge_expired(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
