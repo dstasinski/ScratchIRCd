@@ -10,6 +10,7 @@
 #include "numerics.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -35,6 +36,27 @@ static void send_whowas_user(Server *server, Client *client,
     client_sendf(client, RPL_WHOWASUSER, server->config.server_name,
                  client->nick, record->nick, record->user,
                  record->host, realname);
+}
+
+static size_t whowas_query_length(Server *server, Client *client,
+                                  const char *query, int include_missing) {
+    int end_base;
+    int missing_base = 0;
+    size_t base;
+    size_t length;
+    if (server == NULL || client == NULL || query == NULL) return 0U;
+    end_base = snprintf(NULL, 0, ":%s 369 %s  :End of WHOWAS",
+                        server->config.server_name, client->nick);
+    if (include_missing)
+        missing_base = snprintf(NULL, 0, ":%s 406 %s  :There was no such nickname",
+                                server->config.server_name, client->nick);
+    if (end_base < 0 || (include_missing && missing_base < 0)) return 0U;
+    base = (size_t)end_base;
+    if (include_missing && (size_t)missing_base > base) base = (size_t)missing_base;
+    if (base > IRC_LINE_CONTENT_MAX) return 0U;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - base) length = IRC_LINE_CONTENT_MAX - base;
+    return length;
 }
 
 CommandResult command_whowas(Server *server, Client *client, char *params) {
@@ -84,10 +106,15 @@ CommandResult command_whowas(Server *server, Client *client, char *params) {
         ++matched;
     }
 
-    if (matched == 0U)
-        client_sendf(client, ERR_WASNOSUCHNICK, server->config.server_name,
-                     client->nick, nick);
-    client_sendf(client, RPL_ENDOFWHOWAS, server->config.server_name,
-                 client->nick, nick);
+    {
+        size_t query_length = whowas_query_length(server, client, nick, matched == 0U);
+        if (matched == 0U)
+            client_sendf(client, ":%s 406 %s %.*s :There was no such nickname",
+                         server->config.server_name, client->nick,
+                         (int)query_length, nick);
+        client_sendf(client, ":%s 369 %s %.*s :End of WHOWAS",
+                     server->config.server_name, client->nick,
+                     (int)query_length, nick);
+    }
     return COMMAND_KEEP_CLIENT;
 }
