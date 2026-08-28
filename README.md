@@ -230,6 +230,18 @@ sudo apt install build-essential cmake python3 libargon2-dev libsqlite3-dev libs
 
 Email recovery does not add a compile-time dependency. A real deployment that enables it needs a configured sendmail-compatible local MTA or wrapper.
 
+## Updating a manually started server
+
+After downloading `update-and-restart.sh` once, run it from anywhere inside the repository:
+
+```sh
+./update-and-restart.sh
+```
+
+The script requires a clean `Genesis` worktree, updates by fast-forward only, rebuilds with strict compiler warnings, runs the complete test suite, installs under `/usr/local`, and gracefully restarts a single manually running `scratchircd` process with its original arguments and working directory. It refuses to guess when multiple daemon processes are running and never force-kills a daemon that fails to stop cleanly.
+
+Use `./update-and-restart.sh --help` for build, installation-prefix, timeout, and log-path overrides. If no daemon is running, the script builds, tests, and installs without starting one because it has no safe configuration command to infer.
+
 ## Building and testing
 
 ```sh
