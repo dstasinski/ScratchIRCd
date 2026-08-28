@@ -174,7 +174,7 @@ DROP <#channel>
 HELP
 ```
 
-Registration requires an authenticated NickServ account and owner/operator privilege in the live channel. The authenticated account becomes founder and the channel receives service-controlled `+r`. When the channel later disappears from memory or the daemon restarts, the SQLite registration remains; on the next JOIN ScratchIRCd restores `+r`. An authenticated founder automatically receives `+q/+o` when joining the registered channel, even under a different current nickname.
+`REGISTER` and `DROP` are restricted to network administrators (`+N`) through both ChanServ command syntaxes. Registration also requires the network administrator to be identified to NickServ and to hold owner/operator privilege in the live channel. The issuing account initially becomes founder and the channel receives service-controlled `+r`. A network administrator may then delegate normal channel ownership with `CSSET <#channel> FOUNDER <NickServ-account>`; the delegated founder manages ChanServ access and channel policy but still cannot REGISTER or DROP channels. When the channel later disappears from memory or the daemon restarts, the SQLite registration remains; on the next JOIN ScratchIRCd restores `+r`. An authenticated founder automatically receives `+q/+o` when joining the registered channel, even under a different current nickname.
 
 Network administrators additionally have `CSINFO`, `CSSET`, and `CSDROP` management commands. Numeric 005 advertises the ScratchIRCd-specific `PCHANNELS=` token listing enabled registered channels.
 
