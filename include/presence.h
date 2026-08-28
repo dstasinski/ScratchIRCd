@@ -33,4 +33,7 @@ void presence_whowas_record(Server *server, const Client *client,
 /** Free per-client WATCH/SILENCE allocations. */
 void presence_client_clear(Client *client);
 
+/** Clear process-local Server/free-hook state after shutdown or RESTART. */
+void presence_reset_runtime_state(void);
+
 #endif /* IRCD_PRESENCE_H */
