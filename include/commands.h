@@ -13,6 +13,8 @@ void command_maybe_register(Server *server, Client *client);
 void command_send_names(Server *server, Channel *channel, Client *client);
 void command_nickserv_message(Server *server, Client *client, char *text);
 void command_memoserv_message(Server *server, Client *client, char *text);
+/** Largest topic guaranteed to fit a 332 reply for any legal nick/channel. */
+size_t command_topic_limit(const Server *server);
 /** Set the runtime server name used by pre-registration numerics. */
 void command_common_set_server_name(const char *server_name);
 /** Reset process-local command caches/handles for shutdown or in-process RESTART. */
