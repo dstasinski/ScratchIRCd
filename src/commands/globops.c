@@ -5,7 +5,18 @@
 #include "numerics.h"
 #include "oper.h"
 
+#include <stdio.h>
 #include <string.h>
+
+static int oper_message_wire_fits(const Client *client, const char *command,
+                                  const char *text) {
+    int written;
+    if (client == NULL || command == NULL || text == NULL) return 0;
+    written = snprintf(NULL, 0, ":%s!%s@%s %s :%s",
+                       client->nick, client->user, client->display_host,
+                       command, text);
+    return written >= 0 && (size_t)written <= IRC_LINE_CONTENT_MAX;
+}
 
 static CommandResult send_oper_message(Server *server, Client *client,
                                        char *params, const char *command) {
@@ -21,6 +32,12 @@ static CommandResult send_oper_message(Server *server, Client *client,
         return COMMAND_KEEP_CLIENT;
     }
     if (*text == ':') ++text;
+    if (!oper_message_wire_fits(client, command, text)) {
+        client_sendf(client,
+                     ":%s 417 %s %s :Message would exceed the IRC relay line limit",
+                     server->config.server_name, client->nick, command);
+        return COMMAND_KEEP_CLIENT;
+    }
     oper_message_broadcast(server, client, command, text);
     return COMMAND_KEEP_CLIENT;
 }
