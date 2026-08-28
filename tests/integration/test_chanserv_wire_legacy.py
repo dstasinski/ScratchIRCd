@@ -177,6 +177,18 @@ def main():
             assert len(payloads) >= 2, info_lines
             assert description in "".join(payloads), payloads
             assert all(len(line.encode()) <= 510 for line in info_lines), info_lines
+
+            client.send(f"CSINFO {channel}")
+            admin_info_lines = client.collect_for()
+            admin_prefix = f":{server_name} NOTICE {founder} :"
+            admin_payloads = [line[len(admin_prefix):] for line in admin_info_lines
+                              if line.startswith(admin_prefix)]
+            assert len(admin_payloads) >= 2, admin_info_lines
+            admin_joined = "".join(admin_payloads)
+            assert f"CHANSERV {channel} founder={founder} enabled=1 description=" in admin_joined, admin_payloads
+            assert description in admin_joined, admin_payloads
+            assert " created=" in admin_joined and " updated=" in admin_joined, admin_payloads
+            assert all(len(line.encode()) <= 510 for line in admin_info_lines), admin_info_lines
         finally:
             if client is not None:
                 client.close()
