@@ -75,7 +75,13 @@ def main():
             # the already-opered Admin account, then have the netadmin create
             # the registration so this test continues to cover ChanServ's
             # registration SNOTICE without depending on the retired founder
-            # self-registration policy.
+            # self-registration policy. MODE -s above deliberately disabled
+            # delivery, so restore +s before checking Admin's own service event.
+            admin.send("MODE Admin +s")
+            admin.send("MODE Admin")
+            mode_line=admin.expect(" 221 Admin ")
+            mode_token=mode_line.split(" 221 Admin ",1)[1].split()[0]
+            assert "s" in mode_token.lstrip("+"),mode_line
             admin.send("NICKSERV REGISTER admin-service-secret")
             admin.expect("Nickname registered and identified")
             admin_reg_notice=admin.expect("NickServ registration: account=Admin")
