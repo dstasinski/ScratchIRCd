@@ -41,6 +41,9 @@ int ban_db_delete(BanDb *db, BanType type, const char *mask);
 int ban_db_list(BanDb *db, BanType type, BanDbListCallback callback, void *context);
 int ban_db_match(BanDb *db, BanType type, const char *identity1,
                  const char *identity2, BanRecord *record);
+/** Return non-zero when a loaded ban record matches either supplied identity. */
+int ban_record_matches(const BanRecord *record, const char *identity1,
+                       const char *identity2);
 int ban_db_purge_expired(BanDb *db);
 
 #endif /* IRCD_BAN_DB_H */
