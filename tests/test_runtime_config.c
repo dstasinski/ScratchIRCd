@@ -55,7 +55,6 @@ int main(void) {
     assert(config.argon2_window_seconds == IRCD_DEFAULT_ARGON2_WINDOW_SECONDS);
     assert(config.argon2_global_ops_per_minute == IRCD_DEFAULT_ARGON2_GLOBAL_OPS_PER_MINUTE);
     assert(config.argon2_global_burst_per_second == IRCD_DEFAULT_ARGON2_GLOBAL_BURST_PER_SECOND);
-    assert(config.chanserv_max_channels_per_account == IRCD_DEFAULT_CHANSERV_MAX_CHANNELS_PER_ACCOUNT);
 
     assert(fd >= 0);
     file = fdopen(fd, "w");
@@ -90,7 +89,6 @@ int main(void) {
     assert(fputs("argon2_window_seconds = 120\n", file) >= 0);
     assert(fputs("argon2_global_ops_per_minute = 180\n", file) >= 0);
     assert(fputs("argon2_global_burst_per_second = 25\n", file) >= 0);
-    assert(fputs("chanserv_max_channels_per_account = 30\n", file) >= 0);
     assert(fputs("kline_default_duration_seconds = 1800\n", file) >= 0);
     assert(fputs("kline_default_reason = default kline reason\n", file) >= 0);
     assert(fputs("zline_default_duration_seconds = 900\n", file) >= 0);
@@ -137,7 +135,6 @@ int main(void) {
     assert(config.argon2_window_seconds == 120U);
     assert(config.argon2_global_ops_per_minute == 180U);
     assert(config.argon2_global_burst_per_second == 25U);
-    assert(config.chanserv_max_channels_per_account == 30U);
     assert(config.kline_default_duration_seconds == 1800U);
     assert(strcmp(config.kline_default_reason, "default kline reason") == 0);
     assert(config.zline_default_duration_seconds == 900U);
@@ -188,9 +185,7 @@ int main(void) {
     assert(load_single_option("argon2_global_burst_per_second = 0\n") == 0);
     assert(load_single_option("argon2_global_burst_per_second = 101\n") != 0);
     assert(load_single_option("argon2_global_burst_per_second = 100\n") == 0);
-    assert(load_single_option("chanserv_max_channels_per_account = 0\n") == 0);
-    assert(load_single_option("chanserv_max_channels_per_account = 1001\n") != 0);
-    assert(load_single_option("chanserv_max_channels_per_account = 1000\n") == 0);
+    assert(load_single_option("chanserv_max_channels_per_account = 20\n") != 0);
 
     (void)unlink(path);
     return 0;
