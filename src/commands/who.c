@@ -43,6 +43,22 @@ static void send_who_reply(Server *server, Client *requester,
                  status, 0, subject->realname);
 }
 
+static void send_end_of_who_query(Server *server, Client *client,
+                                  const char *query) {
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL || query == NULL) return;
+    base_length = snprintf(NULL, 0, ":%s 315 %s  :End of /WHO list.",
+                           server->config.server_name, client->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s 315 %s %.*s :End of /WHO list.",
+                 server->config.server_name, client->nick,
+                 (int)length, query);
+}
+
 CommandResult command_who(Server *server, Client *client, char *params) {
     char *mask = params != NULL ? strtok(params, " ") : NULL;
 
@@ -59,7 +75,7 @@ CommandResult command_who(Server *server, Client *client, char *params) {
             }
         }
         if (!client->output_overflowed)
-            client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
+            send_end_of_who_query(server, client, mask);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -68,7 +84,7 @@ CommandResult command_who(Server *server, Client *client, char *params) {
         if (subject != NULL && visibility_who_user(client, subject))
             send_who_reply(server, client, subject, NULL);
         if (!client->output_overflowed)
-            client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
+            send_end_of_who_query(server, client, mask);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -79,7 +95,6 @@ CommandResult command_who(Server *server, Client *client, char *params) {
     }
 
     if (!client->output_overflowed)
-        client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick,
-                     mask != NULL ? mask : "*");
+        send_end_of_who_query(server, client, mask != NULL ? mask : "*");
     return COMMAND_KEEP_CLIENT;
 }
