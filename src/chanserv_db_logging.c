@@ -13,13 +13,16 @@ static int column_exists(sqlite3 *db, const char *column) {
     int found = 0;
 
     if (db == NULL || column == NULL) return 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)", -1,
-                           &stmt, NULL) != SQLITE_OK)
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)",
+                           -1, &stmt, NULL) != SQLITE_OK)
         return 0;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const char *name = (const char *)sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp(name, column) == 0) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        int bytes = sqlite3_column_bytes(stmt, 1);
+        if (name != NULL && bytes >= 0 &&
+            strlen(column) == (size_t)bytes &&
+            memcmp(name, column, (size_t)bytes) == 0) {
             found = 1;
             break;
         }
@@ -124,7 +127,10 @@ int chanserv_db_logging_queue_add(ChanServDb *db, const char *channel,
                                   long long event_time, const char *body) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->db == NULL || channel == NULL || body == NULL) return -1;
+    if (db == NULL || db->db == NULL || channel == NULL || body == NULL ||
+        strlen(channel) > IRC_CHANNEL_NAME_MAX ||
+        strlen(body) >= sizeof(((ChanServLogQueueRecord *)0)->body))
+        return -1;
     if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->db,
         "INSERT INTO channel_log_queue(channel,event_time,body) VALUES(?1,?2,?3)",
@@ -167,18 +173,33 @@ int chanserv_db_logging_queue_oldest(ChanServDb *db, long long *event_time) {
     return rc == SQLITE_ROW ? 0 : -1;
 }
 
-static void queue_record_from_stmt(sqlite3_stmt *stmt,
-                                   ChanServLogQueueRecord *record) {
+static int copy_stmt_text(sqlite3_stmt *stmt, int column,
+                          char *dest, size_t size) {
     const unsigned char *value;
+    int bytes;
+    if (stmt == NULL || dest == NULL || size == 0U) return -1;
+    value = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (value == NULL || bytes < 0 || (size_t)bytes >= size ||
+        memchr(value, '\0', (size_t)bytes) != NULL)
+        return -1;
+    memcpy(dest, value, (size_t)bytes);
+    dest[bytes] = '\0';
+    return 0;
+}
+
+static int queue_record_from_stmt(sqlite3_stmt *stmt,
+                                  ChanServLogQueueRecord *record) {
+    if (stmt == NULL || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
     record->id = sqlite3_column_int64(stmt, 0);
-    value = sqlite3_column_text(stmt, 1);
-    (void)snprintf(record->channel, sizeof(record->channel), "%s",
-                   value != NULL ? (const char *)value : "");
+    if (record->id <= 0 ||
+        copy_stmt_text(stmt, 1, record->channel, sizeof(record->channel)) != 0)
+        return -1;
     record->event_time = sqlite3_column_int64(stmt, 2);
-    value = sqlite3_column_text(stmt, 3);
-    (void)snprintf(record->body, sizeof(record->body), "%s",
-                   value != NULL ? (const char *)value : "");
+    if (copy_stmt_text(stmt, 3, record->body, sizeof(record->body)) != 0)
+        return -1;
+    return 0;
 }
 
 int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
@@ -197,8 +218,13 @@ int chanserv_db_logging_queue_fetch(ChanServDb *db, const char *channel,
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, channel, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity)
-        queue_record_from_stmt(stmt, &records[used++]);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity) {
+        if (queue_record_from_stmt(stmt, &records[used]) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        ++used;
+    }
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
     if (count != NULL) *count = used;
@@ -220,8 +246,13 @@ int chanserv_db_logging_queue_fetch_due(ChanServDb *db, long long cutoff,
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int64(stmt, 1, cutoff);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity)
-        queue_record_from_stmt(stmt, &records[used++]);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW && used < capacity) {
+        if (queue_record_from_stmt(stmt, &records[used]) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        ++used;
+    }
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return -1;
     if (count != NULL) *count = used;
@@ -258,20 +289,35 @@ int chanserv_db_logging_queue_list_channels(ChanServDb *db, char *buffer,
         "SELECT DISTINCT channel FROM channel_log_queue ORDER BY channel COLLATE IRCNOCASE",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        const char *name = (const char *)sqlite3_column_text(stmt, 0);
-        size_t length = name != NULL ? strlen(name) : 0U;
-        if (length == 0U) continue;
+        const unsigned char *name = sqlite3_column_text(stmt, 0);
+        int bytes = sqlite3_column_bytes(stmt, 0);
+        size_t length;
+        if (name == NULL || bytes <= 0 ||
+            memchr(name, '\0', (size_t)bytes) != NULL) {
+            sqlite3_finalize(stmt);
+            buffer[0] = '\0';
+            return -1;
+        }
+        length = (size_t)bytes;
         if (used != 0U) {
-            if (used + 1U >= size) break;
+            if (used + 1U >= size) {
+                sqlite3_finalize(stmt);
+                buffer[0] = '\0';
+                return -1;
+            }
             buffer[used++] = ',';
         }
-        if (length >= size - used) break;
+        if (length >= size - used) {
+            sqlite3_finalize(stmt);
+            buffer[0] = '\0';
+            return -1;
+        }
         memcpy(buffer + used, name, length);
         used += length;
         buffer[used] = '\0';
     }
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE || rc == SQLITE_ROW ? 0 : -1;
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int chanserv_db_logging_queue_delete_through(ChanServDb *db, const char *channel,
