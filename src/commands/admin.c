@@ -171,6 +171,9 @@ CommandResult command_info(Server *server, Client *client, char *params) {
 
 CommandResult command_links(Server *server, Client *client, char *params) {
     const char *mask = params != NULL && params[0] != '\0' ? params : "*";
+    int base_length;
+    size_t mask_limit;
+    size_t mask_length;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
@@ -178,8 +181,17 @@ CommandResult command_links(Server *server, Client *client, char *params) {
                  server->config.server_name, client->nick,
                  server->config.server_name, server->config.server_name,
                  0, "ScratchIRCd single-server daemon");
-    client_sendf(client, RPL_ENDOFLINKS,
-                 server->config.server_name, client->nick, mask);
+
+    base_length = snprintf(NULL, 0, ":%s 365 %s  :End of /LINKS list.",
+                           server->config.server_name, client->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX)
+        return COMMAND_KEEP_CLIENT;
+    mask_limit = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    mask_length = strlen(mask);
+    if (mask_length > mask_limit) mask_length = mask_limit;
+    client_sendf(client, ":%s 365 %s %.*s :End of /LINKS list.",
+                 server->config.server_name, client->nick,
+                 (int)mask_length, mask);
     return COMMAND_KEEP_CLIENT;
 }
 
