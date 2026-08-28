@@ -156,6 +156,10 @@ static void *resolver_main(void *arg) {
 
     while (read_full(resolver->request_read_fd, &request, sizeof(request)) == 1) {
         DnsResult result;
+        /* Shutdown/restart must not synchronously drain all requests already
+         * queued in the pipe. Let an in-flight lookup finish, then discard the
+         * remaining backlog and terminate the worker. */
+        if (atomic_load_explicit(&resolver->stopping, memory_order_relaxed)) break;
         resolve_request(&request, &result);
         /* A dropped answer is safe: the client's DNS deadline will expire. */
         (void)write_full(resolver->result_write_fd, &result, sizeof(result));
@@ -169,6 +173,7 @@ int dns_resolver_init(DnsResolver *resolver) {
 
     if (resolver == NULL) return -1;
     memset(resolver, 0, sizeof(*resolver));
+    atomic_init(&resolver->stopping, 0);
     resolver->request_read_fd = -1;
     resolver->request_write_fd = -1;
     resolver->result_read_fd = -1;
@@ -206,6 +211,7 @@ int dns_resolver_init(DnsResolver *resolver) {
 void dns_resolver_destroy(DnsResolver *resolver) {
     if (resolver == NULL) return;
 
+    atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
     if (resolver->request_write_fd >= 0) {
         close(resolver->request_write_fd);
         resolver->request_write_fd = -1;
@@ -229,7 +235,8 @@ int dns_resolver_submit(DnsResolver *resolver, uint64_t client_id,
     DnsRequest request;
     ssize_t written;
 
-    if (resolver == NULL || !resolver->running || ip == NULL) return -1;
+    if (resolver == NULL || !resolver->running || ip == NULL ||
+        atomic_load_explicit(&resolver->stopping, memory_order_relaxed)) return -1;
 
     memset(&request, 0, sizeof(request));
     request.client_id = client_id;
