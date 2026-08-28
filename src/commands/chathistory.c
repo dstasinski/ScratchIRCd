@@ -102,8 +102,12 @@ CommandResult command_chathistory(Server *server, Client *client, char *params) 
 
     use_batch = (client->capabilities & CLIENT_CAP_BATCH) != 0U;
     if (use_batch) {
-        (void)snprintf(batch_id, sizeof(batch_id), "h%llu%ld",
-                       (unsigned long long)client->id, (long)time(NULL));
+        /* BATCH IDs only need to be unique among active batches. Command
+         * dispatch is synchronous, so a client cannot have two CHATHISTORY
+         * batches active concurrently. The stable client ID is therefore both
+         * sufficient and permanently bounded, unlike client-id + epoch text. */
+        (void)snprintf(batch_id, sizeof(batch_id), "h%llu",
+                       (unsigned long long)client->id);
         if (count < limit) {
             client_sendf(client, "@draft/chathistory-end :%s BATCH +%s chathistory %s",
                          server->config.server_name, batch_id, channel->name);
