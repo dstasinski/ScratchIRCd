@@ -82,10 +82,25 @@ int main(void) {
     assert(pragma_int(db.db, "PRAGMA user_version") == 1);
     assert(pragma_int(db.db, "PRAGMA busy_timeout") == 250);
     assert(pragma_int(db.db, "PRAGMA synchronous") == 1);
+
+    /* Public DB APIs must never create rows that their fixed-size record
+     * structures cannot later decode losslessly. Invalid attempts must not
+     * consume registration capacity. */
+    assert(chanserv_db_create(&db, long_name, "Alice", "bad name") == -1);
+    assert(chanserv_db_create(&db, "#BadFounder", long_founder, "bad founder") == -1);
+    assert(chanserv_db_create(&db, "#BadDescription", "Alice", long_description) == -1);
+
     generation = chanserv_db_pchannels_generation();
     assert(chanserv_db_create(&db, "#Test", "Alice", "Example channel") == 0);
     assert(chanserv_db_pchannels_generation() != generation);
     generation = chanserv_db_pchannels_generation();
+
+    assert(chanserv_db_set_founder(&db, "#Test", long_founder) == -1);
+    assert(chanserv_db_set_description(&db, "#Test", long_description) == -1);
+    assert(chanserv_db_set_topic(&db, "#Test", long_topic,
+                                  "Alice!alice@example", 1) == -1);
+    assert(chanserv_db_set_topic(&db, "#Test", "valid", long_setter, 1) == -1);
+    assert(chanserv_db_get(&db, long_name, &record) == -1);
 
     assert(chanserv_db_create(&db, "#Second", "Alice", "Second channel") == 0);
     assert(chanserv_db_create(&db, "#Overflow", "Alice", "Must be refused") != 0);
@@ -146,6 +161,8 @@ int main(void) {
     assert(CHANSERV_ACCESS_PROTECTED == 4);
     assert(CHANSERV_ACCESS_OWNER == 5);
 
+    assert(chanserv_db_access_set(&db, "#TEST", long_account, CHANSERV_ACCESS_OP) == -1);
+    assert(chanserv_db_access_set(&db, long_name, "Bob", CHANSERV_ACCESS_OP) == -1);
     assert(chanserv_db_access_set(&db, "#TEST", "Bob", CHANSERV_ACCESS_OP) == 0);
     assert(chanserv_db_access_get(&db, "#test", "bob", &access) == 1);
     assert(strcmp(access.account, "Bob") == 0);
