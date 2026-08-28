@@ -205,10 +205,14 @@ void channel_broadcast(Channel *channel, const Client *except, const char *messa
     size_t length;
     if (channel == NULL || message == NULL) return;
     length = strlen(message);
-    /* Most channel command handlers preflight source-prefixed messages before
-     * mutating state. Keep a final transport invariant here as well: no raw
-     * channel fanout may put an overlength IRC frame on the wire. */
-    if (length > IRC_WIRE_LINE_MAX) return;
+    /* Raw fanout must already be one complete classic IRC frame. Refuse
+     * overlength data, missing CRLF framing, or embedded line breaks so a
+     * future caller cannot accidentally inject multiple wire messages. */
+    if (length < 2U || length > IRC_WIRE_LINE_MAX ||
+        message[length - 2U] != '\r' || message[length - 1U] != '\n' ||
+        memchr(message, '\r', length - 2U) != NULL ||
+        memchr(message, '\n', length - 2U) != NULL)
+        return;
     for (member = channel->members; member != NULL; member = member->next) {
         if (member->client == except) continue;
         (void)client_send_raw(member->client, message, length);
