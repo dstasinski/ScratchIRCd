@@ -13,6 +13,12 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
+
+#define GEOBAN_PURGE_INTERVAL_SECONDS 300
+
+static time_t geoban_last_purge;
+static char geoban_last_purge_path[IRCD_CONFIG_PATH_MAX + 1U];
 
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS geo_bans ("
@@ -39,7 +45,7 @@ static int ensure_parent_directory(const char *path) {
     return mkdir(parent, 0750) == 0 || errno == EEXIST ? 0 : -1;
 }
 
-static int purge_expired(GeoBanDb *db) {
+static int purge_expired_now(GeoBanDb *db) {
     char *error = NULL;
     if (sqlite3_exec(db->handle,
         "DELETE FROM geo_bans WHERE expires_at<>0 AND expires_at<=unixepoch()",
@@ -48,6 +54,30 @@ static int purge_expired(GeoBanDb *db) {
         return -1;
     }
     return 0;
+}
+
+/* Expiry enforcement is performed by each SELECT predicate, so this DELETE is
+ * storage maintenance rather than part of match/list correctness. Keep the
+ * physical cleanup bounded to one pass every five minutes per configured DB
+ * path instead of performing a write on every open/list/match operation. */
+static int purge_expired_due(GeoBanDb *db, const char *path) {
+    time_t now;
+    if (db == NULL || db->handle == NULL || path == NULL) return -1;
+    now = time(NULL);
+    if (geoban_last_purge != (time_t)0 && now >= geoban_last_purge &&
+        (now - geoban_last_purge) < GEOBAN_PURGE_INTERVAL_SECONDS &&
+        strcmp(geoban_last_purge_path, path) == 0)
+        return 0;
+    if (purge_expired_now(db) != 0) return -1;
+    geoban_last_purge = now;
+    (void)snprintf(geoban_last_purge_path, sizeof(geoban_last_purge_path),
+                   "%s", path);
+    return 0;
+}
+
+void geoban_db_reset_runtime_state(void) {
+    geoban_last_purge = (time_t)0;
+    geoban_last_purge_path[0] = '\0';
 }
 
 static void record_from_stmt(sqlite3_stmt *stmt, GeoBanRecord *record) {
@@ -218,7 +248,7 @@ int geoban_db_open(GeoBanDb *db, const char *path) {
         geoban_db_close(db);
         return -1;
     }
-    if (purge_expired(db) != 0) {
+    if (purge_expired_due(db, path) != 0) {
         geoban_db_close(db);
         return -1;
     }
@@ -272,7 +302,6 @@ int geoban_db_list(GeoBanDb *db, GeoBanListCallback callback, void *context) {
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->handle == NULL || callback == NULL) return -1;
-    if (purge_expired(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         GeoBanRecord record;
@@ -291,7 +320,6 @@ int geoban_db_match(GeoBanDb *db, const ClientGeoIP *geoip, GeoBanRecord *record
     int rc;
     char asn[32];
     if (db == NULL || db->handle == NULL || geoip == NULL || record == NULL) return -1;
-    if (purge_expired(db) != 0) return -1;
     (void)snprintf(asn, sizeof(asn), "%u", geoip->asn);
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
