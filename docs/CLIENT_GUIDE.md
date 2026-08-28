@@ -43,7 +43,7 @@ CAP END
 
 While CAP negotiation is open, ScratchIRCd deliberately holds normal IRC registration until `CAP END`. Successful SASL returns numeric `903`, attaches the NickServ account before registration completes, sets `+r`, and applies any NickServ vhost exactly as IDENTIFY would. Failed SASL returns numeric `904`; the client may still send `CAP END` and register without an authenticated account.
 
-The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This first implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
+The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
 
 For full persistent-history presentation, a client may negotiate:
 
@@ -63,7 +63,7 @@ ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. S
 
 Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
 
-A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces only the displayed hostname. Planned cloak mode `+x` will work the same way. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
+A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces only the displayed hostname. Cloak mode `+x` likewise changes only the displayed hostname; keyed cloaks are generated from the client's real verified identity without exposing that identity. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
 
 Historical channel records also store the displayed identity that was public when the message was sent; replay does not reveal `real_ip` or `real_host`.
 
@@ -169,6 +169,8 @@ CHANSERV DROP <#channel>
 CHANSERV HELP
 ```
 
+`REGISTER` and `DROP` are network-administrator (`+N`) operations through both the direct `CHANSERV` command and `PRIVMSG ChanServ`. Founder authority applies to management of an existing registration and does not grant authority to create or destroy registrations.
+
 Access follows authenticated NickServ accounts, not current nicknames. OWNER receives `+q/+o`, PROTECTED receives `+a/+o`, OP receives `+o`, HALFOP receives `+h`, and VOICE receives `+v`. The visible membership prefixes are `~`, `&`, `@`, `%`, and `+` respectively.
 
 A protected (`+a`) member cannot be kicked or deliberately banned by an ordinary OP/HALFOP. Another PROTECTED member or an OWNER may kick or deliberately ban a protected member. Only PROTECTED/OWNER authority may grant or remove `+a`.
@@ -273,6 +275,14 @@ KICK <channel> <nickname> :<reason>
 
 Removes a member when the requester has sufficient channel privilege. Privilege hierarchy is owner (`+q`) > protected (`+a`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member. A PROTECTED member may kick another PROTECTED member; only an OWNER can kick above that level.
 
+### KNOCK
+
+```text
+KNOCK <channel> [:reason]
+```
+
+Requests attention from halfop-or-higher channel staff when access to a channel is restricted. KNOCK does not create an invitation itself; channel staff must still issue INVITE. Banned users cannot use KNOCK, and channel mode `+K` disables it.
+
 ### LIST
 
 ```text
@@ -288,6 +298,15 @@ LUSERS
 ```
 
 Displays server user/channel statistics.
+
+### MEMOSERV
+
+```text
+MEMOSERV <service-command> [parameters]
+PRIVMSG MemoServ :<service-command> [parameters]
+```
+
+Addresses the virtual SQLite-backed MemoServ service. Memo storage is bounded by recipient quota, sender fair-share quota, and retention policy.
 
 ### MODE
 
@@ -374,6 +393,7 @@ PRIVMSG <nickname> :<text>
 PRIVMSG <channel> :<text>
 PRIVMSG NickServ :<service-command>
 PRIVMSG ChanServ :<service-command>
+PRIVMSG MemoServ :<service-command>
 ```
 
 Sends private/channel messages or addresses a virtual service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live PRIVMSG delivery.
@@ -394,6 +414,16 @@ RULES
 
 Displays the configured server rules file.
 
+### SILENCE
+
+```text
+SILENCE
+SILENCE +<mask>
+SILENCE -<mask>
+```
+
+Manages the per-client silence list used to suppress matching direct messages.
+
 ### TOPIC
 
 ```text
@@ -410,6 +440,14 @@ USERHOST <nick1> [nick2 ...]
 ```
 
 Returns the displayed hostname for online nicknames. It does not reveal real IP/DNS identity.
+
+### WATCH
+
+```text
+WATCH +<nick> -<nick> ...
+```
+
+Maintains a bounded nickname watch list and reports presence changes for watched users.
 
 ### WHO
 
@@ -428,14 +466,22 @@ WHOIS <nickname>
 
 Displays public information about a user, including displayed hostname, visible channel membership, authenticated account state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
 
+### WHOWAS
+
+```text
+WHOWAS <nickname>
+```
+
+Returns bounded recent historical identity information for nicknames that are no longer online, subject to the server's visibility rules.
+
 ## User modes
 
 ScratchIRCd defines these client modes:
 
 - `B` — bot marker.
-- `d` — suppress ordinary channel PRIVMSGs except configured command-prefix traffic; full behavior still planned.
-- `g` — globops/locops capability; full behavior still planned.
-- `H` — hide IRCop status; IRCop-only behavior still planned.
+- `d` — suppress ordinary channel PRIVMSGs except configured command-prefix traffic.
+- `g` — globops/locops capability.
+- `H` — hide IRCop status.
 - `h` — HelpOp.
 - `I` — hide operator idle time from regular users.
 - `i` — invisible in general WHO results.
@@ -443,15 +489,15 @@ ScratchIRCd defines these client modes:
 - `o` — IRC operator.
 - `p` — hide channel membership from WHOIS.
 - `R` — accept PRIVMSG/NOTICE only from authenticated (`+r`) users.
-- `r` — authenticated to a registered NickServ account; service-controlled and implemented.
+- `r` — authenticated to a registered NickServ account; service-controlled.
 - `S` — services daemon protection marker.
-- `s` — server notices; full behavior still planned.
+- `s` — server notices.
 - `T` — reject CTCPs.
 - `t` — using a vhost; changes only displayed hostname.
 - `V` — authenticated WebIRC client marker.
-- `W` — WHOIS notification for IRCops; full behavior still planned.
+- `W` — WHOIS notification for IRCops.
 - `w` — receive WALLOPS messages.
-- `x` — use a cloaked displayed hostname; cloak generation still planned.
+- `x` — use a keyed cloaked displayed hostname derived from real identity without exposing it.
 - `z` — secure/TLS client marker.
 
 ## Channel modes
@@ -460,13 +506,13 @@ ScratchIRCd defines these client modes:
 - `a <nick>` — protected channel member. Only PROTECTED or OWNER authority may add/remove it; protected members cannot be kicked or deliberately banned by ordinary OP/HALFOP members.
 - `B <channel>` — redirect banned clients.
 - `b <mask>` — ban displayed `nick!user@host` identity; protected-account enforcement observes the `+a` authority rules above.
-- `c` — no ANSI color; full filtering behavior planned.
+- `c` — reject channel messages containing IRC color/control formatting.
 - `e <mask>` — channel-ban exception against displayed identity.
 - `h <nick>` — halfop.
 - `i` — invite only.
 - `I <mask>` — invite exception against displayed identity.
 - `j <joins:seconds>` — per-client join throttle.
-- `K` — disallow KNOCK; KNOCK is not currently implemented.
+- `K` — disallow KNOCK.
 - `k <key>` — channel key.
 - `l <count>` — member limit.
 - `L <channel>` — redirect when `+l` is full.
@@ -479,22 +525,10 @@ ScratchIRCd defines these client modes:
 - `q <nick>` — channel owner.
 - `r` — registered-channel marker controlled by ChanServ. It is restored from `data/chanserv.db` and cannot be set by ordinary MODE.
 - `R` — authenticated NickServ account (`+r`) required to join.
-- `S` — strip incoming colors; filtering behavior planned.
+- `S` — strip IRC color/control formatting from accepted channel messages before delivery/history/logging.
 - `s` — secret channel.
 - `t` — halfop or higher required to set topic.
 - `T` — channel NOTICEs prohibited.
 - `V` — INVITE prohibited.
 - `v <nick>` — voice.
 - `z` — TLS clients only.
-
-## Planned client commands
-
-The remaining general client commands from the project specification not yet implemented include:
-
-```text
-SILENCE
-WATCH [+|-]<nick> ...
-WHOWAS
-```
-
-MemoServ commands will be added here when that virtual SQLite-backed service is implemented.
