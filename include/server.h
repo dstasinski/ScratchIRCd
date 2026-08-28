@@ -1,6 +1,7 @@
 #ifndef IRCD_SERVER_H
 #define IRCD_SERVER_H
 
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -80,8 +81,8 @@ typedef struct Server {
     time_t command_global_throttle_notice_time;
 
     /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
-    int restart_requested;
-    int shutdown_requested;
+    volatile sig_atomic_t restart_requested;
+    volatile sig_atomic_t shutdown_requested;
 } Server;
 
 int server_init(Server *server, const ServerConfig *config);
