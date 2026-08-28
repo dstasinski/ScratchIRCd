@@ -64,6 +64,14 @@ static int privmsg_wire_fits(Server *server, Client *client,
     return 0;
 }
 
+static int service_command_matches(const char *text, const char *command) {
+    size_t length;
+    if (text == NULL || command == NULL) return 0;
+    length = strlen(command);
+    return strncasecmp(text, command, length) == 0 &&
+           (text[length] == '\0' || text[length] == ' ');
+}
+
 CommandResult command_privmsg(Server *server, Client *client, char *params) {
     char *target;
     char *text;
@@ -99,8 +107,23 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(target, "ChanServ") == 0) {
+        int is_register = service_command_matches(text, "REGISTER");
+        int is_drop = service_command_matches(text, "DROP");
         if (!command_expensive_allow(server, client, "CHANSERV", 2U))
             return COMMAND_KEEP_CLIENT;
+        if ((is_register || is_drop) &&
+            !client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
+            client_sendf(client, ERR_NOPRIVILEGES,
+                         server->config.server_name, client->nick);
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (is_drop) {
+            char *drop_params = text + 4;
+            while (*drop_params == ' ') ++drop_params;
+            (void)command_csdrop(server, client,
+                                 *drop_params != '\0' ? drop_params : NULL);
+            return COMMAND_KEEP_CLIENT;
+        }
         if (!channel_log_handle_chanserv(server, client, text))
             chanserv_handle_message(server, client, text);
         return COMMAND_KEEP_CLIENT;
