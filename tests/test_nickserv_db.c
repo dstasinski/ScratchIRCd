@@ -17,6 +17,21 @@ static int pragma_int(sqlite3 *db, const char *sql) {
     return value;
 }
 
+static void inject_oversized_vhost(sqlite3 *db, const char *name) {
+    sqlite3_stmt *stmt = NULL;
+    char vhost[IRC_HOST_MAX + 2U];
+    memset(vhost, 'v', IRC_HOST_MAX + 1U);
+    vhost[IRC_HOST_MAX + 1U] = '\0';
+    assert(sqlite3_prepare_v2(db,
+        "UPDATE nickserv_accounts SET vhost=?1 WHERE name=?2",
+        -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_text(stmt, 1, vhost, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(stmt) == SQLITE_DONE);
+    assert(sqlite3_changes(db) == 1);
+    sqlite3_finalize(stmt);
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-nickserv-XXXXXX";
     int fd = mkstemp(path);
@@ -95,12 +110,14 @@ int main(void) {
     assert(nickserv_db_get(&db, "daniel", &loaded) == 0);
     assert(nickserv_db_add(&db, &third) == 0);
     assert(nickserv_db_delete(&db, "Alice") == 0);
-    assert(nickserv_db_delete(&db, "Overflow") == 0);
     nickserv_db_close(&db);
 
     assert(nickserv_db_open(&db, path) == 0);
     assert(pragma_int(db.handle, "PRAGMA user_version") == 1);
+    inject_oversized_vhost(db.handle, "Overflow");
     nickserv_db_close(&db);
+    assert(nickserv_db_open(&db, path) != 0);
+    assert(db.handle == NULL);
     assert(unlink(path) == 0);
     return 0;
 }
