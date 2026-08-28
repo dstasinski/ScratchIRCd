@@ -201,6 +201,38 @@ def main():
             assert 0 < len(echoed_mask) < len(links_mask), links_rows[0]
             assert links_mask.startswith(echoed_mask), echoed_mask
 
+            # Missing WHOIS/WHOWAS targets are arbitrary client query tokens,
+            # not validated nicknames. Maximum legal requests must still get
+            # their error and terminating numeric rather than losing both to
+            # the server-prefix expansion on output.
+            whois_query = "q" * 504
+            assert len(("WHOIS " + whois_query).encode()) == 510
+            client.send("WHOIS " + whois_query)
+            lines = client.collect_until(" :End of /WHOIS list.")
+            assert_wire_safe(lines)
+            whois_missing = [line for line in lines if " 401 alice " in line]
+            whois_end = [line for line in lines if " 318 alice " in line]
+            assert len(whois_missing) == 1 and len(whois_end) == 1, lines
+            whois_echo = whois_end[0].split(" 318 alice ", 1)[1].rsplit(
+                " :End of /WHOIS list.", 1)[0]
+            assert 0 < len(whois_echo) < len(whois_query), whois_end[0]
+            assert whois_query.startswith(whois_echo), whois_echo
+            assert f" 401 alice {whois_echo} :No such nick/channel" in whois_missing[0], whois_missing[0]
+
+            whowas_query = "w" * 503
+            assert len(("WHOWAS " + whowas_query).encode()) == 510
+            client.send("WHOWAS " + whowas_query)
+            lines = client.collect_until(" :End of WHOWAS")
+            assert_wire_safe(lines)
+            whowas_missing = [line for line in lines if " 406 alice " in line]
+            whowas_end = [line for line in lines if " 369 alice " in line]
+            assert len(whowas_missing) == 1 and len(whowas_end) == 1, lines
+            whowas_echo = whowas_end[0].split(" 369 alice ", 1)[1].rsplit(
+                " :End of WHOWAS", 1)[0]
+            assert 0 < len(whowas_echo) < len(whowas_query), whowas_end[0]
+            assert whowas_query.startswith(whowas_echo), whowas_echo
+            assert f" 406 alice {whowas_echo} :There was no such nickname" in whowas_missing[0], whowas_missing[0]
+
             # File-backed text may contain physical lines far longer than one
             # IRC numeric. Preserve all text by chunking each logical line.
             client.send("MOTD")
