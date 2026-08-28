@@ -178,6 +178,8 @@ add_test(NAME channel_logging_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_
 set_tests_properties(channel_logging_integration PROPERTIES TIMEOUT 60)
 add_test(NAME connection_limit_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_connection_limit.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(connection_limit_integration PROPERTIES TIMEOUT 60)
+add_test(NAME channel_limits_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_limits.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(channel_limits_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_override_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_override.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_override_integration PROPERTIES TIMEOUT 60)
 add_test(NAME tls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_tls.py $<TARGET_FILE:scratchircd>)
