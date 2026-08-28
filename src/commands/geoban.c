@@ -20,6 +20,12 @@ typedef struct GeoBanListContext {
     size_t count;
 } GeoBanListContext;
 
+typedef struct GeoBanDisconnectContext {
+    Server *server;
+    Client *setter;
+    const char *reason;
+} GeoBanDisconnectContext;
+
 static char *skip_space(char *p) {
     while (p != NULL && (*p == ' ' || *p == '\t')) ++p;
     return p;
@@ -81,28 +87,36 @@ static int require_geoban(Client *client, Server *server) {
     return 1;
 }
 
-static void disconnect_matches(Server *server, Client *setter, GeoBanDb *db,
-                               const char *reason) {
+static int disconnect_match_callback(const GeoBanRecord *record, void *context) {
+    GeoBanDisconnectContext *ctx = context;
     size_t i = 0U;
-    if (server == NULL || db == NULL || db->handle == NULL) return;
-    while (i < server->client_count) {
-        Client *target = server->clients[i];
-        GeoBanRecord match;
-        if (target != setter && target->registered && target->geoip_complete &&
-            geoban_db_match(db, &target->geoip, &match) == 1) {
-            snotice_broadcast(server, SNOTICE_GEOBANS,
+    if (record == NULL || ctx == NULL || ctx->server == NULL) return -1;
+    while (i < ctx->server->client_count) {
+        Client *target = ctx->server->clients[i];
+        if (target != ctx->setter && target->registered && target->geoip_complete &&
+            geoban_record_matches(record, &target->geoip)) {
+            snotice_broadcast(ctx->server, SNOTICE_GEOBANS,
                               "GeoBAN matched %s [real_ip=%s] by %s {%s}",
                               command_reply_nick(target), target->real_ip,
-                              geoban_type_name(match.type), match.value);
+                              geoban_type_name(record->type), record->value);
             client_sendf(target, ERR_YOUREBANNEDCREEP,
-                         server->config.server_name, command_reply_nick(target),
-                         server->config.admin_email);
-            server_disconnect(server, target,
-                              reason != NULL && *reason != '\0' ? reason : "GeoIP policy ban");
+                         ctx->server->config.server_name, command_reply_nick(target),
+                         ctx->server->config.admin_email);
+            server_disconnect(ctx->server, target,
+                              ctx->reason != NULL && *ctx->reason != '\0'
+                                  ? ctx->reason : "GeoIP policy ban");
             continue;
         }
         ++i;
     }
+    return 0;
+}
+
+static void disconnect_matches(Server *server, Client *setter, GeoBanDb *db,
+                               const char *reason) {
+    GeoBanDisconnectContext context = {server, setter, reason};
+    if (server == NULL || db == NULL || db->handle == NULL) return;
+    (void)geoban_db_list(db, disconnect_match_callback, &context);
 }
 
 CommandResult command_geoban(Server *server, Client *client, char *params) {
