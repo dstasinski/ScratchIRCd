@@ -282,3 +282,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    legacy = os.path.join(os.path.dirname(__file__), "test_chanserv_wire_legacy.py")
+    subprocess.check_call([sys.executable, legacy, os.path.abspath(sys.argv[1])])
