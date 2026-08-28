@@ -227,6 +227,17 @@ def main():
                 except socket.timeout:
                     pass
             assert closed or b"Invalid WEBIRC parameters" in response, response
+
+            # The count follows the WEBIRC end-user identity and must be released
+            # when that client disconnects. Reusing the same end-user address
+            # after web1 closes catches stale entries in the IP-count index.
+            web1.close(); sockets.remove(web1)
+            time.sleep(0.35)
+            web7 = connect(port); sockets.append(web7); assert accepted(web7)
+            web7.sendall(b"WEBIRC gateway-secret web.example reused.example 203.0.113.25\r\n")
+            web7.sendall(b"PING :web-reused\r\n")
+            data = web7.recv(4096)
+            assert data, "WEBIRC end-user capacity was not released after disconnect"
         finally:
             for sock in sockets:
                 try: sock.close()
