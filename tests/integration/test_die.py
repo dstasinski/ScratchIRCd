@@ -2,6 +2,7 @@
 """End-to-end test for permission-gated graceful DIE shutdown."""
 
 import os
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -101,6 +102,37 @@ def queued_rows(path):
         db.close()
 
 
+def clear_queued_rows(path):
+    db = sqlite3.connect(path)
+    try:
+        db.execute("DELETE FROM channel_log_queue")
+        db.commit()
+    finally:
+        db.close()
+
+
+def assert_signal_shutdown(binary, conf, port, sig, nick):
+    proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    client = None
+    try:
+        wait_listen(port, proc)
+        client = IRCClient(port)
+        register(client, nick)
+        proc.send_signal(sig)
+        try:
+            rc = proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            raise AssertionError(f"signal {sig} did not terminate the daemon")
+        assert rc == 0, f"signal {sig} exited with status {rc}: {proc.stderr.read()}"
+    finally:
+        if client is not None:
+            client.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=3)
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_die.py scratchircd scratchircd-mkpasswd")
@@ -169,6 +201,13 @@ def main():
                     proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     proc.kill(); proc.wait(timeout=3)
+
+        # Exercise the asynchronous signal path while the event loop is known
+        # to be active. The handler must request the same graceful teardown as
+        # DIE without touching non-signal-safe ordinary process state.
+        clear_queued_rows(chanserv_db)
+        assert_signal_shutdown(binary, conf, port, signal.SIGTERM, "TermClient")
+        assert_signal_shutdown(binary, conf, port, signal.SIGINT, "IntClient")
 
 
 if __name__ == "__main__":
