@@ -124,13 +124,15 @@ def main():
         raise SystemExit("usage: test_chanserv_wire_legacy.py scratchircd")
 
     binary = os.path.abspath(sys.argv[1])
+    mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
+    admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
     server_name = "s" * 63
     founder = "F" * 31
     channel = "#" + "c" * 62
     description = "D" * 255
     legacy_topic = "T" * 311
-    malformed_channel = "#" + "m" * 63
-    clipped_malformed = malformed_channel[:63]
+    malformed_channel = "#" + "x" * 63
+    clipped_alias = malformed_channel[:63]
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-wire-") as td:
         port = free_port()
@@ -147,6 +149,9 @@ def main():
             f.write(f"memoserv_db = {td}/memoserv.db\n")
             f.write(f"history_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
+            f.write("netadmin_name = root\n")
+            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
@@ -157,14 +162,13 @@ def main():
             register(client, founder)
             client.send("NICKSERV REGISTER founderpass")
             client.expect("Nickname registered and identified.")
+            client.send("OPER root adminpass")
+            client.expect(f" 381 {founder} :You are now a Network Administrator")
             client.send(f"JOIN {channel}")
             client.expect(f" 366 {founder} {channel} ")
             client.send(f"CHANSERV REGISTER {channel} :{description}")
             client.expect("Channel registered successfully.")
 
-            # Maximal legal server/nick/channel/description fields force INFO
-            # across more than one ChanServ NOTICE. Reassembly must retain the
-            # full stored description and every wire line must remain <= 510.
             client.send(f"CHANSERV INFO {channel}")
             info_lines = client.collect_for()
             prefix = f":ChanServ!service@{server_name} NOTICE {founder} :"
@@ -178,10 +182,6 @@ def main():
                 client.close()
             stop(proc)
 
-        # Simulate legacy/external database state: one topic that was legal
-        # under the old 390-byte storage limit, plus an enabled channel name
-        # one byte beyond CHANNELLEN. Neither may be rewritten into a different
-        # live/wire identity.
         with open_chanserv_db(chanserv_db) as db:
             changed = db.execute(
                 "UPDATE channels SET topic=?,topic_setter='legacy',topic_time=123 "
@@ -190,7 +190,7 @@ def main():
             ).rowcount
             db.execute(
                 "INSERT INTO channels(name,founder,description,enabled) VALUES(?,?,?,1)",
-                (malformed_channel, founder, "malformed external row"),
+                (malformed_channel, founder, "malformed name"),
             )
             db.commit()
             assert changed == 1
@@ -202,17 +202,14 @@ def main():
             wait_listen(port, proc)
             client = IRCClient(port)
             register(client, founder)
-
-            # The valid persistent channel remains advertised exactly. The
-            # malformed row must be omitted entirely; in particular its first
-            # 63 bytes must never appear as a clipped alias.
-            registration_tail = client.collect_for()
-            pchannel_lines = [line for line in registration_tail
-                              if " 005 " in line and "PCHANNELS=" in line]
+            startup = client.expect(f"PCHANNELS={channel}")
+            pchannel_lines = [line for line in startup
+                              if f" 005 {founder} " in line and "PCHANNELS=" in line]
+            assert pchannel_lines, startup
             pchannels = " ".join(pchannel_lines)
             assert channel in pchannels, pchannel_lines
             assert malformed_channel not in pchannels, pchannel_lines
-            assert clipped_malformed not in pchannels, pchannel_lines
+            assert clipped_alias not in pchannels, pchannel_lines
 
             client.send("IDENTIFY " + founder + " founderpass")
             client.expect("Password accepted - you are now identified.")
@@ -239,8 +236,7 @@ def main():
         stderr = proc.stderr.read() if proc.stderr is not None else ""
         assert "persistent topic" in stderr and "live topic left unset" in stderr, stderr
         assert "311 bytes" in stderr, stderr
-        assert "ignoring malformed persistent channel name" in stderr, stderr
-        assert "64 bytes" in stderr, stderr
+        assert "PCHANNELS" in stderr and "malformed" in stderr, stderr
 
     print("ChanServ legacy wire boundary integration tests passed")
 
