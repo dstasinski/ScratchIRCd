@@ -13,7 +13,7 @@ static int column_exists(sqlite3 *db, const char *column) {
     int found = 0;
 
     if (db == NULL || column == NULL) return 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)",
+    if (sqlite3_prepare_v2(db->db, "PRAGMA table_info(channels)",
                            -1, &stmt, NULL) != SQLITE_OK)
         return 0;
 
@@ -123,13 +123,18 @@ int chanserv_db_logging_set(ChanServDb *db, const char *name, int enabled) {
     return rc == SQLITE_DONE && sqlite3_changes(db->db) > 0 ? 0 : -1;
 }
 
+static int has_line_break(const char *text) {
+    return text != NULL && (strchr(text, '\r') != NULL || strchr(text, '\n') != NULL);
+}
+
 int chanserv_db_logging_queue_add(ChanServDb *db, const char *channel,
                                   long long event_time, const char *body) {
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (db == NULL || db->db == NULL || channel == NULL || body == NULL ||
         strlen(channel) > IRC_CHANNEL_NAME_MAX ||
-        strlen(body) >= sizeof(((ChanServLogQueueRecord *)0)->body))
+        strlen(body) >= sizeof(((ChanServLogQueueRecord *)0)->body) ||
+        has_line_break(channel) || has_line_break(body))
         return -1;
     if (chanserv_db_logging_ensure_schema(db) != 0) return -1;
     if (sqlite3_prepare_v2(db->db,
@@ -181,7 +186,9 @@ static int copy_stmt_text(sqlite3_stmt *stmt, int column,
     value = sqlite3_column_text(stmt, column);
     bytes = sqlite3_column_bytes(stmt, column);
     if (value == NULL || bytes < 0 || (size_t)bytes >= size ||
-        memchr(value, '\0', (size_t)bytes) != NULL)
+        memchr(value, '\0', (size_t)bytes) != NULL ||
+        memchr(value, '\r', (size_t)bytes) != NULL ||
+        memchr(value, '\n', (size_t)bytes) != NULL)
         return -1;
     memcpy(dest, value, (size_t)bytes);
     dest[bytes] = '\0';
@@ -293,7 +300,9 @@ int chanserv_db_logging_queue_list_channels(ChanServDb *db, char *buffer,
         int bytes = sqlite3_column_bytes(stmt, 0);
         size_t length;
         if (name == NULL || bytes <= 0 ||
-            memchr(name, '\0', (size_t)bytes) != NULL) {
+            memchr(name, '\0', (size_t)bytes) != NULL ||
+            memchr(name, '\r', (size_t)bytes) != NULL ||
+            memchr(name, '\n', (size_t)bytes) != NULL) {
             sqlite3_finalize(stmt);
             buffer[0] = '\0';
             return -1;
