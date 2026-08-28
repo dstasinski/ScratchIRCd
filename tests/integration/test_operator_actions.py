@@ -212,7 +212,7 @@ def main():
             receiver.send("STATS")
             stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
             assert any("STATS u - server uptime" in line for line in stats_help), stats_help
-            assert any("STATS g - persistent GeoBan policies" in line for line in stats_help), stats_help
+            assert any("STATS g - persistent GeoBAN policies" in line for line in stats_help), stats_help
 
             receiver.send("STATS k")
             receiver.expect(" 481 bob ")
