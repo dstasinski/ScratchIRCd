@@ -169,6 +169,16 @@ def main():
             alice.send("MODE #persist +I Invite!*@*")
             alice.expect(" MODE #persist +I Invite!*@*")
 
+            # SQLite INTEGER is signed 64-bit. Reject +l values that cannot be
+            # persisted before the live channel is mutated, including the
+            # negative-token edge that strtoul() would otherwise map to ULONG_MAX.
+            alice.send("MODE #persist +l 9223372036854775808")
+            alice.expect(" 461 Alice MODE :Not enough parameters")
+            assert_parameter_modes(alice, "Alice")
+            alice.send("MODE #persist +l -1")
+            alice.expect(" 461 Alice MODE :Not enough parameters")
+            assert_parameter_modes(alice, "Alice")
+
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
             assert_parameter_modes(alice, "Alice")
