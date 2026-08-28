@@ -112,6 +112,11 @@ static void test_tagged_line_framing(void) {
     untagged[IRC_LINE_CONTENT_MAX + 1U] = '\0';
     assert(client_send_line(client, untagged) < 0);
 
+    /* No formatted caller may smuggle an extra IRC frame into one send. */
+    assert(client_send_line(client, ":server NOTICE nick :safe\r\n:server NOTICE nick :injected") < 0);
+    assert(client_send_line(client, ":server NOTICE nick :safe\ninjected") < 0);
+    assert(client_sendf(client, ":server NOTICE nick :%s", "persisted\rtext") < 0);
+
     /* Exercise the exact server-tag allowance rather than only a short @time
      * prefix. The tag section includes its separating space; the ordinary IRC
      * message remains independently bounded to 510 bytes. */
