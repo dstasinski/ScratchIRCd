@@ -247,7 +247,7 @@ static int list_one(const OperatorRecord *record, void *context) {
                    record->permissions[0] != '\0' ? record->permissions : "-",
                    record->created_at, record->updated_at);
     admin_notice(ctx->server, ctx->client, line);
-    return 0;
+    return ctx->client->output_overflowed ? 1 : 0;
 }
 
 CommandResult command_operlist(Server *server, Client *client, char *params) {
@@ -276,6 +276,7 @@ CommandResult command_operlist(Server *server, Client *client, char *params) {
     }
 
     operator_db_close(&db);
-    admin_notice(server, client, "End of operator list");
+    if (!client->output_overflowed)
+        admin_notice(server, client, "End of operator list");
     return COMMAND_KEEP_CLIENT;
 }
