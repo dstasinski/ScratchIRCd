@@ -107,7 +107,6 @@ void runtime_config_defaults(ServerConfig *config) {
     config->argon2_window_seconds = IRCD_DEFAULT_ARGON2_WINDOW_SECONDS;
     config->argon2_global_ops_per_minute = IRCD_DEFAULT_ARGON2_GLOBAL_OPS_PER_MINUTE;
     config->argon2_global_burst_per_second = IRCD_DEFAULT_ARGON2_GLOBAL_BURST_PER_SECOND;
-    config->chanserv_max_channels_per_account = IRCD_DEFAULT_CHANSERV_MAX_CHANNELS_PER_ACCOUNT;
     config->kline_default_duration_seconds = IRCD_DEFAULT_KLINE_DURATION_SECONDS;
     config->zline_default_duration_seconds = IRCD_DEFAULT_ZLINE_DURATION_SECONDS;
     config->nickserv_reset_seconds = IRCD_DEFAULT_NICKSERV_RESET_SECONDS;
@@ -366,11 +365,6 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     if (strcmp(key, "argon2_global_burst_per_second") == 0) {
         if (number > IRCD_ARGON2_GLOBAL_BURST_PER_SECOND_HARD_MAX) return -1;
         config->argon2_global_burst_per_second = (unsigned int)number;
-        return 0;
-    }
-    if (strcmp(key, "chanserv_max_channels_per_account") == 0) {
-        if (number > IRCD_CHANSERV_MAX_CHANNELS_PER_ACCOUNT_HARD_MAX) return -1;
-        config->chanserv_max_channels_per_account = (unsigned int)number;
         return 0;
     }
     if (strcmp(key, "kline_default_duration_seconds") == 0)
