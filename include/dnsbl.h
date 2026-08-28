@@ -11,6 +11,7 @@
  */
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -43,6 +44,8 @@ typedef struct DnsblResolver {
     int result_read_fd;
     int result_write_fd;
     int running;
+    /** Stop after the currently executing lookup; do not drain queued work. */
+    atomic_int stopping;
 } DnsblResolver;
 
 int dnsbl_resolver_init(DnsblResolver *resolver);
