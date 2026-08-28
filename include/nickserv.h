@@ -15,6 +15,9 @@ void nickserv_handle_message(Server *server, Client *client, char *text);
 int nickserv_identify(Server *server, Client *client,
                       const char *account_name, const char *password);
 
+/** Close process-local NickServ service state for shutdown or in-process RESTART. */
+void nickserv_reset_runtime_state(void);
+
 /** Return non-zero when a nickname is reserved for an internal service. */
 int service_nickname_reserved(const char *nick);
 
