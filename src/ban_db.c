@@ -119,6 +119,22 @@ static int cidr_match(const char *cidr, const char *address) {
     return 1;
 }
 
+int ban_record_matches(const BanRecord *record, const char *identity1,
+                       const char *identity2) {
+    if (record == NULL) return 0;
+    if (record->type == BAN_TYPE_ZLINE && strchr(record->mask, '/') != NULL) {
+        return (identity1 != NULL && cidr_match(record->mask, identity1)) ||
+               (identity2 != NULL && cidr_match(record->mask, identity2));
+    }
+    if (record->type == BAN_TYPE_ZLINE && strchr(record->mask, '*') == NULL &&
+        strchr(record->mask, '?') == NULL) {
+        return (identity1 != NULL && numeric_ip_equal(record->mask, identity1)) ||
+               (identity2 != NULL && numeric_ip_equal(record->mask, identity2));
+    }
+    return (identity1 != NULL && wildcard_match(record->mask, identity1)) ||
+           (identity2 != NULL && wildcard_match(record->mask, identity2));
+}
+
 static void record_from_stmt(sqlite3_stmt *stmt, BanRecord *record) {
     const unsigned char *text;
     memset(record, 0, sizeof(*record));
@@ -295,20 +311,8 @@ int ban_db_match(BanDb *db, BanType type, const char *identity1,
     sqlite3_bind_int(stmt, 1, (int)type);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         BanRecord candidate;
-        int matched = 0;
         record_from_stmt(stmt, &candidate);
-        if (type == BAN_TYPE_ZLINE && strchr(candidate.mask, '/') != NULL) {
-            matched = (identity1 != NULL && cidr_match(candidate.mask, identity1)) ||
-                      (identity2 != NULL && cidr_match(candidate.mask, identity2));
-        } else if (type == BAN_TYPE_ZLINE && strchr(candidate.mask, '*') == NULL &&
-                   strchr(candidate.mask, '?') == NULL) {
-            matched = (identity1 != NULL && numeric_ip_equal(candidate.mask, identity1)) ||
-                      (identity2 != NULL && numeric_ip_equal(candidate.mask, identity2));
-        } else {
-            matched = (identity1 != NULL && wildcard_match(candidate.mask, identity1)) ||
-                      (identity2 != NULL && wildcard_match(candidate.mask, identity2));
-        }
-        if (matched) {
+        if (ban_record_matches(&candidate, identity1, identity2)) {
             *record = candidate;
             sqlite3_finalize(stmt);
             return 1;
