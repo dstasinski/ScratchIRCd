@@ -17,6 +17,18 @@
 
 const char *command_reply_nick(const Client *client){return(client==NULL||client->nick[0]=='\0')?"*":client->nick;}
 
+/* Pre-registration commands do not all carry Server through their shared
+ * registration check. Keep the active runtime name here so 451 replies use
+ * the configured server identity rather than the compile-time default. */
+static char command_server_name[IRC_HOST_MAX+1U]=IRCD_DEFAULT_SERVER_NAME;
+
+void command_common_set_server_name(const char *server_name){
+    if(server_name==NULL||*server_name=='\0')
+        (void)snprintf(command_server_name,sizeof(command_server_name),"%s",IRCD_DEFAULT_SERVER_NAME);
+    else
+        (void)snprintf(command_server_name,sizeof(command_server_name),"%s",server_name);
+}
+
 /* Registration policy is consulted for every client but changes relatively
  * rarely. Keep persistent SQLite handles rather than reopening bans.db twice
  * per registration. Policy itself remains database-backed, so KLINE/ZLINE and
@@ -76,6 +88,7 @@ void command_common_reset_state(void){
     pchannels_cache=NULL;
     pchannels_cache_generation=0U;
     pchannels_cache_path[0]='\0';
+    command_common_set_server_name(IRCD_DEFAULT_SERVER_NAME);
 }
 
 static int rebuild_pchannels_cache(Server *server){
@@ -182,7 +195,7 @@ static void send_isupport(Server *server,Client *client){
 
 void command_maybe_register(Server *server,Client *client){if(server==NULL||client==NULL||client->registered||client->nick[0]=='\0'||client->user[0]=='\0'||client->cap_negotiating||client->dns_state==CLIENT_DNS_PENDING||client->dns_state==CLIENT_DNS_NONE||(server->config.server_password[0]!='\0'&&!client->pass_accepted)||(server->config.nospoof_enabled&&(!client->nospoof_started||!client->nospoof_verified)))return;if(!client->geoip_complete){geoip_lookup(&server->geoip,client->real_ip,&client->geoip);client->geoip_complete=1;}if(registration_geo_banned(server,client))return;if(client->dnsbl_state==CLIENT_DNSBL_NONE){if(server->config.dnsbl_count==0U)client->dnsbl_state=CLIENT_DNSBL_CLEAR;else if(dnsbl_resolver_submit(&server->dnsbl,client->id,client->real_ip,server->config.dnsbls,server->config.dnsbl_count)==0){client->dnsbl_state=CLIENT_DNSBL_PENDING;client->dnsbl_deadline=time(NULL)+(time_t)server->config.dnsbl_timeout_seconds;return;}else{client->dnsbl_state=CLIENT_DNSBL_ERROR;snotice_broadcast(server,SNOTICE_DNS|SNOTICE_FLOOD,"DNSBL resolver queue saturated/unavailable for %s; registration fails open",client->real_ip);}}if(client->dnsbl_state==CLIENT_DNSBL_PENDING||client->dnsbl_state==CLIENT_DNSBL_LISTED)return;if(registration_banned(server,client))return;client->registered=1;client_sendf(client,RPL_WELCOME,server->config.server_name,client->nick,server->config.network_name,client->nick,client->user,client->display_host);client_sendf(client,RPL_YOURHOST,server->config.server_name,client->nick,server->config.server_name,IRCD_VERSION);client_sendf(client,RPL_CREATED,server->config.server_name,client->nick,IRCD_CREATED);client_sendf(client,RPL_AVAILABLE,server->config.server_name,client->nick,server->config.server_name,IRCD_VERSION,IRCD_SUPPORTED_USER_MODES,IRCD_SUPPORTED_CHANNEL_MODES);send_isupport(server,client);presence_watch_online(server,client);snotice_broadcast(server,SNOTICE_CONNECTIONS,"Client registered: %s!%s@%s [real_ip=%s real_host=%s%s]",client->nick,client->user,client->display_host,client->real_ip,client->real_host[0]!='\0'?client->real_host:"-",client->webirc.active?" webirc":"");}
 
-int command_require_registered(Client *client){if(client!=NULL&&client->registered)return 0;if(client!=NULL)client_sendf(client,ERR_NOTREGISTERED,IRCD_DEFAULT_SERVER_NAME,command_reply_nick(client));return 1;}
+int command_require_registered(Client *client){if(client!=NULL&&client->registered)return 0;if(client!=NULL)client_sendf(client,ERR_NOTREGISTERED,command_server_name,command_reply_nick(client));return 1;}
 
 static int names_payload_fits(const Server *server,const Client *client,char marker,const Channel *channel,const char *names){
     int written;
