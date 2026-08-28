@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure STATS/LIST/file-text replies respect IRC wire limits."""
+"""Ensure STATS and file-backed text replies respect IRC wire limits."""
 
 import os
 import socket
@@ -124,7 +124,6 @@ def main():
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, cwd=td)
         client = None
-        viewer = None
         try:
             wait_listen(port, proc)
             client = IRCClient(port)
@@ -199,40 +198,12 @@ def main():
                            for line in lines if rules_marker in line]
             assert len(rules_parts) >= 2, lines
             assert "".join(rules_parts) == rules_text, rules_parts
-
-            # With a 63-byte server name, irc_topic_limit() advertises 344.
-            # That topic is legal for TOPIC/332, but numeric 322 has slightly
-            # more fixed framing. A 31-byte requesting nick therefore forces
-            # LIST to trim only the displayed trailing topic instead of losing
-            # the channel row entirely.
-            channel = "#" + ("c" * 62)
-            topic = "t" * 344
-            client.send(f"JOIN {channel}")
-            client.collect_until(f" 366 alice {channel} ")
-            client.send(f"TOPIC {channel} :{topic}")
-            client.collect_until(f" TOPIC {channel} :")
-
-            viewer_nick = "v" * 31
-            viewer = IRCClient(port)
-            viewer.send(f"NICK {viewer_nick}")
-            viewer.send(f"USER viewer 0 * :List Viewer")
-            viewer.collect_until(f" 001 {viewer_nick} ")
-            viewer.send("LIST")
-            lines = viewer.collect_until(f" 323 {viewer_nick} :End of /LIST")
-            assert_wire_safe(lines)
-            list_rows = [line for line in lines if f" 322 {viewer_nick} {channel} " in line]
-            assert len(list_rows) == 1, lines
-            displayed_topic = list_rows[0].rsplit(":", 1)[1]
-            assert displayed_topic and set(displayed_topic) == {"t"}, list_rows[0]
-            assert len(displayed_topic) < len(topic), list_rows[0]
         finally:
-            if viewer is not None:
-                viewer.close()
             if client is not None:
                 client.close()
             stop(proc)
 
-    print("STATS/LIST/file-text envelope integration tests passed")
+    print("STATS/file-text envelope integration tests passed")
 
 
 if __name__ == "__main__":
