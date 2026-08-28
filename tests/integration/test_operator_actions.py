@@ -157,9 +157,9 @@ def main():
             admin.expect("NickServ account updated.")
             admin.send(f"NSINFO {long_account}")
             info_head = admin.expect(f"NICKSERV {long_account} enabled=1")
-            info_tail = admin.expect(long_email[-32:])
-            info_lines = info_head + info_tail
             prefix = f":{server_name} NOTICE alice :"
+            info_tail = admin.expect(prefix)
+            info_lines = info_head + info_tail
             payloads = [line[len(prefix):] for line in info_lines if line.startswith(prefix)]
             expected_info = (
                 f"NICKSERV {long_account} enabled=1 vhost={long_vhost} "
