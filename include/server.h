@@ -52,6 +52,8 @@ typedef struct Server {
     HashTable clients_by_id;
     HashTable clients_by_nick;
     HashTable channels_by_name;
+    /** Canonical numeric IP -> live connection count record. */
+    HashTable connection_counts_by_ip;
     DnsResolver dns;
     DnsblResolver dnsbl;
     GeoIPContext geoip;
@@ -103,6 +105,15 @@ int server_connection_limit_ip_exempt(const Server *server, const char *ip);
  */
 int server_connection_limit_reached(const Server *server, const char *ip,
                                     const Client *exclude);
+
+/**
+ * Atomically move one live connection count from old_ip to new_ip. This is
+ * used when a trusted WEBIRC gateway replaces its transport identity with the
+ * authenticated end-user identity. Returns 0 on success, -1 on invalid input
+ * or allocation failure; failure leaves the old count intact.
+ */
+int server_connection_count_move(Server *server, const char *old_ip,
+                                 const char *new_ip);
 
 /** Return non-zero when another NickServ REGISTER is allowed for this IP. */
 int server_nickserv_registration_allowed(Server *server, const char *ip,
