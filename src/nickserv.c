@@ -25,6 +25,46 @@
 #include <sys/types.h>
 #include <time.h>
 
+/* NickServ commands are serialized by the single IRC event loop, and every DB
+ * helper finalizes its statements before returning. Reuse one connection for
+ * the service lifetime so IDENTIFY/SASL and ordinary NickServ commands do not
+ * repeatedly reopen SQLite and re-run schema setup. Existing stack-local DB
+ * objects remain lightweight views so command cleanup/control flow is unchanged. */
+static NickServDb nickserv_service_db = {0};
+static char nickserv_service_db_path[IRCD_CONFIG_PATH_MAX + 1U];
+
+static int nickserv_service_db_acquire(NickServDb *view, const char *path) {
+    if (view == NULL || path == NULL || *path == '\0') return -1;
+    view->handle = NULL;
+    if (nickserv_service_db.handle != NULL &&
+        strcmp(nickserv_service_db_path, path) != 0) {
+        nickserv_db_close(&nickserv_service_db);
+        nickserv_service_db_path[0] = '\0';
+    }
+    if (nickserv_service_db.handle == NULL) {
+        if (nickserv_db_open(&nickserv_service_db, path) != 0) return -1;
+        (void)snprintf(nickserv_service_db_path, sizeof(nickserv_service_db_path),
+                       "%s", path);
+    }
+    view->handle = nickserv_service_db.handle;
+    return 0;
+}
+
+static void nickserv_service_db_release(NickServDb *view) {
+    if (view != NULL) view->handle = NULL;
+}
+
+void nickserv_reset_runtime_state(void) {
+    nickserv_db_close(&nickserv_service_db);
+    nickserv_service_db_path[0] = '\0';
+}
+
+/* Keep the established command-local open/close structure, but make those
+ * operations acquire/release a view of the service-owned connection. These
+ * aliases are intentionally local to this translation unit. */
+#define nickserv_db_open(db, path) nickserv_service_db_acquire((db), (path))
+#define nickserv_db_close(db) nickserv_service_db_release((db))
+
 static void nickserv_notice(Server *server, Client *client, const char *text) {
     client_sendf(client, ":NickServ!service@%s NOTICE %s :%s",
                  server->config.server_name, client->nick, text);
