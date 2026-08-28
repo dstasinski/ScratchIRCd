@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end coverage for the bounded live-channel pool."""
+"""End-to-end coverage for bounded live-channel and TOPIC envelopes."""
 
 import os
 import socket
@@ -81,11 +81,15 @@ def main():
         raise SystemExit("usage: test_channel_limits.py scratchircd")
 
     binary = os.path.abspath(sys.argv[1])
+    server_name = "s" * 63
+    nick = "N" * 31
+    long_channel = "#" + "c" * 62
+
     with tempfile.TemporaryDirectory(prefix="scratchircd-channel-limit-") as td:
         port = free_port()
         conf = os.path.join(td, "ircd.conf")
         with open(conf, "w", encoding="utf-8") as handle:
-            handle.write("server_name = test.local\nnetwork_name = TestNet\n")
+            handle.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             handle.write("bind_address = 127.0.0.1\n")
             handle.write(f"port = {port}\nmax_clients = 8\nmax_channels = 2\n")
             handle.write("dns_timeout_seconds = 1\n")
@@ -100,14 +104,14 @@ def main():
         try:
             wait_listen(port, proc)
             client = IRCClient(port)
-            client.send("NICK LimitUser")
+            client.send(f"NICK {nick}")
             client.send("USER limit 0 * :Channel Limit User")
-            client.expect(" 001 LimitUser ")
+            client.expect(f" 001 {nick} ")
 
             client.send("JOIN #one")
-            client.expect(" 366 LimitUser #one ")
+            client.expect(f" 366 {nick} #one ")
             client.send("JOIN #two")
-            client.expect(" 366 LimitUser #two ")
+            client.expect(f" 366 {nick} #two ")
 
             # The third distinct live channel would exceed max_channels=2.
             client.send("JOIN #three")
@@ -117,7 +121,23 @@ def main():
             client.send("PART #one :free-slot")
             client.expect(" PART #one :free-slot")
             client.send("JOIN #three")
-            client.expect(" 366 LimitUser #three ")
+            client.expect(f" 366 {nick} #three ")
+
+            # Exercise TOPIC with the maximum legal server, nick and channel
+            # envelopes. The derived worst-case relay limit is 310 bytes. An
+            # oversized topic must be rejected before mutation so a later 332
+            # still returns the previous value instead of disappearing at the
+            # central 510-byte send guard.
+            client.send("PART #two :free-topic-slot")
+            client.expect(" PART #two :free-topic-slot")
+            client.send(f"JOIN {long_channel}")
+            client.expect(f" 366 {nick} {long_channel} ")
+            client.send(f"TOPIC {long_channel} :stable-topic")
+            client.expect(f" TOPIC {long_channel} :stable-topic")
+            client.send(f"TOPIC {long_channel} :{'x' * 311}")
+            client.expect(f" 417 {nick} TOPIC :Topic would exceed the IRC line limit")
+            client.send(f"TOPIC {long_channel}")
+            client.expect(f" 332 {nick} {long_channel} :stable-topic")
         finally:
             if client is not None:
                 client.close()
