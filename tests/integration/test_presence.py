@@ -64,6 +64,25 @@ class IRCClient:
                 pass
         return got
 
+    def collect_until(self, needle, duration=5.0):
+        deadline = time.monotonic() + duration
+        got = []
+        while time.monotonic() < deadline:
+            lines = self._lines()
+            for index, line in enumerate(lines):
+                got.append(line)
+                if needle in line:
+                    self.pending.extend(lines[index + 1:])
+                    return got
+            try:
+                data = self.sock.recv(4096)
+                if not data:
+                    break
+                self.buffer += data
+            except socket.timeout:
+                pass
+        raise AssertionError(f"expected terminator {needle!r}; got {got!r}")
+
     def close(self):
         try:
             self.sock.close()
@@ -192,6 +211,43 @@ def main():
             historical = watcher.expect(" 314 Watcher Subject subject ")
             assert "dru-" in historical and "127.0.0.1" not in historical, historical
             watcher.expect(" 369 Watcher Subject :End of WHOWAS")
+
+            # TOPICLEN is a server-wide wire guarantee, not merely storage size.
+            # Exactly 310 bytes is advertised/accepted; 311 must be rejected
+            # before mutation, and the previously stored topic must remain.
+            topic_ok = "t" * 310
+            topic_too_long = "x" * 311
+            subject.send(f"TOPIC #presence :{topic_ok}")
+            subject.expect(f" TOPIC #presence :{topic_ok}")
+            watcher.send("TOPIC #presence")
+            watcher.expect(f" 332 Watcher #presence :{topic_ok}")
+            subject.send(f"TOPIC #presence :{topic_too_long}")
+            subject.expect(" 417 Renamed TOPIC :Topic would exceed the IRC line limit")
+            watcher.send("TOPIC #presence")
+            topic_after_reject = watcher.expect(" 332 Watcher #presence :")
+            assert topic_after_reject.endswith(topic_ok), topic_after_reject
+
+            # A legal client can belong to enough maximum-length channel names
+            # that WHOIS requires multiple 319 numerics. Every membership must
+            # survive the split, with no emitted IRC line exceeding 512 bytes.
+            long_channels = []
+            for index in range(12):
+                suffix = f"{index:02d}"
+                channel = "#" + ("c" * (62 - len(suffix))) + suffix
+                assert len(channel) == 63
+                long_channels.append(channel)
+                subject.send(f"JOIN {channel}")
+                subject.expect(f" 366 Renamed {channel} ")
+            watcher.send("WHOIS Renamed")
+            whois_lines = watcher.collect_until(" 318 Watcher Renamed :End of /WHOIS list.")
+            channel_lines = [line for line in whois_lines if " 319 Watcher Renamed :" in line]
+            assert len(channel_lines) >= 2, channel_lines
+            for line in channel_lines:
+                assert len((line + "\r\n").encode()) <= 512, line
+            joined_channels = " ".join(channel_lines)
+            assert "#presence" in joined_channels, joined_channels
+            for channel in long_channels:
+                assert channel in joined_channels, (channel, channel_lines)
 
             # Control-bearing SILENCE masks are ignored and never enter list state.
             subject.send("SILENCE +bad\x01mask")
