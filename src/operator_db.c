@@ -30,6 +30,19 @@ static void copy_text(char *dest, size_t size, const unsigned char *value) {
     (void)snprintf(dest, size, "%s", value != NULL ? (const char *)value : "");
 }
 
+static int persisted_vhosts_valid(sqlite3 *handle) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (handle == NULL) return -1;
+    if (sqlite3_prepare_v2(handle,
+            "SELECT 1 FROM operators WHERE length(vhost)>?1 LIMIT 1",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)IRC_HOST_MAX);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 /*
  * Ensure the immediate parent directory for a configured database path exists.
  * ScratchIRCd's standard database layout is data/<database>.db, so one parent
@@ -75,6 +88,10 @@ int operator_db_open(OperatorDb *db, const char *path) {
 
     if (sqlite3_exec(db->handle, schema_sql, NULL, NULL, &error) != SQLITE_OK) {
         sqlite3_free(error);
+        operator_db_close(db);
+        return -1;
+    }
+    if (persisted_vhosts_valid(db->handle) != 0) {
         operator_db_close(db);
         return -1;
     }
@@ -127,7 +144,8 @@ int operator_db_add(OperatorDb *db, const OperatorRecord *record) {
     sqlite3_stmt *stmt = NULL;
     int rc;
 
-    if (db == NULL || db->handle == NULL || record == NULL) return -1;
+    if (db == NULL || db->handle == NULL || record == NULL ||
+        strlen(record->vhost) > IRC_HOST_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, record->name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, record->password_hash, -1, SQLITE_TRANSIENT);
@@ -181,6 +199,7 @@ int operator_db_set_permissions(OperatorDb *db, const char *name, const char *pe
 }
 
 int operator_db_set_vhost(OperatorDb *db, const char *name, const char *vhost) {
+    if (vhost == NULL || strlen(vhost) > IRC_HOST_MAX) return -1;
     return update_text(db,
         "UPDATE operators SET vhost=?1,updated_at=unixepoch() WHERE name=?2",
         name, vhost);
