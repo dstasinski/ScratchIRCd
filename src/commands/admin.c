@@ -24,35 +24,74 @@ typedef struct StatsGeoBanContext {
     Client *client;
 } StatsGeoBanContext;
 
+static int stats_reason_precision(int base_length, const char *reason) {
+    size_t available;
+    size_t length;
+
+    if (base_length < 0 || reason == NULL ||
+        (size_t)base_length > IRC_LINE_CONTENT_MAX)
+        return 0;
+
+    available = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    length = strlen(reason);
+    if (length > available) length = available;
+    return (int)length;
+}
+
 static int stats_ban_row(const BanRecord *record, void *context) {
     StatsBanContext *stats = context;
+    int base_length;
+    int reason_precision;
+
     if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
         return -1;
 
     if (stats->selector == 'k') {
-        client_sendf(stats->client, ":%s 216 %s %s %s :%s",
+        base_length = snprintf(NULL, 0, ":%s 216 %s %s %s :",
+                               stats->server->config.server_name,
+                               stats->client->nick, record->mask,
+                               record->set_by);
+        reason_precision = stats_reason_precision(base_length, record->reason);
+        client_sendf(stats->client, ":%s 216 %s %s %s :%.*s",
                      stats->server->config.server_name, stats->client->nick,
-                     record->mask, record->set_by, record->reason);
+                     record->mask, record->set_by, reason_precision,
+                     record->reason);
     } else {
+        base_length = snprintf(NULL, 0,
+                               ":%s 210 %s :ZLINE %s set-by=%s expires=%lld reason=",
+                               stats->server->config.server_name,
+                               stats->client->nick, record->mask,
+                               record->set_by, record->expires_at);
+        reason_precision = stats_reason_precision(base_length, record->reason);
         client_sendf(stats->client,
-                     ":%s 210 %s :ZLINE %s set-by=%s expires=%lld reason=%s",
+                     ":%s 210 %s :ZLINE %s set-by=%s expires=%lld reason=%.*s",
                      stats->server->config.server_name, stats->client->nick,
                      record->mask, record->set_by, record->expires_at,
-                     record->reason);
+                     reason_precision, record->reason);
     }
     return stats->client->output_overflowed ? 1 : 0;
 }
 
 static int stats_geoban_row(const GeoBanRecord *record, void *context) {
     StatsGeoBanContext *stats = context;
+    int base_length;
+    int reason_precision;
+
     if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
         return -1;
 
+    base_length = snprintf(NULL, 0,
+                           ":%s 210 %s :GEOBAN %s {%s} set-by=%s expires=%lld reason=",
+                           stats->server->config.server_name,
+                           stats->client->nick, geoban_type_name(record->type),
+                           record->value, record->set_by, record->expires_at);
+    reason_precision = stats_reason_precision(base_length, record->reason);
     client_sendf(stats->client,
-                 ":%s 210 %s :GEOBAN %s {%s} set-by=%s expires=%lld reason=%s",
+                 ":%s 210 %s :GEOBAN %s {%s} set-by=%s expires=%lld reason=%.*s",
                  stats->server->config.server_name, stats->client->nick,
                  geoban_type_name(record->type), record->value,
-                 record->set_by, record->expires_at, record->reason);
+                 record->set_by, record->expires_at, reason_precision,
+                 record->reason);
     return stats->client->output_overflowed ? 1 : 0;
 }
 
