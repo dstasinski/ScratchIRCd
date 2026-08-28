@@ -68,6 +68,10 @@ def wait_queue_row(db_path, text, duration=3.0):
         time.sleep(.02)
     return count
 
+def queue_body_count(db_path,text):
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT COUNT(*) FROM channel_log_queue WHERE body LIKE ?",(f"%{text}%",)).fetchone()[0]
+
 def rfc1459_fold(text):
     table=str.maketrans({"{":"[","}":"]","|":"\\","~":"^"})
     return text.lower().translate(table)
@@ -142,16 +146,24 @@ def main():
             count=wait_queue_row(db_path,"after-restart")
             assert count == 1, count
 
-            # A logging-disable command must not synchronously drain an
-            # arbitrary durable backlog in the single event loop. Seed enough
-            # rows that one 1024-row administrative batch cannot empty it.
+            # Seed a large durable backlog before disabling logging. The exact
+            # number remaining after the command is intentionally not asserted:
+            # normal automatic 1024-row flush passes may run while the client is
+            # waiting for the reply. The deterministic per-command bound is
+            # covered by test_channel_log without a concurrent event loop.
             seed_backlog(db_path,"#PersistLog",2048)
             before_disable=queue_count(db_path)
             assert before_disable >= 2050,before_disable
             admin.send("CHANSERV SET #PersistLog LOGGING OFF"); admin.expect("Channel logging disabled.")
             after_disable=queue_count(db_path)
-            assert after_disable >= before_disable-1024, (before_disable,after_disable)
-            assert after_disable > 0,after_disable
+            assert after_disable <= before_disable,(before_disable,after_disable)
+
+            # Synchronize on the same client stream to prove the message command
+            # after LOGGING OFF was processed before inspecting SQLite.
+            user.send("PRIVMSG #PersistLog :must-not-log-after-disable")
+            user.send("PING disable-sync")
+            user.expect("PONG")
+            assert queue_body_count(db_path,"must-not-log-after-disable") == 0
 
             suffix=time.strftime("%d%b%Y",time.localtime()); path=os.path.join(tmp,"logs",f"PersistLog.log.{suffix}")
             assert os.path.exists(path),path
