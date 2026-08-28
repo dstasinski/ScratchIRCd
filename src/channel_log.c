@@ -176,14 +176,21 @@ static void report_flush_failure(Server *server, const char *stage,
         now - log_flush_error_notice_time < CHANNEL_LOG_FLUSH_ERROR_NOTICE_SECONDS)
         return;
     log_flush_error_notice_time = now;
-    if (record != NULL && record->channel[0] != '\0')
+    if (record != NULL && record->channel[0] != '\0') {
+        fprintf(stderr,
+                "Channel log durable queue flush stalled during %s at row %lld channel=%s; queued rows retained for retry\n",
+                stage, record->id, record->channel);
         snotice_broadcast(server, SNOTICE_ADMIN,
                           "Channel log durable queue flush stalled during %s at row %lld channel=%s; queued rows retained for retry",
                           stage, record->id, record->channel);
-    else
+    } else {
+        fprintf(stderr,
+                "Channel log durable queue flush stalled during %s; queued rows retained for retry\n",
+                stage);
         snotice_broadcast(server, SNOTICE_ADMIN,
                           "Channel log durable queue flush stalled during %s; queued rows retained for retry",
                           stage);
+    }
 }
 
 static void finish_retention_scan(Server *server, time_t now) {
