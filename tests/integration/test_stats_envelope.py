@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure STATS and file-backed text replies respect IRC wire limits."""
+"""Ensure STATS and variable-length replies respect IRC wire limits."""
 
 import os
 import socket
@@ -82,6 +82,12 @@ def assert_wire_safe(lines):
         assert len(line.encode()) <= 510, (len(line.encode()), line)
 
 
+def register(client, nick):
+    client.send(f"NICK {nick}")
+    client.send(f"USER user 0 * :Envelope Peer")
+    client.collect_until(f" 001 {nick} ")
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_stats_envelope.py scratchircd scratchircd-mkpasswd")
@@ -108,7 +114,7 @@ def main():
         with open(config, "w", encoding="utf-8") as f:
             f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
-            f.write(f"port = {port}\nmax_clients = 8\ndns_timeout_seconds = 1\n")
+            f.write(f"port = {port}\nmax_clients = 20\ndns_timeout_seconds = 1\n")
             f.write(f"motd_file = {motd_file}\nrules_file = {rules_file}\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {bans_db}\n")
@@ -124,12 +130,11 @@ def main():
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, cwd=td)
         client = None
+        peers = []
         try:
             wait_listen(port, proc)
             client = IRCClient(port)
-            client.send("NICK alice")
-            client.send("USER alice 0 * :Alice User")
-            client.collect_until(" 001 alice ")
+            register(client, "alice")
             client.send("OPER root adminpass")
             client.collect_until(" 381 alice :You are now a Network Administrator")
 
@@ -198,12 +203,60 @@ def main():
                            for line in lines if rules_marker in line]
             assert len(rules_parts) >= 2, lines
             assert "".join(rules_parts) == rules_text, rules_parts
+
+            # WATCH may retain 128 nicknames. Listing many maximum-length
+            # entries must split at token boundaries instead of truncating the
+            # list or losing numeric 606 behind the 510-byte wire guard.
+            watch_names = []
+            for index in range(20):
+                prefix = f"W{index:02d}"
+                watch_names.append(prefix + ("w" * (31 - len(prefix))))
+            for batch_index, batch in enumerate((watch_names[:12], watch_names[12:])):
+                client.send("WATCH " + " ".join("+" + name for name in batch))
+                marker = f"watch-add-{batch_index}"
+                client.send(f"PING :{marker}")
+                client.collect_until(f"PONG {server_name} ::{marker}")
+            client.send("WATCH")
+            client.send("PING :watch-list-done")
+            lines = client.collect_until(f"PONG {server_name} ::watch-list-done")
+            assert_wire_safe(lines)
+            watch_rows = [line for line in lines if " 606 alice :" in line]
+            assert len(watch_rows) >= 2, lines
+            watch_payload = " ".join(line.split(" 606 alice :", 1)[1]
+                                     for line in watch_rows)
+            for name in watch_names:
+                assert name in watch_payload, (name, watch_rows)
+            assert any(" 607 alice :End of WATCH L" in line for line in lines), lines
+
+            # ISON input can legally hold more online nick tokens than one 303
+            # reply can carry once a maximum-length server prefix is added.
+            # Preserve every online result across multiple 303 numerics.
+            ison_names = []
+            for index in range(14):
+                prefix = f"I{index:02d}"
+                nick = prefix + ("i" * (31 - len(prefix)))
+                peer = IRCClient(port)
+                peers.append(peer)
+                register(peer, nick)
+                ison_names.append(nick)
+            client.send("ISON " + " ".join(ison_names))
+            client.send("PING :ison-done")
+            lines = client.collect_until(f"PONG {server_name} ::ison-done")
+            assert_wire_safe(lines)
+            ison_rows = [line for line in lines if " 303 alice :" in line]
+            assert len(ison_rows) >= 2, lines
+            ison_payload = " ".join(line.split(" 303 alice :", 1)[1]
+                                    for line in ison_rows)
+            for name in ison_names:
+                assert name in ison_payload, (name, ison_rows)
         finally:
+            for peer in peers:
+                peer.close()
             if client is not None:
                 client.close()
             stop(proc)
 
-    print("STATS/file-text envelope integration tests passed")
+    print("STATS/variable-reply envelope integration tests passed")
 
 
 if __name__ == "__main__":
