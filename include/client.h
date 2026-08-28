@@ -51,6 +51,7 @@ typedef struct Client {
     size_t outbuf_limit;
     int output_retry_pending;
     int output_want_read;
+    size_t output_retry_length;
     int output_overflowed;
 
     /* Token budget used only for expensive/read-amplifying commands. */
