@@ -152,6 +152,21 @@ def main():
             assert len(pong.encode()) <= 510, (len(pong.encode()), pong)
             assert pong.endswith("x" * 480), pong
 
+            # An unknown command token can itself consume the entire legal IRC
+            # content line. Numeric 421 must trim only the echoed token instead
+            # of disappearing after the server prefix and explanatory suffix
+            # are added.
+            unknown = "X" * 510
+            c.send_bytes(unknown.encode() + b"\r\n")
+            unknown_lines = c.expect(" 421 ValidNick ")
+            unknown_reply = next(line for line in unknown_lines if " 421 ValidNick " in line)
+            assert len(unknown_reply.encode()) <= 510, (len(unknown_reply.encode()), unknown_reply)
+            assert unknown_reply.endswith(" :Unknown command"), unknown_reply
+            unknown_echo = unknown_reply.split(" 421 ValidNick ", 1)[1].rsplit(
+                " :Unknown command", 1)[0]
+            assert 0 < len(unknown_echo) < len(unknown), unknown_reply
+            assert unknown.startswith(unknown_echo), unknown_echo
+
             # Existing NICK validation remains strict and retryable.
             n = new_client(port); clients.append(n)
             n.send("NICK " + ("N" * 32))
