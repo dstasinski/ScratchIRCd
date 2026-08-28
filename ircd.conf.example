@@ -109,9 +109,6 @@ nickserv_registration_window_seconds = 3600
 nickserv_mail_requests_per_ip = 5
 nickserv_mail_window_seconds = 900
 nickserv_mail_global_per_minute = 60
-# Maximum ChanServ channel registrations founded by one authenticated account.
-# Network administrators bypass these service fair-share quotas for recovery.
-chanserv_max_channels_per_account = 20
 
 sendmail_path =
 mail_from =
