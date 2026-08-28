@@ -88,4 +88,4 @@ These existing or planned areas require their own promotion gates after Mileston
 
 ## Evidence
 
-The existing `protocol_integration` CTest is the Milestone 1 TCP smoke test. It starts a real daemon, registers multiple clients, exercises channel messaging and operator/identity boundaries, and stops the server. More focused lifecycle and resource-exhaustion tests will be added in the slices above.
+The existing `protocol_integration` CTest is the Milestone 1 TCP smoke test. It starts a real daemon, registers multiple clients, exercises channel messaging and operator/identity boundaries, and stops the server. The `registration_input_integration` test covers fragmented and coalesced TCP input plus framing attacks. The `connection_lifecycle_integration` test repeatedly exercises pre-registration drops, orderly QUIT, abrupt registered disconnects, membership cleanup, empty-channel destruction, and continued service to a survivor. More resource-exhaustion and long-duration tests will be added in the remaining slices.

@@ -121,6 +121,31 @@ def main():
         try:
             wait_listen(port, proc)
 
+            # Registration must survive arbitrary TCP fragmentation. Split both
+            # commands across command tokens, parameters, CR, and LF boundaries.
+            fragmented = new_client(port); clients.append(fragmented)
+            wire = b"NICK Fragmented\r\nUSER fragment 0 * :Fragmented User\r\n"
+            cuts = (1, 3, 2, 7, 1, 4, 9, 2, 5, 8, 100)
+            offset = 0
+            for width in cuts:
+                if offset >= len(wire):
+                    break
+                fragmented.send_bytes(wire[offset:offset + width])
+                offset += width
+            if offset < len(wire):
+                fragmented.send_bytes(wire[offset:])
+            fragmented.expect(" 001 Fragmented ", duration=5.0)
+
+            # Multiple complete commands may arrive in one TCP write. They must
+            # retain their order and leave no command stranded in the input buffer.
+            coalesced = new_client(port); clients.append(coalesced)
+            coalesced.send_bytes(
+                b"NICK Coalesced\r\nUSER coalesced 0 * :Coalesced User\r\n"
+                b"PING :coalesced-tail\r\n"
+            )
+            coalesced.expect(" 001 Coalesced ", duration=5.0)
+            coalesced.expect("PONG test.local ::coalesced-tail", duration=2.0)
+
             # USER must reject malformed/overlong identity instead of silently
             # truncating it, then allow the client to retry correctly.
             c = new_client(port); clients.append(c)

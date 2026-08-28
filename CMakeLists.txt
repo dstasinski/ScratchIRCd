@@ -191,6 +191,8 @@ add_test(NAME protocol_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT
 set_tests_properties(protocol_integration PROPERTIES TIMEOUT 60)
 add_test(NAME registration_input_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_registration_input.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(registration_input_integration PROPERTIES TIMEOUT 60)
+add_test(NAME connection_lifecycle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_connection_lifecycle.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(connection_lifecycle_integration PROPERTIES TIMEOUT 90)
 add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
 add_test(NAME stats_envelope_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_stats_envelope.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
