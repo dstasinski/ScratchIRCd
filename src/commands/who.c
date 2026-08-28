@@ -55,9 +55,11 @@ CommandResult command_who(Server *server, Client *client, char *params) {
             for (member = channel->members; member != NULL; member = member->next) {
                 if (visibility_who_user(client, member->client))
                     send_who_reply(server, client, member->client, channel);
+                if (client->output_overflowed) break;
             }
         }
-        client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
+        if (!client->output_overflowed)
+            client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -65,16 +67,19 @@ CommandResult command_who(Server *server, Client *client, char *params) {
         Client *subject = hash_get(&server->clients_by_nick, mask);
         if (subject != NULL && visibility_who_user(client, subject))
             send_who_reply(server, client, subject, NULL);
-        client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
+        if (!client->output_overflowed)
+            client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick, mask);
         return COMMAND_KEEP_CLIENT;
     }
 
     for (size_t i = 0U; i < server->client_count; ++i) {
         Client *subject = server->clients[i];
         if (visibility_who_user(client, subject)) send_who_reply(server, client, subject, NULL);
+        if (client->output_overflowed) break;
     }
 
-    client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick,
-                 mask != NULL ? mask : "*");
+    if (!client->output_overflowed)
+        client_sendf(client, RPL_ENDOFWHO, server->config.server_name, client->nick,
+                     mask != NULL ? mask : "*");
     return COMMAND_KEEP_CLIENT;
 }
