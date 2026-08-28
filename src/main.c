@@ -20,13 +20,14 @@
 #include <stdio.h>
 #include <time.h>
 
-static Server *active_server = NULL;
+static Server server;
+static volatile sig_atomic_t server_active;
 
 static void handle_shutdown_signal(int signo) {
     (void)signo;
-    if (active_server != NULL) {
-        active_server->shutdown_requested = 1;
-        active_server->restart_requested = 1;
+    if (server_active) {
+        server.shutdown_requested = 1;
+        server.restart_requested = 1;
     }
 }
 
@@ -95,7 +96,6 @@ int main(int argc, char **argv) {
 
     for (;;) {
         ServerConfig config;
-        Server server;
         int restart;
 
         runtime_config_defaults(&config);
@@ -120,9 +120,9 @@ int main(int argc, char **argv) {
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
-        active_server = &server;
+        server_active = 1;
         server_run(&server);
-        active_server = NULL;
+        server_active = 0;
         restart = server.restart_requested && !server.shutdown_requested;
         server_destroy(&server);
 
