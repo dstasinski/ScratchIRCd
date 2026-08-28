@@ -22,9 +22,11 @@
 
 static Server server;
 static volatile sig_atomic_t server_active;
+static volatile sig_atomic_t shutdown_signal_pending;
 
 static void handle_shutdown_signal(int signo) {
     (void)signo;
+    shutdown_signal_pending = 1;
     if (server_active) {
         server.shutdown_requested = 1;
         server.restart_requested = 1;
@@ -100,6 +102,8 @@ int main(int argc, char **argv) {
         int restart;
         int runtime_failure;
 
+        if (shutdown_signal_pending) break;
+
         runtime_config_defaults(&config);
         if (runtime_config_load(&config, path) != 0) {
             if (argc > 1 || errno != ENOENT) {
@@ -108,8 +112,13 @@ int main(int argc, char **argv) {
             }
             clearerr(stderr);
         }
+        if (shutdown_signal_pending) break;
 
         if (ensure_databases(&config) != 0) return 1;
+        if (shutdown_signal_pending) {
+            chanserv_persist_reset();
+            break;
+        }
 
         if (server_init(&server, &config) != 0) {
             fprintf(stderr, "Failed to start %s on port %s\n",
@@ -122,7 +131,14 @@ int main(int argc, char **argv) {
         printf("%s (%s) listening on port %s with %zu listener(s)\n",
                config.server_name, IRCD_VERSION, config.port,
                server.listener_count);
+        /* Mark the server active before consulting the process-level pending
+         * signal. A SIGTERM/SIGINT arriving on either side of this transition
+         * therefore cannot be lost between initialization and server_run(). */
         server_active = 1;
+        if (shutdown_signal_pending) {
+            server.shutdown_requested = 1;
+            server.restart_requested = 1;
+        }
         server_run(&server);
         server_active = 0;
         runtime_failure = !server.restart_requested && !server.shutdown_requested;
@@ -151,7 +167,9 @@ int main(int argc, char **argv) {
             exit_status = 1;
             break;
         }
-        if (!restart) break;
+        /* A process signal received after server_run() returned but before the
+         * in-process RESTART loop reaches this point must override RESTART. */
+        if (shutdown_signal_pending || !restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
     }
 
