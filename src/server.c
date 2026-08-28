@@ -34,6 +34,10 @@ typedef struct ServerPollClientSnapshot {
     uint64_t id;
 } ServerPollClientSnapshot;
 
+typedef struct ServerConnectionIpCount {
+    size_t count;
+} ServerConnectionIpCount;
+
 static void client_id_key(uint64_t id, char *buffer, size_t size) {
     (void)snprintf(buffer, size, "%llu", (unsigned long long)id);
 }
@@ -43,33 +47,104 @@ static int set_nonblocking(int fd) {
     return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
 }
 
+static int canonical_numeric_ip(const char *ip, char *buffer, size_t size) {
+    struct in_addr v4;
+    struct in6_addr v6;
+    if (ip == NULL || *ip == '\0' || buffer == NULL || size == 0U) return -1;
+    if (inet_pton(AF_INET, ip, &v4) == 1)
+        return inet_ntop(AF_INET, &v4, buffer, (socklen_t)size) != NULL ? 0 : -1;
+    if (inet_pton(AF_INET6, ip, &v6) == 1)
+        return inet_ntop(AF_INET6, &v6, buffer, (socklen_t)size) != NULL ? 0 : -1;
+    return -1;
+}
+
 static int numeric_ip_equal(const char *left, const char *right) {
-    struct in_addr left4, right4;
-    struct in6_addr left6, right6;
-    if (left == NULL || right == NULL) return 0;
-    if (inet_pton(AF_INET, left, &left4) == 1 && inet_pton(AF_INET, right, &right4) == 1) return memcmp(&left4, &right4, sizeof(left4)) == 0;
-    if (inet_pton(AF_INET6, left, &left6) == 1 && inet_pton(AF_INET6, right, &right6) == 1) return memcmp(&left6, &right6, sizeof(left6)) == 0;
+    char left_key[IRC_IP_MAX + 1U];
+    char right_key[IRC_IP_MAX + 1U];
+    return canonical_numeric_ip(left, left_key, sizeof(left_key)) == 0 &&
+           canonical_numeric_ip(right, right_key, sizeof(right_key)) == 0 &&
+           strcmp(left_key, right_key) == 0;
+}
+
+static ServerConnectionIpCount *connection_count_lookup(const Server *server,
+                                                        const char *ip,
+                                                        char *key,
+                                                        size_t key_size) {
+    if (server == NULL || canonical_numeric_ip(ip, key, key_size) != 0) return NULL;
+    return hash_get(&server->connection_counts_by_ip, key);
+}
+
+static int connection_count_add(Server *server, const char *ip) {
+    char key[IRC_IP_MAX + 1U];
+    ServerConnectionIpCount *record;
+    if (server == NULL || canonical_numeric_ip(ip, key, sizeof(key)) != 0) return -1;
+    record = hash_get(&server->connection_counts_by_ip, key);
+    if (record != NULL) {
+        if (record->count == SIZE_MAX) return -1;
+        ++record->count;
+        return 0;
+    }
+    record = calloc(1U, sizeof(*record));
+    if (record == NULL) return -1;
+    record->count = 1U;
+    if (hash_set(&server->connection_counts_by_ip, key, record) != 0) {
+        free(record);
+        return -1;
+    }
+    return 0;
+}
+
+static void connection_count_remove(Server *server, const char *ip) {
+    char key[IRC_IP_MAX + 1U];
+    ServerConnectionIpCount *record;
+    if (server == NULL || canonical_numeric_ip(ip, key, sizeof(key)) != 0) return;
+    record = hash_get(&server->connection_counts_by_ip, key);
+    if (record == NULL) return;
+    if (record->count > 1U) {
+        --record->count;
+        return;
+    }
+    record = hash_remove(&server->connection_counts_by_ip, key);
+    free(record);
+}
+
+int server_connection_count_move(Server *server, const char *old_ip,
+                                 const char *new_ip) {
+    char old_key[IRC_IP_MAX + 1U];
+    char new_key[IRC_IP_MAX + 1U];
+    if (server == NULL ||
+        canonical_numeric_ip(old_ip, old_key, sizeof(old_key)) != 0 ||
+        canonical_numeric_ip(new_ip, new_key, sizeof(new_key)) != 0)
+        return -1;
+    if (strcmp(old_key, new_key) == 0) return 0;
+    if (connection_count_add(server, new_key) != 0) return -1;
+    connection_count_remove(server, old_key);
     return 0;
 }
 
 int server_connection_limit_ip_exempt(const Server *server, const char *ip) {
     size_t index;
     if (server == NULL || ip == NULL || *ip == '\0') return 0;
-    for (index = 0U; index < server->config.connection_limit_exempt_ip_count; ++index) if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
-    for (index = 0U; index < server->config.webirc_gateway_count; ++index) if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
+    for (index = 0U; index < server->config.connection_limit_exempt_ip_count; ++index)
+        if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
+    for (index = 0U; index < server->config.webirc_gateway_count; ++index)
+        if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
     return 0;
 }
 
-int server_connection_limit_reached(const Server *server, const char *ip, const Client *exclude) {
-    size_t index;
-    size_t count = 0U;
-    if (server == NULL || ip == NULL || *ip == '\0' || server->config.max_connections_per_ip == 0U || server_connection_limit_ip_exempt(server, ip)) return 0;
-    for (index = 0U; index < server->client_count; ++index) {
-        const Client *candidate = server->clients[index];
-        if (candidate == NULL || candidate == exclude) continue;
-        if (numeric_ip_equal(candidate->real_ip, ip) && ++count >= server->config.max_connections_per_ip) return 1;
-    }
-    return 0;
+int server_connection_limit_reached(const Server *server, const char *ip,
+                                    const Client *exclude) {
+    char key[IRC_IP_MAX + 1U];
+    ServerConnectionIpCount *record;
+    size_t count;
+    if (server == NULL || ip == NULL || *ip == '\0' ||
+        server->config.max_connections_per_ip == 0U ||
+        server_connection_limit_ip_exempt(server, ip))
+        return 0;
+    record = connection_count_lookup(server, ip, key, sizeof(key));
+    count = record != NULL ? record->count : 0U;
+    if (exclude != NULL && count > 0U && numeric_ip_equal(exclude->real_ip, key)) --count;
+    return count >= server->config.max_connections_per_ip;
 }
 
 static int add_listeners(Server *server, const char *port, int use_tls) {
@@ -152,6 +227,7 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         if (peer_ip(&address, address_length, ip, sizeof(ip)) != 0) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected: unable to determine peer IP"); close(fd); continue; }
         if (server->client_count >= server->config.max_clients) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: global client limit reached (%zu/%zu)", ip, server->client_count, server->config.max_clients); close(fd); continue; }
         if (server_connection_limit_reached(server, ip, NULL)) { snotice_broadcast(server, SNOTICE_FLOOD | SNOTICE_SECURITY, "Connection rejected from %s: per-IP concurrent connection limit reached (%zu)", ip, server->config.max_connections_per_ip); close(fd); continue; }
+        if (server->next_client_id == UINT64_MAX) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: client ID space exhausted", ip); close(fd); continue; }
         if (ensure_client_capacity(server) != 0 || set_nonblocking(fd) != 0) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: server resource allocation/setup failure", ip); close(fd); continue; }
         client = client_create(fd, ++server->next_client_id, ((struct sockaddr *)&address)->sa_family, ip);
         if (client == NULL) { snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: client allocation failure", ip); close(fd); continue; }
@@ -165,6 +241,13 @@ static void accept_clients(Server *server, int listen_fd, int use_tls) {
         client_id_key(client->id, id_key, sizeof(id_key));
         if (hash_set(&server->clients_by_id, id_key, client) != 0) {
             snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: client ID index allocation failure", ip);
+            client_free(client);
+            close(fd);
+            continue;
+        }
+        if (connection_count_add(server, client->real_ip) != 0) {
+            snotice_broadcast(server, SNOTICE_FLOOD, "Connection rejected from %s: per-IP index allocation failure", ip);
+            (void)hash_remove(&server->clients_by_id, id_key);
             client_free(client);
             close(fd);
             continue;
@@ -403,7 +486,7 @@ int server_init(Server *server, const ServerConfig *config) {
     memset(server, 0, sizeof(*server)); server->config = *config;
     server->dns.request_read_fd = server->dns.request_write_fd = -1; server->dns.result_read_fd = server->dns.result_write_fd = -1;
     server->dnsbl.request_read_fd = server->dnsbl.request_write_fd = -1; server->dnsbl.result_read_fd = server->dnsbl.result_write_fd = -1;
-    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
+    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0 || hash_init(&server->connection_counts_by_ip, IRCD_CLIENT_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
     if (channel_log_init(server) != 0 || init_tls(server) != 0 || dns_resolver_init(&server->dns) != 0 || dnsbl_resolver_init(&server->dnsbl) != 0 || geoip_init(&server->geoip, server->config.geoip_city_db, server->config.geoip_asn_db) != 0 || make_listeners(server) != 0) { server_destroy(server); return -1; }
     return 0;
 }
@@ -465,6 +548,7 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     if (client->nick[0] != '\0') (void)hash_remove(&server->clients_by_nick, client->nick);
     client_id_key(client->id, id_key, sizeof(id_key));
     (void)hash_remove(&server->clients_by_id, id_key);
+    connection_count_remove(server, client->real_ip);
     fd = client->fd;
     for (index = 0U; index < server->client_count; ++index) if (server->clients[index] == client) { server->clients[index] = server->clients[server->client_count - 1U]; --server->client_count; break; }
     client_free(client); close(fd);
@@ -579,4 +663,5 @@ void server_destroy(Server *server) {
     hash_destroy(&server->channels_by_name, channel_free); server->channel_count = 0U;
     hash_destroy(&server->clients_by_nick, NULL);
     hash_destroy(&server->clients_by_id, NULL);
+    hash_destroy(&server->connection_counts_by_ip, free);
 }
