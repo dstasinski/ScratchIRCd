@@ -340,7 +340,7 @@ int main(void) {
         (void)snprintf(bulk_channel.name, sizeof(bulk_channel.name), "#Bulk%03zu", i);
         channel_log_message(&server, &bulk_channel, &client, "rotation cursor", 0);
     }
-    channel_log_flush_due(&server, now + IRCD_CHANNEL_LOG_BATCH_SECONDS + 1);
+    channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS + 1);
     assert(chanserv_db_open(&db, db_path) == 0);
     assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
