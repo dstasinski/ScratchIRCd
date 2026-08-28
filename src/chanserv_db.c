@@ -62,8 +62,11 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
     if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
     text = sqlite3_column_text(stmt, column);
     bytes = sqlite3_column_bytes(stmt, column);
-    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
-    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
     memcpy(destination, text, (size_t)bytes);
     destination[bytes] = '\0';
     return 0;
@@ -73,7 +76,9 @@ static int text_arg_fits(const char *text, size_t maximum, int allow_empty) {
     size_t length;
     if (text == NULL) return 0;
     length = strlen(text);
-    if ((!allow_empty && length == 0U) || length > maximum) return 0;
+    if ((!allow_empty && length == 0U) || length > maximum ||
+        memchr(text, '\r', length) != NULL || memchr(text, '\n', length) != NULL)
+        return 0;
     return 1;
 }
 
@@ -354,7 +359,8 @@ int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size) {
         size_t need;
         if(raw==NULL||bytes<=0)continue;
         n=(size_t)bytes;
-        if(n>IRC_CHANNEL_NAME_MAX||strlen(name)!=n){truncated=1;break;}
+        if(n>IRC_CHANNEL_NAME_MAX||memchr(raw,'\0',n)!=NULL||
+           memchr(raw,'\r',n)!=NULL||memchr(raw,'\n',n)!=NULL){truncated=1;break;}
         need = n + (used != 0U ? 1U : 0U);
         if (need >= size - used) {
             truncated = 1;
@@ -461,7 +467,9 @@ int chanserv_db_access_list(ChanServDb *db, const char *channel, char *buffer, s
         int written;
         size_t n;
         if(raw==NULL||bytes<0||(size_t)bytes>IRC_NICK_MAX||
-           (bytes!=0&&memchr(raw,'\0',(size_t)bytes)!=NULL)){truncated=1;break;}
+           memchr(raw,'\0',(size_t)bytes)!=NULL||
+           memchr(raw,'\r',(size_t)bytes)!=NULL||
+           memchr(raw,'\n',(size_t)bytes)!=NULL){truncated=1;break;}
         written=snprintf(item,sizeof(item),"%s%s:%d",used?" ":"",account,level);
         n=written>0?(size_t)written:0U;
         if(written<0||n>=sizeof(item)||n>=size-used){truncated=1;break;}
