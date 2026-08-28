@@ -5,6 +5,7 @@
 #include "config.h"
 #include "geoban_db.h"
 #include "geoip.h"
+#include "irc.h"
 #include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
@@ -27,35 +28,6 @@ void command_common_set_server_name(const char *server_name){
         (void)snprintf(command_server_name,sizeof(command_server_name),"%s",IRCD_DEFAULT_SERVER_NAME);
     else
         (void)snprintf(command_server_name,sizeof(command_server_name),"%s",server_name);
-}
-
-size_t command_topic_limit(const Server *server){
-    char nick[IRC_NICK_MAX+1U];
-    char user[IRC_USER_MAX+1U];
-    char host[IRC_HOST_MAX+1U];
-    char channel[IRC_CHANNEL_NAME_MAX+1U];
-    int query_overhead;
-    int relay_overhead;
-    size_t query_limit;
-    size_t relay_limit;
-    size_t limit=IRC_CHANNEL_TOPIC_MAX;
-    if(server==NULL)return 0U;
-    memset(nick,'n',IRC_NICK_MAX);nick[IRC_NICK_MAX]='\0';
-    memset(user,'u',IRC_USER_MAX);user[IRC_USER_MAX]='\0';
-    memset(host,'h',IRC_HOST_MAX);host[IRC_HOST_MAX]='\0';
-    channel[0]='#';
-    memset(channel+1,'c',IRC_CHANNEL_NAME_MAX-1U);
-    channel[IRC_CHANNEL_NAME_MAX]='\0';
-    query_overhead=snprintf(NULL,0,RPL_TOPIC,server->config.server_name,nick,channel,"");
-    relay_overhead=snprintf(NULL,0,":%s!%s@%s TOPIC %s :",nick,user,host,channel);
-    if(query_overhead<0||relay_overhead<0||
-       (size_t)query_overhead>=IRC_LINE_CONTENT_MAX||
-       (size_t)relay_overhead>=IRC_LINE_CONTENT_MAX)return 0U;
-    query_limit=IRC_LINE_CONTENT_MAX-(size_t)query_overhead;
-    relay_limit=IRC_LINE_CONTENT_MAX-(size_t)relay_overhead;
-    if(query_limit<limit)limit=query_limit;
-    if(relay_limit<limit)limit=relay_limit;
-    return limit;
 }
 
 /* Registration policy is consulted for every client but changes relatively
@@ -216,7 +188,7 @@ static void send_pchannels_isupport(Server *server,Client *client,const char *ba
 static void send_isupport(Server *server,Client *client){
     char first[IRCD_MESSAGE_BUFFER_SIZE];
     char second_base[IRCD_MESSAGE_BUFFER_SIZE];
-    (void)snprintf(first,sizeof(first),"CASEMAPPING=rfc1459 CHANTYPES=#& PREFIX=(qaohv)~&@%%+ CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz CHANLIMIT=#&:%u NICKLEN=%u USERLEN=%u HOSTLEN=%u CHANNELLEN=%u TOPICLEN=%u KICKLEN=%u MODES=%u NETWORK=%s",(unsigned)IRC_MAX_CHANNELS_PER_CLIENT,(unsigned)IRC_NICK_MAX,(unsigned)IRC_USER_MAX,(unsigned)IRC_HOST_MAX,(unsigned)IRC_CHANNEL_NAME_MAX,(unsigned)command_topic_limit(server),(unsigned)IRC_KICK_REASON_MAX,(unsigned)IRC_MODE_MAX_PARAMS,server->config.network_name);
+    (void)snprintf(first,sizeof(first),"CASEMAPPING=rfc1459 CHANTYPES=#& PREFIX=(qaohv)~&@%%+ CHANMODES=beI,,kljBL,AciKMmnOprRSstTVz CHANLIMIT=#&:%u NICKLEN=%u USERLEN=%u HOSTLEN=%u CHANNELLEN=%u TOPICLEN=%u KICKLEN=%u MODES=%u NETWORK=%s",(unsigned)IRC_MAX_CHANNELS_PER_CLIENT,(unsigned)IRC_NICK_MAX,(unsigned)IRC_USER_MAX,(unsigned)IRC_HOST_MAX,(unsigned)IRC_CHANNEL_NAME_MAX,(unsigned)irc_topic_limit(server),(unsigned)IRC_KICK_REASON_MAX,(unsigned)IRC_MODE_MAX_PARAMS,server->config.network_name);
     (void)snprintf(second_base,sizeof(second_base),"EXCEPTS=e INVEX=I MAXLIST=b:%u,e:%u,I:%u WATCH=%u SILENCE=%u TARGMAX=PRIVMSG:1,NOTICE:1,JOIN:1,PART:1,KICK:1,NAMES:1 MSGREFTYPES=timestamp CHATHISTORY=%zu",(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRC_CHANNEL_MASK_LIST_MAX,(unsigned)IRCD_WATCH_MAX,(unsigned)IRCD_SILENCE_MAX,server->config.history_limit);
     send_isupport_payload(server,client,first);
     send_pchannels_isupport(server,client,second_base);
