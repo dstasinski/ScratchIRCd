@@ -28,6 +28,21 @@ class IRCClient:
                 self.buffer += data
             except socket.timeout: pass
         raise AssertionError(f"expected {needle!r}; got {got!r}")
+    def collect_for(self, duration=1.0):
+        deadline = time.monotonic() + duration; got = []
+        while time.monotonic() < deadline:
+            while b"\n" in self.buffer:
+                raw, self.buffer = self.buffer.split(b"\n", 1)
+                got.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                data = self.sock.recv(4096)
+                if not data: break
+                self.buffer += data
+            except socket.timeout: pass
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            got.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return got
     def close(self):
         try: self.sock.close()
         except OSError: pass
@@ -75,6 +90,7 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         bob = alice = None
+        long_text = "X" * 400
         try:
             wait_listen(port, proc)
             bob = IRCClient(port); register(bob, "Bob")
@@ -85,7 +101,8 @@ def main():
             alice.send("NICKSERV REGISTER alicepass"); alice.expect("Nickname registered and identified.")
             alice.send("MEMOSERV SEND Bob :First memo")
             first_line = alice.expect("sent to Bob"); first_id = int(first_line.split("#",1)[1].split(" ",1)[0])
-            alice.send("MEMOSERV SEND Bob :Second memo"); alice.expect("sent to Bob")
+            alice.send(f"MEMOSERV SEND Bob :{long_text}")
+            second_line = alice.expect("sent to Bob"); second_id = int(second_line.split("#",1)[1].split(" ",1)[0])
             alice.send("MEMOSERV SEND Bob :Third memo"); alice.expect("Recipient memo box is full.")
             alice.send("MEMOSERV SENT"); alice.expect("TO Bob")
             alice.send("MEMOSERV STATUS"); alice.expect("Memos: 0/2 stored, 0 unread.")
@@ -104,9 +121,20 @@ def main():
             traveler.send("MEMOSERV STATUS"); traveler.expect("Memos: 2/2 stored, 2 unread.")
             traveler.send("MEMOSERV LIST"); traveler.expect("UNREAD from Alice")
             traveler.send(f"MEMOSERV READ {first_id}"); traveler.expect("First memo")
+
+            # A maximum-size persisted memo must be delivered completely even
+            # when MemoServ metadata makes a single NOTICE exceed 510 bytes.
+            traveler.send(f"MEMOSERV READ {second_id}")
+            read_lines = traveler.collect_for(1.0)
+            prefix = ":MemoServ!service@test.local NOTICE Traveler :"
+            payloads = [line[len(prefix):] for line in read_lines if line.startswith(prefix)]
+            assert len(payloads) >= 2, read_lines
+            assert long_text in "".join(payloads), payloads
+            assert all(len(line.encode()) <= 510 for line in read_lines), read_lines
+
             traveler.send(f"MEMOSERV REPLY {first_id} :Reply to Alice"); traveler.expect("Reply memo #")
             traveler.send(f"MEMOSERV FORWARD {first_id} Alice"); traveler.expect("forwarded to Alice")
-            traveler.send("MEMOSERV STATUS"); traveler.expect("Memos: 2/2 stored, 1 unread.")
+            traveler.send("MEMOSERV STATUS"); traveler.expect("Memos: 2/2 stored, 0 unread.")
             traveler.send("ISON MemoServ"); line = traveler.expect(" 303 Traveler :")
             assert "MemoServ" not in line.split(":", 2)[-1], line
         finally:
