@@ -31,18 +31,31 @@ void command_common_set_server_name(const char *server_name){
 
 size_t command_topic_limit(const Server *server){
     char nick[IRC_NICK_MAX+1U];
+    char user[IRC_USER_MAX+1U];
+    char host[IRC_HOST_MAX+1U];
     char channel[IRC_CHANNEL_NAME_MAX+1U];
-    int overhead;
-    size_t limit;
+    int query_overhead;
+    int relay_overhead;
+    size_t query_limit;
+    size_t relay_limit;
+    size_t limit=IRC_CHANNEL_TOPIC_MAX;
     if(server==NULL)return 0U;
     memset(nick,'n',IRC_NICK_MAX);nick[IRC_NICK_MAX]='\0';
+    memset(user,'u',IRC_USER_MAX);user[IRC_USER_MAX]='\0';
+    memset(host,'h',IRC_HOST_MAX);host[IRC_HOST_MAX]='\0';
     channel[0]='#';
     memset(channel+1,'c',IRC_CHANNEL_NAME_MAX-1U);
     channel[IRC_CHANNEL_NAME_MAX]='\0';
-    overhead=snprintf(NULL,0,RPL_TOPIC,server->config.server_name,nick,channel,"");
-    if(overhead<0||(size_t)overhead>=IRC_LINE_CONTENT_MAX)return 0U;
-    limit=IRC_LINE_CONTENT_MAX-(size_t)overhead;
-    return limit<IRC_CHANNEL_TOPIC_MAX?limit:IRC_CHANNEL_TOPIC_MAX;
+    query_overhead=snprintf(NULL,0,RPL_TOPIC,server->config.server_name,nick,channel,"");
+    relay_overhead=snprintf(NULL,0,":%s!%s@%s TOPIC %s :",nick,user,host,channel);
+    if(query_overhead<0||relay_overhead<0||
+       (size_t)query_overhead>=IRC_LINE_CONTENT_MAX||
+       (size_t)relay_overhead>=IRC_LINE_CONTENT_MAX)return 0U;
+    query_limit=IRC_LINE_CONTENT_MAX-(size_t)query_overhead;
+    relay_limit=IRC_LINE_CONTENT_MAX-(size_t)relay_overhead;
+    if(query_limit<limit)limit=query_limit;
+    if(relay_limit<limit)limit=relay_limit;
+    return limit;
 }
 
 /* Registration policy is consulted for every client but changes relatively
