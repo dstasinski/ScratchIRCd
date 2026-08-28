@@ -38,7 +38,7 @@ def main():
         p=port();h=subprocess.check_output([mk,"adminpass"],text=True).strip();conf=os.path.join(td,"ircd.conf")
         with open(conf,"w") as f:
             f.write(f"server_name = test.local\nnetwork_name = TestNet\nbind_address = 127.0.0.1\nport = {p}\nmax_clients = 20\ndns_timeout_seconds = 1\noperators_db = {td}/operators.db\nbans_db = {td}/bans.db\nnickserv_db = {td}/nickserv.db\nchanserv_db = {td}/chanserv.db\nmemoserv_db = {td}/memoserv.db\nhistory_db = {td}/history.db\ngeoip_city_db = \ngeoip_asn_db = \nnetadmin_name = root\nnetadmin_password_hash = {h}\nnetadmin_hostmask = *!*@127.0.0.1\n")
-        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);admin=other=newbie=bad=framing=None
+        proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);admin=other=newbie=bad=framing=longvictim=None
         try:
             end=time.monotonic()+5
             while time.monotonic()<end:
@@ -83,6 +83,21 @@ def main():
             mode_token=mode_line.split(" 221 Admin ",1)[1].split()[0]
             assert "s" in mode_token.lstrip("+"),mode_line
 
+            # A user-derived operator event may be longer than one IRC NOTICE
+            # after the server adds its prefix. It must be chunked, not dropped.
+            longvictim=IRC(p);longvictim.send("NICK LongVictim");longvictim.send("USER longvictim 0 * :Long Victim");longvictim.expect(" 001 LongVictim ")
+            admin.lines(.5)
+            long_reason="R"*400
+            admin.send("KILL LongVictim :"+long_reason)
+            notice_lines=admin.lines(1.5)
+            notice_prefix=":test.local NOTICE Admin :*** "
+            notice_payloads=[x[len(notice_prefix):] for x in notice_lines if x.startswith(notice_prefix)]
+            kill_start=next((i for i,x in enumerate(notice_payloads) if x.startswith("KILL by Admin")),None)
+            assert kill_start is not None,notice_lines
+            assert long_reason in "".join(notice_payloads[kill_start:]),notice_payloads
+            assert all(len(x.encode())<=510 for x in notice_lines),notice_lines
+            longvictim.close();longvictim=None
+
             # Success and the self-generated service SNOTICE can arrive in the
             # same socket read. Collect them together instead of using two
             # sequential expect() calls, whose helper intentionally consumes
@@ -123,7 +138,7 @@ def main():
             framing=IRC(p);framing.raw((b"X"*511)+b"\r\n")
             admin.expect("Protocol violation from 127.0.0.1: malformed or overlong IRC framing")
         finally:
-            for c in (admin,other,newbie,bad,framing):
+            for c in (admin,other,newbie,bad,framing,longvictim):
                 if c:
                     try:c.close()
                     except OSError:pass
