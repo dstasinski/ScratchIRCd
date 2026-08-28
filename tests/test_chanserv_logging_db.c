@@ -63,6 +63,13 @@ int main(void) {
     assert(strlen(long_body) == sizeof(((ChanServLogQueueRecord *)0)->body));
     assert(chanserv_db_logging_queue_add(&db, "#ok", 100, long_body) != 0);
 
+    /* Log records are line-oriented and may later appear in diagnostics. IRC
+     * input cannot legitimately contain CR/LF, so reject them at persistence. */
+    assert(chanserv_db_logging_queue_add(&db, "#bad\rname", 100, "body") != 0);
+    assert(chanserv_db_logging_queue_add(&db, "#bad\nname", 100, "body") != 0);
+    assert(chanserv_db_logging_queue_add(&db, "#ok", 100, "bad\rbody") != 0);
+    assert(chanserv_db_logging_queue_add(&db, "#ok", 100, "bad\nbody") != 0);
+
     /* Bypass the public write bounds to simulate a corrupt/legacy row. Fetch
      * must fail instead of clipping the text into ChanServLogQueueRecord. */
     inject_text_row(&db, "#ok", long_body, -1);
@@ -75,6 +82,20 @@ int main(void) {
     inject_text_row(&db, "#ok", embedded_body, (int)sizeof(embedded_body));
     count = 99U;
     assert(chanserv_db_logging_queue_fetch(&db, "#ok", rows, 4, &count) != 0);
+    assert(count == 0U);
+    assert(chanserv_db_logging_queue_count(&db, &count) == 0 && count == 1U);
+    clear_queue(&db);
+
+    inject_text_row(&db, "#ok", "bad\nbody", -1);
+    count = 99U;
+    assert(chanserv_db_logging_queue_fetch_due(&db, 100, rows, 4, &count) != 0);
+    assert(count == 0U);
+    assert(chanserv_db_logging_queue_count(&db, &count) == 0 && count == 1U);
+    clear_queue(&db);
+
+    inject_text_row(&db, "#bad\rname", "body", -1);
+    count = 99U;
+    assert(chanserv_db_logging_queue_fetch_due(&db, 100, rows, 4, &count) != 0);
     assert(count == 0U);
     assert(chanserv_db_logging_queue_count(&db, &count) == 0 && count == 1U);
     clear_queue(&db);
