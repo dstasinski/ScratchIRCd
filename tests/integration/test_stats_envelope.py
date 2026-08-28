@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure STATS and LIST preserve identity while respecting IRC wire limits."""
+"""Ensure STATS/LIST/file-text replies respect IRC wire limits."""
 
 import os
 import socket
@@ -93,13 +93,23 @@ def main():
         port = free_port()
         bans_db = os.path.join(td, "bans.db")
         config = os.path.join(td, "ircd.conf")
+        motd_file = os.path.join(td, "motd.txt")
+        rules_file = os.path.join(td, "rules.txt")
         password_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
         server_name = "s" * 63
+        motd_text = "m" * 900
+        rules_text = "r" * 900
+
+        with open(motd_file, "w", encoding="utf-8") as f:
+            f.write(motd_text + "\n")
+        with open(rules_file, "w", encoding="utf-8") as f:
+            f.write(rules_text + "\n")
 
         with open(config, "w", encoding="utf-8") as f:
             f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 8\ndns_timeout_seconds = 1\n")
+            f.write(f"motd_file = {motd_file}\nrules_file = {rules_file}\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {bans_db}\n")
             f.write(f"nickserv_db = {td}/nickserv.db\n")
@@ -170,6 +180,26 @@ def main():
             assert geo_value in g_rows[0] and setter in g_rows[0], g_rows[0]
             assert reason not in g_rows[0], g_rows[0]
 
+            # File-backed text may contain physical lines far longer than one
+            # IRC numeric. Preserve all text by chunking each logical line.
+            client.send("MOTD")
+            lines = client.collect_until(" 376 alice :End of /MOTD command.")
+            assert_wire_safe(lines)
+            motd_marker = " 372 alice :- "
+            motd_parts = [line.split(motd_marker, 1)[1]
+                          for line in lines if motd_marker in line]
+            assert len(motd_parts) >= 2, lines
+            assert "".join(motd_parts) == motd_text, motd_parts
+
+            client.send("RULES")
+            lines = client.collect_until(" 309 alice :End of RULES command.")
+            assert_wire_safe(lines)
+            rules_marker = " 232 alice :- "
+            rules_parts = [line.split(rules_marker, 1)[1]
+                           for line in lines if rules_marker in line]
+            assert len(rules_parts) >= 2, lines
+            assert "".join(rules_parts) == rules_text, rules_parts
+
             # With a 63-byte server name, irc_topic_limit() advertises 344.
             # That topic is legal for TOPIC/332, but numeric 322 has slightly
             # more fixed framing. A 31-byte requesting nick therefore forces
@@ -202,7 +232,7 @@ def main():
                 client.close()
             stop(proc)
 
-    print("STATS/LIST envelope integration tests passed")
+    print("STATS/LIST/file-text envelope integration tests passed")
 
 
 if __name__ == "__main__":
