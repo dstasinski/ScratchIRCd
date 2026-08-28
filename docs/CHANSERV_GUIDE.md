@@ -4,14 +4,24 @@ ChanServ is a virtual server service backed by `data/chanserv.db`. It is not a `
 
 ## Registering a channel
 
-First identify to NickServ, join the channel, and have channel owner/operator privilege. Then use either form:
+Creating a persistent channel registration is a **network-administrator-only** action. Founder or channel-operator status by itself does not permit registration.
+
+The network administrator must be identified to NickServ, be present in the live channel with owner/operator privilege, and then use either form:
 
 ```text
 CHANSERV REGISTER #channel :optional description
 PRIVMSG ChanServ :REGISTER #channel :optional description
 ```
 
-A successful registration records the authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`. The channel's current parameter modes and `+b/+e/+I` lists are also captured as the initial persistent runtime state.
+A successful registration records the issuing network administrator's authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`. The channel's current parameter modes and `+b/+e/+I` lists are also captured as the initial persistent runtime state.
+
+To create a registration for another account, register the channel and then transfer founder ownership with the network-administrator command:
+
+```text
+CSSET #channel FOUNDER <NickServ-account>
+```
+
+After founder ownership is assigned, the founder can manage the channel's normal ChanServ ACCESS and SET policy without network-administrator status. REGISTER itself remains network-administrator-only.
 
 ## Channel information
 
@@ -60,7 +70,7 @@ The founder stores the channel's boolean mode policy with:
 CHANSERV SET #channel MLOCK +nt
 ```
 
-0.20 supports these boolean MLOCK modes:
+Supported boolean MLOCK modes are:
 
 ```text
 A c i K M m n O p R S s t T V z
@@ -68,7 +78,7 @@ A c i K M m n O p R S s t T V z
 
 Service-controlled `+r` is restored separately and cannot be placed in MLOCK. Membership privileges such as `+q`, `+a`, `+o`, `+h`, and `+v` are account/member state rather than MLOCK state.
 
-MLOCK is now actively enforced. For an enabled registered channel, ordinary MODE and SAMODE requests that would make a boolean mode disagree with the stored MLOCK are rejected with numeric 974. To change the persistent boolean policy, update the MLOCK through ChanServ instead of temporarily changing the live channel.
+MLOCK is actively enforced. For an enabled registered channel, ordinary MODE and SAMODE requests that would make a boolean mode disagree with the stored MLOCK are rejected with numeric 974. To change the persistent boolean policy, update the MLOCK through ChanServ instead of temporarily changing the live channel.
 
 For example, with `MLOCK +nt`, `MODE #channel -n` and `MODE #channel +m` are rejected, while the stored `+n/+t` state is reapplied when the channel is recreated.
 
@@ -110,12 +120,16 @@ ChanServ stores the topic text, setter identity, and timestamp in SQLite. When t
 
 ## Dropping a registration
 
-The authenticated founder may remove the registration:
+Removing a persistent channel registration is also a **network-administrator-only** action. Founder status alone is not sufficient.
+
+Either service form may be used by a network administrator:
 
 ```text
 CHANSERV DROP #channel
 PRIVMSG ChanServ :DROP #channel
 ```
+
+Both forms use the same network-administrator deletion policy as `CSDROP`, so a network administrator may remove a registration even after founder ownership has been transferred to another account.
 
 The live channel loses service-controlled `+r`. Persistent access rows and companion runtime/list rows are tied to the registration with SQLite foreign keys and are removed when the registration is deleted. The live channel may continue to exist normally while clients remain in it.
 
@@ -147,8 +161,20 @@ CSSET #channel ENABLED <0|1>
 CSDROP #channel
 ```
 
-`CSSET ... FOUNDER` requires an existing enabled NickServ account. Network administrators can also join/operate normally and use the founder-facing service commands when authenticated as the founder account.
+`CSSET ... FOUNDER` requires an existing enabled NickServ account.
 
-## Current 0.20 scope
+A typical delegated-channel workflow is:
 
-0.20 persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK state, topic state, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
+```text
+OPER <netadmin-name> <password>
+IDENTIFY <netadmin-account> <password>
+JOIN #channel
+CHANSERV REGISTER #channel :description
+CSSET #channel FOUNDER <owner-account>
+```
+
+The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, and normal founder policy. Creating or dropping the registration remains reserved to network administrators.
+
+## Current scope
+
+ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK state, topic state, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
