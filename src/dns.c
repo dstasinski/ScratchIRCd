@@ -211,7 +211,8 @@ int dns_resolver_init(DnsResolver *resolver) {
 void dns_resolver_destroy(DnsResolver *resolver) {
     if (resolver == NULL) return;
 
-    atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
+    if (resolver->running)
+        atomic_store_explicit(&resolver->stopping, 1, memory_order_relaxed);
     if (resolver->request_write_fd >= 0) {
         close(resolver->request_write_fd);
         resolver->request_write_fd = -1;
