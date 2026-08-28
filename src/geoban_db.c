@@ -31,6 +31,21 @@ static const char *schema_sql =
     "PRIMARY KEY(type,value)"
     ");";
 
+static int valid_type(GeoBanType type) {
+    return type == GEOBAN_COUNTRY || type == GEOBAN_REGION ||
+           type == GEOBAN_ASN || type == GEOBAN_ORG;
+}
+
+static int text_fits(const char *text, size_t maximum, int allow_empty) {
+    size_t length;
+    if (text == NULL) return 0;
+    length = strnlen(text, maximum + 1U);
+    if (length > maximum || memchr(text, '\r', length) != NULL ||
+        memchr(text, '\n', length) != NULL)
+        return 0;
+    return allow_empty || length != 0U;
+}
+
 static int ensure_parent_directory(const char *path) {
     char parent[IRCD_CONFIG_PATH_MAX + 1U];
     char *slash;
@@ -80,18 +95,40 @@ void geoban_db_reset_runtime_state(void) {
     geoban_last_purge_path[0] = '\0';
 }
 
-static void record_from_stmt(sqlite3_stmt *stmt, GeoBanRecord *record) {
+static int copy_stmt_text(sqlite3_stmt *stmt, int column,
+                          char *destination, size_t destination_size) {
     const unsigned char *text;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    text = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
+    memcpy(destination, text, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
+static int record_from_stmt(sqlite3_stmt *stmt, GeoBanRecord *record) {
+    GeoBanType type;
+    if (stmt == NULL || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
-    record->type = (GeoBanType)sqlite3_column_int(stmt, 0);
-    text = sqlite3_column_text(stmt, 1);
-    if (text != NULL) (void)snprintf(record->value, sizeof(record->value), "%s", text);
-    text = sqlite3_column_text(stmt, 2);
-    if (text != NULL) (void)snprintf(record->reason, sizeof(record->reason), "%s", text);
-    text = sqlite3_column_text(stmt, 3);
-    if (text != NULL) (void)snprintf(record->set_by, sizeof(record->set_by), "%s", text);
+    type = (GeoBanType)sqlite3_column_int(stmt, 0);
+    if (!valid_type(type) ||
+        copy_stmt_text(stmt, 1, record->value, sizeof(record->value)) != 0 ||
+        record->value[0] == '\0' ||
+        copy_stmt_text(stmt, 2, record->reason, sizeof(record->reason)) != 0 ||
+        copy_stmt_text(stmt, 3, record->set_by, sizeof(record->set_by)) != 0) {
+        memset(record, 0, sizeof(*record));
+        return -1;
+    }
+    record->type = type;
     record->created_at = sqlite3_column_int64(stmt, 4);
     record->expires_at = sqlite3_column_int64(stmt, 5);
+    return 0;
 }
 
 const char *geoban_type_name(GeoBanType type) {
@@ -120,7 +157,8 @@ int geoban_normalize_value(GeoBanType type, const char *input,
     char *end = NULL;
     unsigned long asn;
     const char *number;
-    if (input == NULL || output == NULL || output_size == 0U || *input == '\0') return -1;
+    if (input == NULL || output == NULL || output_size == 0U || *input == '\0' ||
+        strchr(input, '\r') != NULL || strchr(input, '\n') != NULL) return -1;
     if (type == GEOBAN_COUNTRY || type == GEOBAN_REGION) {
         n = strlen(input);
         if (n < 1U || n >= output_size) return -1;
@@ -291,13 +329,18 @@ int geoban_db_add(GeoBanDb *db, GeoBanType type, const char *value,
         "INSERT OR REPLACE INTO geo_bans(type,value,reason,set_by,created_at,expires_at) "
         "VALUES(?1,?2,?3,?4,unixepoch(),CASE WHEN ?5=0 THEN 0 ELSE unixepoch()+?5 END)";
     sqlite3_stmt *stmt = NULL;
+    const char *stored_reason = reason != NULL ? reason : "";
+    const char *stored_set_by = set_by != NULL ? set_by : "";
     int rc;
-    if (db == NULL || db->handle == NULL || value == NULL || *value == '\0') return -1;
+    if (db == NULL || db->handle == NULL || !valid_type(type) ||
+        !text_fits(value, IRCD_GEOIP_ORG_MAX, 0) ||
+        !text_fits(stored_reason, IRC_QUIT_REASON_MAX, 1) ||
+        !text_fits(stored_set_by, IRCD_OPER_NAME_MAX, 1)) return -1;
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
     sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, reason != NULL ? reason : "", -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, set_by != NULL ? set_by : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, stored_reason, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, stored_set_by, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 5, (sqlite3_int64)duration_seconds);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -307,7 +350,8 @@ int geoban_db_add(GeoBanDb *db, GeoBanType type, const char *value,
 int geoban_db_delete(GeoBanDb *db, GeoBanType type, const char *value) {
     sqlite3_stmt *stmt = NULL;
     int rc;
-    if (db == NULL || db->handle == NULL || value == NULL) return -1;
+    if (db == NULL || db->handle == NULL || !valid_type(type) ||
+        !text_fits(value, IRCD_GEOIP_ORG_MAX, 0)) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "DELETE FROM geo_bans WHERE type=?1 AND value=?2", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_int(stmt, 1, (int)type);
@@ -327,7 +371,10 @@ int geoban_db_list(GeoBanDb *db, GeoBanListCallback callback, void *context) {
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         GeoBanRecord record;
-        record_from_stmt(stmt, &record);
+        if (record_from_stmt(stmt, &record) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         if (callback(&record, context) != 0) break;
     }
     sqlite3_finalize(stmt);
@@ -344,7 +391,10 @@ int geoban_db_match(GeoBanDb *db, const ClientGeoIP *geoip, GeoBanRecord *record
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         GeoBanRecord candidate;
-        record_from_stmt(stmt, &candidate);
+        if (record_from_stmt(stmt, &candidate) != 0) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
         if (geoban_record_matches(&candidate, geoip)) {
             *record = candidate;
             sqlite3_finalize(stmt);
