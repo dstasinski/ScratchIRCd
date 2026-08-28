@@ -88,6 +88,7 @@ static int ensure_databases(const ServerConfig *config) {
 /** Program entry point. Usage: scratchircd [config-file] */
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : IRCD_DEFAULT_CONFIG_FILE;
+    int exit_status = 0;
 
     if (install_shutdown_handlers() != 0) {
         perror("sigaction");
@@ -97,6 +98,7 @@ int main(int argc, char **argv) {
     for (;;) {
         ServerConfig config;
         int restart;
+        int runtime_failure;
 
         runtime_config_defaults(&config);
         if (runtime_config_load(&config, path) != 0) {
@@ -123,7 +125,10 @@ int main(int argc, char **argv) {
         server_active = 1;
         server_run(&server);
         server_active = 0;
+        runtime_failure = !server.restart_requested && !server.shutdown_requested;
         restart = server.restart_requested && !server.shutdown_requested;
+        if (runtime_failure)
+            fprintf(stderr, "ScratchIRCd event loop terminated unexpectedly; shutting down\n");
         server_destroy(&server);
 
         /* Channel-log rows are already durable in SQLite. Make one bounded
@@ -142,9 +147,13 @@ int main(int argc, char **argv) {
         ban_db_reset_runtime_state();
         geoban_db_reset_runtime_state();
 
+        if (runtime_failure) {
+            exit_status = 1;
+            break;
+        }
         if (!restart) break;
         fprintf(stdout, "Restarting ScratchIRCd using %s\n", path);
     }
 
-    return 0;
+    return exit_status;
 }
