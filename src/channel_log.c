@@ -17,6 +17,7 @@
 #define CHANNEL_LOG_FLUSH_FETCH_ROWS 128U
 #define CHANNEL_LOG_FLUSH_DUE_MAX_ROWS 1024U
 #define CHANNEL_LOG_RETENTION_SCAN_ENTRIES 128U
+#define CHANNEL_LOG_FLUSH_ERROR_NOTICE_SECONDS 60
 
 typedef struct ChannelLogState {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
@@ -33,6 +34,7 @@ static char log_db_path[IRCD_PATH_MAX + 1U];
 static size_t log_queue_count;
 static int log_queue_count_known;
 static time_t log_queue_full_notice_time;
+static time_t log_flush_error_notice_time;
 static time_t log_retention_next_check;
 static DIR *log_retention_dir;
 static time_t log_retention_cutoff;
@@ -52,6 +54,7 @@ static void channel_log_reset_state(void) {
     log_queue_count = 0U;
     log_queue_count_known = 0;
     log_queue_full_notice_time = 0;
+    log_flush_error_notice_time = 0;
     if (log_retention_dir != NULL) closedir(log_retention_dir);
     log_retention_dir = NULL;
     log_retention_cutoff = 0;
@@ -164,6 +167,25 @@ static void log_path(const char *name, const char *suffix, char *path, size_t si
 static int make_logs_dir(void) { return mkdir("logs", 0750) == 0 || errno == EEXIST ? 0 : -1; }
 static void suffix_for(const struct tm *tm, char *out, size_t size) { (void)strftime(out, size, "%d%b%Y", tm); }
 
+static void report_flush_failure(Server *server, const char *stage,
+                                 const ChanServLogQueueRecord *record) {
+    time_t now;
+    if (server == NULL || stage == NULL) return;
+    now = time(NULL);
+    if (log_flush_error_notice_time != 0 &&
+        now - log_flush_error_notice_time < CHANNEL_LOG_FLUSH_ERROR_NOTICE_SECONDS)
+        return;
+    log_flush_error_notice_time = now;
+    if (record != NULL && record->channel[0] != '\0')
+        snotice_broadcast(server, SNOTICE_ADMIN,
+                          "Channel log durable queue flush stalled during %s at row %lld channel=%s; queued rows retained for retry",
+                          stage, record->id, record->channel);
+    else
+        snotice_broadcast(server, SNOTICE_ADMIN,
+                          "Channel log durable queue flush stalled during %s; queued rows retained for retry",
+                          stage);
+}
+
 static void finish_retention_scan(Server *server, time_t now) {
     size_t removed = log_retention_removed;
     if (log_retention_dir != NULL) closedir(log_retention_dir);
@@ -269,6 +291,8 @@ static int write_queue_record(const ChanServLogQueueRecord *record) {
     struct tm local;
     char suffix[32], stamp[16], path[IRCD_PATH_MAX + IRC_CHANNEL_NAME_MAX + 64U];
     FILE *file;
+    int write_failed;
+    int close_failed;
     if (record == NULL || record->channel[0] == '\0') return -1;
     state = state_for(record->channel, 1);
     when = (time_t)record->event_time;
@@ -279,9 +303,9 @@ static int write_queue_record(const ChanServLogQueueRecord *record) {
     file = fopen(path, "a");
     if (!file) return -1;
     (void)strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
-    if (fprintf(file, "[%s] %s\n", stamp, record->body) < 0 || fclose(file) != 0)
-        return -1;
-    return 0;
+    write_failed = fprintf(file, "[%s] %s\n", stamp, record->body) < 0;
+    close_failed = fclose(file) != 0;
+    return write_failed || close_failed ? -1 : 0;
 }
 
 /* Administrative per-channel work is bounded just like automatic flushing. */
@@ -303,13 +327,22 @@ static int flush_channel(Server *server, const char *name, size_t max_rows,
         if (max_rows - total < capacity)
             capacity = max_rows - total;
         if (capacity == 0U) break;
-        if (chanserv_db_logging_queue_fetch(db, name, rows, capacity, &count) != 0) return -1;
+        if (chanserv_db_logging_queue_fetch(db, name, rows, capacity, &count) != 0) {
+            report_flush_failure(server, "queue fetch/decode", NULL);
+            return -1;
+        }
         if (!count) break;
         for (i = 0U; i < count; ++i) {
-            if (write_queue_record(&rows[i]) != 0) return -1;
+            if (write_queue_record(&rows[i]) != 0) {
+                report_flush_failure(server, "text-log write", &rows[i]);
+                return -1;
+            }
             last_id = rows[i].id;
         }
-        if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) return -1;
+        if (chanserv_db_logging_queue_delete_through(db, name, last_id) != 0) {
+            report_flush_failure(server, "queue delete", &rows[count - 1U]);
+            return -1;
+        }
         if (log_queue_count >= count) log_queue_count -= count;
         else log_queue_count = 0U;
         total += count;
@@ -348,13 +381,22 @@ static void flush_queued(Server *server, long long cutoff, size_t max_rows) {
         if (max_rows - total < capacity)
             capacity = max_rows - total;
         if (capacity == 0U) break;
-        if (chanserv_db_logging_queue_fetch_due(db, cutoff, rows, capacity, &count) != 0 || count == 0U)
+        if (chanserv_db_logging_queue_fetch_due(db, cutoff, rows, capacity, &count) != 0) {
+            report_flush_failure(server, "queue fetch/decode", NULL);
             break;
-        for (i = 0U; i < count; ++i)
-            if (write_queue_record(&rows[i]) != 0) return;
+        }
+        if (count == 0U) break;
+        for (i = 0U; i < count; ++i) {
+            if (write_queue_record(&rows[i]) != 0) {
+                report_flush_failure(server, "text-log write", &rows[i]);
+                return;
+            }
+        }
         last = &rows[count - 1U];
-        if (chanserv_db_logging_queue_delete_ordered_through(db, last->event_time, last->id) != 0)
+        if (chanserv_db_logging_queue_delete_ordered_through(db, last->event_time, last->id) != 0) {
+            report_flush_failure(server, "queue delete", last);
             return;
+        }
         if (log_queue_count >= count) log_queue_count -= count;
         else log_queue_count = 0U;
         total += count;
