@@ -112,10 +112,13 @@ int server_connection_count_move(Server *server, const char *old_ip,
                                  const char *new_ip) {
     char old_key[IRC_IP_MAX + 1U];
     char new_key[IRC_IP_MAX + 1U];
+    ServerConnectionIpCount *old_record;
     if (server == NULL ||
         canonical_numeric_ip(old_ip, old_key, sizeof(old_key)) != 0 ||
         canonical_numeric_ip(new_ip, new_key, sizeof(new_key)) != 0)
         return -1;
+    old_record = hash_get(&server->connection_counts_by_ip, old_key);
+    if (old_record == NULL || old_record->count == 0U) return -1;
     if (strcmp(old_key, new_key) == 0) return 0;
     if (connection_count_add(server, new_key) != 0) return -1;
     connection_count_remove(server, old_key);
