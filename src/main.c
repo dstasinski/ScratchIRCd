@@ -11,6 +11,7 @@
 #include "nickserv.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
+#include "presence.h"
 #include "runtime_config.h"
 #include "server.h"
 
@@ -129,6 +130,7 @@ int main(int argc, char **argv) {
          * any remaining backlog survives shutdown/restart and is recovered by
          * the normal oldest-first flusher instead of blocking here indefinitely. */
         channel_log_flush_due(&server, time(NULL) + IRCD_CHANNEL_LOG_BATCH_SECONDS);
+        presence_reset_runtime_state();
         chanserv_persist_reset();
         history_db_reset_shared();
         command_common_reset_state();
