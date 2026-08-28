@@ -129,6 +129,8 @@ def main():
     channel = "#" + "c" * 62
     description = "D" * 255
     legacy_topic = "T" * 311
+    malformed_channel = "#" + "m" * 63
+    clipped_malformed = malformed_channel[:63]
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-wire-") as td:
         port = free_port()
@@ -176,14 +178,20 @@ def main():
                 client.close()
             stop(proc)
 
-        # Simulate a legacy/external database containing a topic that was legal
-        # under the old 390-byte storage limit but exceeds today's TOPICLEN.
+        # Simulate legacy/external database state: one topic that was legal
+        # under the old 390-byte storage limit, plus an enabled channel name
+        # one byte beyond CHANNELLEN. Neither may be rewritten into a different
+        # live/wire identity.
         with open_chanserv_db(chanserv_db) as db:
             changed = db.execute(
                 "UPDATE channels SET topic=?,topic_setter='legacy',topic_time=123 "
                 "WHERE name=?",
                 (legacy_topic, channel),
             ).rowcount
+            db.execute(
+                "INSERT INTO channels(name,founder,description,enabled) VALUES(?,?,?,1)",
+                (malformed_channel, founder, "malformed external row"),
+            )
             db.commit()
             assert changed == 1
 
@@ -194,6 +202,18 @@ def main():
             wait_listen(port, proc)
             client = IRCClient(port)
             register(client, founder)
+
+            # The valid persistent channel remains advertised exactly. The
+            # malformed row must be omitted entirely; in particular its first
+            # 63 bytes must never appear as a clipped alias.
+            registration_tail = client.collect_for()
+            pchannel_lines = [line for line in registration_tail
+                              if " 005 " in line and "PCHANNELS=" in line]
+            pchannels = " ".join(pchannel_lines)
+            assert channel in pchannels, pchannel_lines
+            assert malformed_channel not in pchannels, pchannel_lines
+            assert clipped_malformed not in pchannels, pchannel_lines
+
             client.send("IDENTIFY " + founder + " founderpass")
             client.expect("Password accepted - you are now identified.")
             client.send(f"JOIN {channel}")
@@ -206,7 +226,11 @@ def main():
                 stored = db.execute(
                     "SELECT topic FROM channels WHERE name=?", (channel,)
                 ).fetchone()[0]
+                malformed_stored = db.execute(
+                    "SELECT name FROM channels WHERE name=?", (malformed_channel,)
+                ).fetchone()[0]
             assert stored == legacy_topic, len(stored)
+            assert malformed_stored == malformed_channel
         finally:
             if client is not None:
                 client.close()
@@ -215,6 +239,8 @@ def main():
         stderr = proc.stderr.read() if proc.stderr is not None else ""
         assert "persistent topic" in stderr and "live topic left unset" in stderr, stderr
         assert "311 bytes" in stderr, stderr
+        assert "ignoring malformed persistent channel name" in stderr, stderr
+        assert "64 bytes" in stderr, stderr
 
     print("ChanServ legacy wire boundary integration tests passed")
 
