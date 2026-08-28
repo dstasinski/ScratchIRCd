@@ -110,6 +110,14 @@ nickserv_mail_requests_per_ip = 5
 nickserv_mail_window_seconds = 900
 nickserv_mail_global_per_minute = 60
 
+# Argon2 password hashing/verification is intentionally expensive, so all
+# client-triggered Argon2 work shares bounded per-IP and global budgets.
+# Setting a limit to 0 disables only that layer of the fair-share policy.
+argon2_ops_per_ip = 10
+argon2_window_seconds = 60
+argon2_global_ops_per_minute = 60
+argon2_global_burst_per_second = 8
+
 sendmail_path =
 mail_from =
 nickserv_reset_seconds = 1800
