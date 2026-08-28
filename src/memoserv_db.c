@@ -20,11 +20,15 @@ static int exec_sql(sqlite3 *db, const char *sql) {
     return 0;
 }
 
+static int has_line_break(const char *text) {
+    return text != NULL && (strchr(text, '\r') != NULL || strchr(text, '\n') != NULL);
+}
+
 static int account_arg_fits(const char *account) {
     size_t length;
     if (account == NULL) return 0;
     length = strlen(account);
-    return length != 0U && length <= IRC_NICK_MAX;
+    return length != 0U && length <= IRC_NICK_MAX && !has_line_break(account);
 }
 
 static int copy_text_column(sqlite3_stmt *stmt, int column,
@@ -34,8 +38,11 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
     if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
     text = sqlite3_column_text(stmt, column);
     bytes = sqlite3_column_bytes(stmt, column);
-    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size) return -1;
-    if (bytes != 0 && memchr(text, '\0', (size_t)bytes) != NULL) return -1;
+    if (text == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(text, '\0', (size_t)bytes) != NULL ||
+        memchr(text, '\r', (size_t)bytes) != NULL ||
+        memchr(text, '\n', (size_t)bytes) != NULL)
+        return -1;
     memcpy(destination, text, (size_t)bytes);
     destination[bytes] = '\0';
     return 0;
@@ -104,7 +111,8 @@ int memoserv_db_send(MemoServDb *db, const char *sender,
     size_t text_length;
     int rc;
     if (db == NULL || db->handle == NULL || !account_arg_fits(sender) ||
-        !account_arg_fits(recipient) || text == NULL || *text == '\0') return -1;
+        !account_arg_fits(recipient) || text == NULL || *text == '\0' ||
+        has_line_break(text)) return -1;
     text_length = strlen(text);
     if (text_length > IRCD_MEMOSERV_TEXT_MAX) return -1;
     if (sqlite3_prepare_v2(db->handle,
