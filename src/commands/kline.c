@@ -20,24 +20,50 @@
 #include <stdio.h>
 #include <string.h>
 
-static int client_matches_kline(BanDb *db, const Client *target, BanRecord *record) {
-    char host_identity[IRCD_MESSAGE_BUFFER_SIZE];
-    char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
-    const char *first;
+typedef struct KlineDisconnectContext {
+    Server *server;
+    Client *setter;
+    const char *reason;
+    const char *added_mask;
+} KlineDisconnectContext;
 
-    if (target->real_host[0] != '\0') {
-        (void)snprintf(host_identity, sizeof(host_identity), "%s@%s",
-                       target->user, target->real_host);
-        first = host_identity;
-    } else {
-        first = ip_identity;
+static int kline_disconnect_row(const BanRecord *record, void *context) {
+    KlineDisconnectContext *ctx = context;
+    size_t i = 0U;
+    if (record == NULL || ctx == NULL || ctx->server == NULL) return -1;
+    while (i < ctx->server->client_count) {
+        Client *target = ctx->server->clients[i];
+        char host_identity[IRCD_MESSAGE_BUFFER_SIZE];
+        char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+        const char *first;
+
+        (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s",
+                       target->user, target->real_ip);
+        if (target->real_host[0] != '\0') {
+            (void)snprintf(host_identity, sizeof(host_identity), "%s@%s",
+                           target->user, target->real_host);
+            first = host_identity;
+        } else {
+            first = ip_identity;
+        }
+
+        if (target != ctx->setter && ban_record_matches(record, first, ip_identity)) {
+            snotice_broadcast(ctx->server, SNOTICE_BANS,
+                              "KLINE matched %s (%s@%s) [real_ip=%s] by %s",
+                              command_reply_nick(target), target->user,
+                              target->display_host, target->real_ip,
+                              ctx->added_mask != NULL ? ctx->added_mask : record->mask);
+            client_sendf(target, ERR_YOUREBANNEDCREEP,
+                         ctx->server->config.server_name,
+                         command_reply_nick(target), ctx->server->config.admin_email);
+            server_disconnect(ctx->server, target,
+                              ctx->reason != NULL && *ctx->reason != '\0'
+                                  ? ctx->reason : record->reason);
+            continue;
+        }
+        ++i;
     }
-
-    (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s",
-                   target->user, target->real_ip);
-    if (target->real_host[0] == '\0') first = ip_identity;
-
-    return ban_db_match(db, BAN_TYPE_KLINE, first, ip_identity, record);
+    return 0;
 }
 
 CommandResult command_kline(Server *server, Client *client, char *params) {
@@ -45,7 +71,6 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     char *reason;
     char resolved_mask[IRC_CHANNEL_MASK_MAX + 1U];
     BanDb db = {0};
-    size_t i = 0U;
     int shorthand = 0;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
@@ -127,21 +152,9 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    while (i < server->client_count) {
-        Client *target = server->clients[i];
-        BanRecord match;
-        if (target != client && client_matches_kline(&db, target, &match) == 1) {
-            snotice_broadcast(server, SNOTICE_BANS,
-                              "KLINE matched %s (%s@%s) [real_ip=%s] by %s",
-                              command_reply_nick(target), target->user,
-                              target->display_host, target->real_ip, mask);
-            client_sendf(target, ERR_YOUREBANNEDCREEP,
-                         server->config.server_name,
-                         command_reply_nick(target), server->config.admin_email);
-            server_disconnect(server, target, reason);
-            continue;
-        }
-        ++i;
+    {
+        KlineDisconnectContext context = {server, client, reason, mask};
+        (void)ban_db_list(&db, BAN_TYPE_KLINE, kline_disconnect_row, &context);
     }
     ban_db_close(&db);
 
