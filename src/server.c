@@ -559,6 +559,8 @@ void server_run(Server *server) {
     ServerPollClientSnapshot *snapshot = NULL;
     size_t poll_capacity = 0U;
     size_t snapshot_capacity = 0U;
+    time_t maintenance_second = 0;
+    int maintenance_second_known = 0;
 
     if (server == NULL) return;
     while (!server->restart_requested) {
@@ -686,8 +688,15 @@ void server_run(Server *server) {
             server->tls_handshake_cursor = (start_index + SERVER_TLS_HANDSHAKE_BUDGET) % snapshot_count;
         else
             server->tls_handshake_cursor = 0U;
-        channel_log_rotate_all(time(NULL));
-        if (!server->restart_requested) expire_connection_lookups(server);
+        {
+            time_t now = time(NULL);
+            if (!maintenance_second_known || now != maintenance_second) {
+                maintenance_second = now;
+                maintenance_second_known = 1;
+                channel_log_rotate_all(now);
+                if (!server->restart_requested) expire_connection_lookups(server);
+            }
+        }
     }
     free(snapshot);
     free(poll_fds);
