@@ -47,19 +47,43 @@ static void report_current(Server *server, Client *client, const char *nick) {
     }
 }
 
+static int watch_list_payload_fits(Server *server, Client *client,
+                                   const char *payload) {
+    int written;
+    if (server == NULL || client == NULL || payload == NULL) return 0;
+    written = snprintf(NULL, 0, RPL_WATCHLIST,
+                       server->config.server_name, client->nick, payload);
+    return written >= 0 && (size_t)written <= IRC_LINE_CONTENT_MAX;
+}
+
+static void send_watch_list_payload(Server *server, Client *client,
+                                    const char *payload) {
+    if (watch_list_payload_fits(server, client, payload))
+        client_sendf(client, RPL_WATCHLIST,
+                     server->config.server_name, client->nick, payload);
+}
+
 static void list_watch(Server *server, Client *client) {
     ClientWatchEntry *entry;
-    char list[IRCD_MESSAGE_BUFFER_SIZE];
+    char list[IRC_LINE_CONTENT_MAX + 1U] = "";
     size_t used = 0U;
-    list[0] = '\0';
+
     for (entry = client->watch_list; entry != NULL; entry = entry->next) {
-        int written = snprintf(list + used, sizeof(list) - used, "%s%s",
-                               used != 0U ? " " : "", entry->nick);
-        if (written < 0 || (size_t)written >= sizeof(list) - used) break;
-        used += (size_t)written;
+        char candidate[IRC_LINE_CONTENT_MAX + 1U];
+        int written = snprintf(candidate, sizeof(candidate), "%s%s%s",
+                               list, used != 0U ? " " : "", entry->nick);
+        if (written >= 0 && (size_t)written < sizeof(candidate) &&
+            watch_list_payload_fits(server, client, candidate)) {
+            memcpy(list, candidate, (size_t)written + 1U);
+            used = (size_t)written;
+        } else {
+            if (used != 0U) send_watch_list_payload(server, client, list);
+            if (!watch_list_payload_fits(server, client, entry->nick)) continue;
+            (void)snprintf(list, sizeof(list), "%s", entry->nick);
+            used = strlen(list);
+        }
     }
-    client_sendf(client, RPL_WATCHLIST, server->config.server_name,
-                 client->nick, list);
+    send_watch_list_payload(server, client, list);
     client_sendf(client, RPL_ENDOFWATCHLIST, server->config.server_name,
                  client->nick, 'L');
 }
