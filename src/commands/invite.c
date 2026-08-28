@@ -16,6 +16,25 @@
 #include <stdio.h>
 #include <string.h>
 
+static void send_invite_query_error(Server *server, Client *client,
+                                    int numeric, const char *query) {
+    const char *text;
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL || query == NULL) return;
+    text = numeric == 403 ? "No such channel" : "No such nick/channel";
+    base_length = snprintf(NULL, 0, ":%s %03d %s  :%s",
+                           server->config.server_name, numeric,
+                           client->nick, text);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s %03d %s %.*s :%s",
+                 server->config.server_name, numeric, client->nick,
+                 (int)length, query, text);
+}
+
 CommandResult command_invite(Server *server, Client *client, char *params) {
     char *nick;
     char *channel_name;
@@ -41,15 +60,13 @@ CommandResult command_invite(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (!channel_name_valid(channel_name)) {
-        client_sendf(client, ERR_NOSUCHCHANNEL,
-                     server->config.server_name, client->nick, channel_name);
+        send_invite_query_error(server, client, 403, channel_name);
         return COMMAND_KEEP_CLIENT;
     }
 
     target = hash_get(&server->clients_by_nick, nick);
     if (target == NULL || !target->registered) {
-        client_sendf(client, ERR_NOSUCHNICK,
-                     server->config.server_name, client->nick, nick);
+        send_invite_query_error(server, client, 401, nick);
         return COMMAND_KEEP_CLIENT;
     }
 
