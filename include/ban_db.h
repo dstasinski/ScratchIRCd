@@ -32,6 +32,8 @@ typedef int (*BanDbListCallback)(const BanRecord *record, void *context);
 
 int ban_db_open(BanDb *db, const char *path);
 void ban_db_close(BanDb *db);
+/** Reset process-local expired-row maintenance throttle for shutdown/RESTART. */
+void ban_db_reset_runtime_state(void);
 int ban_db_add(BanDb *db, BanType type, const char *mask,
                const char *reason, const char *set_by);
 int ban_db_add_timed(BanDb *db, BanType type, const char *mask,
