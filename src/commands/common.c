@@ -110,11 +110,18 @@ static int rebuild_pchannels_cache(Server *server){
     if(sqlite3_prepare_v2(db.db,"SELECT name FROM channels WHERE enabled=1 ORDER BY name COLLATE IRCNOCASE",-1,&stmt,NULL)!=SQLITE_OK){chanserv_db_close(&db);free(fresh);return -1;}
 
     while((rc=sqlite3_step(stmt))==SQLITE_ROW){
-        const char *name=(const char *)sqlite3_column_text(stmt,0);
-        size_t n=name!=NULL?strlen(name):0U;
+        const unsigned char *raw=sqlite3_column_text(stmt,0);
+        int bytes=sqlite3_column_bytes(stmt,0);
+        const char *name=(const char *)raw;
+        size_t n;
         size_t needed;
         char *grown;
-        if(n==0U)continue;
+        if(raw==NULL||bytes<=0)continue;
+        n=(size_t)bytes;
+        if(n>IRC_CHANNEL_NAME_MAX||strlen(name)!=n){
+            fprintf(stderr,"ChanServ: ignoring malformed persistent channel name (%zu bytes) while rebuilding PCHANNELS\n",n);
+            continue;
+        }
         needed=used+(used?1U:0U)+n+1U;
         if(needed>capacity){
             size_t next=capacity;
@@ -168,7 +175,7 @@ static void send_pchannels_isupport(Server *server,Client *client,const char *ba
         char name[IRC_CHANNEL_NAME_MAX+1U];
         char candidate[IRC_LINE_CONTENT_MAX+1U];
         int written;
-        if(n>IRC_CHANNEL_NAME_MAX)n=IRC_CHANNEL_NAME_MAX;
+        if(n==0U||n>IRC_CHANNEL_NAME_MAX)return;
         memcpy(name,cursor,n);name[n]='\0';
         written=snprintf(candidate,sizeof(candidate),"%s%s%s",payload,names_in_chunk?",":"",name);
         if(written>=0&&(size_t)written<sizeof(candidate)&&isupport_payload_fits(server,client,candidate)){
