@@ -3,6 +3,7 @@
 
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,34 @@ def register(c, nick):
     c.expect(f" 001 {nick} ")
 
 
+def ircnocase(left, right):
+    left = left.lower().translate(str.maketrans({"{": "[", "}": "]", "|": "\\", "~": "^"}))
+    right = right.lower().translate(str.maketrans({"{": "[", "}": "]", "|": "\\", "~": "^"}))
+    return (left > right) - (left < right)
+
+
+def seed_log_backlog(path, rows):
+    db = sqlite3.connect(path)
+    try:
+        db.create_collation("IRCNOCASE", ircnocase)
+        old = int(time.time()) - 600
+        db.executemany(
+            "INSERT INTO channel_log_queue(channel,event_time,body) VALUES(?,?,?)",
+            (("#backlog", old, f"backlog row {index}") for index in range(rows)),
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def queued_rows(path):
+    db = sqlite3.connect(path)
+    try:
+        return db.execute("SELECT COUNT(*) FROM channel_log_queue").fetchone()[0]
+    finally:
+        db.close()
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: test_die.py scratchircd scratchircd-mkpasswd")
@@ -81,13 +110,14 @@ def main():
     with tempfile.TemporaryDirectory(prefix="scratchircd-die-") as td:
         port = free_port()
         conf = os.path.join(td, "ircd.conf")
+        chanserv_db = os.path.join(td, "chanserv.db")
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 16\ndns_timeout_seconds = 1\n")
             f.write(f"operators_db = {td}/operators.db\nbans_db = {td}/bans.db\n")
-            f.write(f"nickserv_db = {td}/nickserv.db\nchanserv_db = {td}/chanserv.db\n")
+            f.write(f"nickserv_db = {td}/nickserv.db\nchanserv_db = {chanserv_db}\n")
             f.write(f"memoserv_db = {td}/memoserv.db\nhistory_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
             f.write("netadmin_name = root\n")
@@ -106,6 +136,14 @@ def main():
             ordinary.expect(" 481 Ordinary ")
             assert proc.poll() is None, "unauthorized DIE stopped the daemon"
 
+            # The durable queue is safe to seed directly after startup. A DIE
+            # command must not synchronously drain an arbitrarily large backlog
+            # inside the single event loop. main() performs only one bounded
+            # post-disconnect pass (currently 1024 rows), leaving the remainder
+            # durable for recovery on the next start.
+            seed_log_backlog(chanserv_db, 2048)
+            assert queued_rows(chanserv_db) == 2048
+
             admin.send("OPER root adminpass")
             admin.expect(" 381 Admin :You are now a Network Administrator")
             admin.send("DIE")
@@ -116,6 +154,12 @@ def main():
             except subprocess.TimeoutExpired:
                 raise AssertionError("DIE did not terminate the daemon")
             assert rc == 0, f"daemon exited with status {rc}: {proc.stderr.read()}"
+
+            remaining = queued_rows(chanserv_db)
+            assert 1024 <= remaining < 2048, (
+                f"DIE drained an unbounded durable log backlog or skipped the bounded pass: "
+                f"remaining={remaining}"
+            )
         finally:
             if ordinary is not None: ordinary.close()
             if admin is not None: admin.close()
