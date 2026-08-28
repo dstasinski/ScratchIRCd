@@ -192,7 +192,7 @@ static int client_line_content_fits(const char *line) {
     size_t tag_section_length;
     size_t message_length;
 
-    if (line == NULL) return 0;
+    if (line == NULL || strchr(line, '\r') != NULL || strchr(line, '\n') != NULL) return 0;
     if (line[0] != '@') return strlen(line) <= IRC_LINE_CONTENT_MAX;
 
     separator = strchr(line, ' ');
@@ -212,7 +212,8 @@ int client_send_line(Client *client, const char *line) {
     /* Untagged IRC framing allows 512 octets including CRLF. IRCv3 message
      * tags use a separate allowance: validate the leading tag section and the
      * ordinary message independently rather than charging tags against the
-     * classic 510-byte content budget. */
+     * classic 510-byte content budget. Embedded CR/LF is never valid inside a
+     * single IRC message and must not be allowed to create extra wire frames. */
     if (!client_line_content_fits(line)) return -1;
 
     written = snprintf(buffer, sizeof(buffer), "%s\r\n", line);
