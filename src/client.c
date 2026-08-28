@@ -10,6 +10,8 @@
 #include <time.h>
 
 #define IRCV3_SERVER_TAG_SECTION_MAX 4096U
+#define CLIENT_FORMAT_BUFFER_SIZE \
+    (IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX + 3U)
 #define CLIENT_OUTPUT_FLUSH_BUDGET_BYTES 65536U
 
 static ClientFreeHook client_free_hook = NULL;
@@ -202,7 +204,7 @@ static int client_line_content_fits(const char *line) {
 }
 
 int client_send_line(Client *client, const char *line) {
-    char buffer[IRCD_OUTPUT_BUFFER_SIZE];
+    char buffer[CLIENT_FORMAT_BUFFER_SIZE];
     int written;
     size_t length;
     if (client == NULL || line == NULL) return -1;
@@ -222,7 +224,7 @@ int client_send_line(Client *client, const char *line) {
 }
 
 int client_sendf(Client *client, const char *fmt, ...) {
-    char line[IRCD_OUTPUT_BUFFER_SIZE];
+    char line[CLIENT_FORMAT_BUFFER_SIZE];
     va_list args;
     int written;
     if (client == NULL || fmt == NULL) return -1;
