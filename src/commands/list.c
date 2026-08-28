@@ -11,6 +11,34 @@
 #include "numerics.h"
 #include "visibility.h"
 
+#include <stdio.h>
+#include <string.h>
+
+static void send_list_entry(Server *server, Client *client, Channel *channel) {
+    char topic[IRC_CHANNEL_TOPIC_MAX + 1U];
+    const char *source;
+    size_t topic_length;
+    size_t topic_limit;
+    int overhead;
+
+    if (server == NULL || client == NULL || channel == NULL) return;
+    source = channel->topic[0] != '\0' ? channel->topic : "";
+    overhead = snprintf(NULL, 0, RPL_LIST,
+                        server->config.server_name, client->nick,
+                        channel->name, (int)channel->member_count, "");
+    if (overhead < 0 || (size_t)overhead > IRC_LINE_CONTENT_MAX) return;
+    topic_limit = IRC_LINE_CONTENT_MAX - (size_t)overhead;
+    if (topic_limit > IRC_CHANNEL_TOPIC_MAX) topic_limit = IRC_CHANNEL_TOPIC_MAX;
+    topic_length = strlen(source);
+    if (topic_length > topic_limit) topic_length = topic_limit;
+    memcpy(topic, source, topic_length);
+    topic[topic_length] = '\0';
+
+    client_sendf(client, RPL_LIST,
+                 server->config.server_name, client->nick,
+                 channel->name, (int)channel->member_count, topic);
+}
+
 CommandResult command_list(Server *server, Client *client, char *params) {
     (void)params;
 
@@ -31,10 +59,7 @@ CommandResult command_list(Server *server, Client *client, char *params) {
             if (!visibility_list_channel(client, channel)) {
                 continue;
             }
-            client_sendf(client, RPL_LIST,
-                         server->config.server_name, client->nick,
-                         channel->name, (int)channel->member_count,
-                         channel->topic[0] != '\0' ? channel->topic : "");
+            send_list_entry(server, client, channel);
             if (client->output_overflowed) break;
         }
     }
