@@ -13,7 +13,42 @@
 #include "modes.h"
 #include "numerics.h"
 
+#include <stdio.h>
 #include <string.h>
+
+static void send_no_such_channel_query(Server *server, Client *client,
+                                       const char *query) {
+    int base_length;
+    size_t length;
+    if (server == NULL || client == NULL || query == NULL) return;
+    base_length = snprintf(NULL, 0, ":%s 403 %s  :No such channel",
+                           server->config.server_name, client->nick);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
+    length = strlen(query);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s 403 %s %.*s :No such channel",
+                 server->config.server_name, client->nick,
+                 (int)length, query);
+}
+
+static int send_knock_to_staff(Client *staff, const Client *requester,
+                               const Channel *channel, const char *reason) {
+    int base_length;
+    size_t length;
+    if (staff == NULL || requester == NULL || channel == NULL || reason == NULL) return -1;
+    base_length = snprintf(NULL, 0, ":%s!%s@%s KNOCK %s :",
+                           requester->nick, requester->user,
+                           requester->display_host, channel->name);
+    if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return -1;
+    length = strlen(reason);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
+        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    return client_sendf(staff, ":%s!%s@%s KNOCK %s :%.*s",
+                        requester->nick, requester->user,
+                        requester->display_host, channel->name,
+                        (int)length, reason);
+}
 
 CommandResult command_knock(Server *server, Client *client, char *params) {
     char *channel_name;
@@ -41,8 +76,7 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
 
     channel = hash_get(&server->channels_by_name, channel_name);
     if (channel == NULL) {
-        client_sendf(client, ERR_NOSUCHCHANNEL,
-                     server->config.server_name, client->nick, channel_name);
+        send_no_such_channel_query(server, client, channel_name);
         return COMMAND_KEEP_CLIENT;
     }
 
@@ -89,10 +123,8 @@ CommandResult command_knock(Server *server, Client *client, char *params) {
                                    CHANNEL_PRIV_OWNER)) {
             continue;
         }
-        client_sendf(member->client, ":%s!%s@%s KNOCK %s :%s",
-                     client->nick, client->user, client->display_host,
-                     channel->name, reason);
-        delivered = 1;
+        if (send_knock_to_staff(member->client, client, channel, reason) >= 0)
+            delivered = 1;
     }
 
     if (delivered) {
