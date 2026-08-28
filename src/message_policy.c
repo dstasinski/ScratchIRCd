@@ -84,16 +84,47 @@ void message_strip_color(const char *text, char *out, size_t out_size) {
     out[used] = '\0';
 }
 
+static void send_server_notice_chunks(Server *server, Client *target,
+                                      const char *text) {
+    int prefix_length;
+    size_t payload_limit;
+    size_t text_length;
+    size_t offset = 0U;
+
+    if (server == NULL || target == NULL || text == NULL ||
+        strchr(text, '\r') != NULL || strchr(text, '\n') != NULL)
+        return;
+    prefix_length = snprintf(NULL, 0, ":%s NOTICE %s :*** ",
+                             server->config.server_name, target->nick);
+    if (prefix_length < 0 || (size_t)prefix_length >= IRC_LINE_CONTENT_MAX)
+        return;
+    payload_limit = IRC_LINE_CONTENT_MAX - (size_t)prefix_length;
+    text_length = strlen(text);
+
+    if (text_length == 0U) {
+        client_sendf(target, ":%s NOTICE %s :*** ",
+                     server->config.server_name, target->nick);
+        return;
+    }
+
+    while (offset < text_length && !target->output_overflowed) {
+        size_t remaining = text_length - offset;
+        size_t chunk = remaining < payload_limit ? remaining : payload_limit;
+        client_sendf(target, ":%s NOTICE %s :*** %.*s",
+                     server->config.server_name, target->nick,
+                     (int)chunk, text + offset);
+        offset += chunk;
+    }
+}
+
 void server_notice_broadcast(Server *server, const char *text) {
     size_t i;
     if (server == NULL || text == NULL) return;
     for (i = 0U; i < server->client_count; ++i) {
         Client *target = server->clients[i];
         if (target != NULL && target->registered && is_oper_client(target) &&
-            client_mode_has(target->modes, CLIENT_MODE_SERVER_NOTICES)) {
-            client_sendf(target, ":%s NOTICE %s :*** %s",
-                         server->config.server_name, target->nick, text);
-        }
+            client_mode_has(target->modes, CLIENT_MODE_SERVER_NOTICES))
+            send_server_notice_chunks(server, target, text);
     }
 }
 
@@ -111,8 +142,7 @@ void snotice_broadcast(Server *server, SnoticeMask category, const char *fmt, ..
         if (target == NULL || !target->registered || !is_oper_client(target)) continue;
         if (!client_mode_has(target->modes, CLIENT_MODE_SERVER_NOTICES)) continue;
         if ((target->snotice_mask & category) == 0U) continue;
-        client_sendf(target, ":%s NOTICE %s :*** %s",
-                     server->config.server_name, target->nick, text);
+        send_server_notice_chunks(server, target, text);
     }
 }
 
