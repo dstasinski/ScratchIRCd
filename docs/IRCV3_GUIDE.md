@@ -51,15 +51,17 @@ Configuration:
 ```text
 history_db = data/history.db
 history_limit = 100
+history_retention_days = 30
+history_max_rows = 250000
 ```
 
-`history_limit` is the maximum number of records returned by one request; the compiled hard ceiling is currently 500. Only traffic that passes normal channel policy is stored.
+`history_limit` is the maximum number of records returned by one request; the compiled hard ceiling is currently 500. `history_retention_days` controls age-based expiration and may be set to `0` to disable age expiration. `history_max_rows` remains the global row ceiling even when age retention is disabled. Maintenance is throttled rather than performed on every message. Only traffic that passes normal channel policy is stored.
 
 History records retain the public identity visible at send time: nickname, username, `display_host`, authenticated account, command, channel, text, and timestamp. `real_ip` and `real_host` are deliberately not stored in replayable history records.
 
 ### CHATHISTORY LATEST
 
-ScratchIRCd 0.17 implements this first subset of the IRCv3 work-in-progress CHATHISTORY extension:
+ScratchIRCd 0.33 implements the following intentionally limited CHATHISTORY subset:
 
 ```text
 CHATHISTORY LATEST <channel> * <limit>
@@ -100,7 +102,7 @@ through numeric 005.
 
 ### Current history scope
 
-The 0.17 implementation stores and retrieves channel PRIVMSG/NOTICE history only. Direct-message history, BEFORE/AFTER/BETWEEN/AROUND, message IDs, automatic JOIN playback, event playback, and retention/expiry policy remain future work.
+The current implementation stores and retrieves channel PRIVMSG/NOTICE history only. Direct-message history, BEFORE/AFTER/BETWEEN/AROUND, message IDs, automatic JOIN playback, and event playback are not implemented. Persistent history is bounded by the configured age-retention and global-row policies described above.
 
 ## batch
 
@@ -112,4 +114,4 @@ When negotiated, `server-time` adds UTC `time` tags to live PRIVMSG/NOTICE deliv
 
 ## Development direction
 
-New IRCv3 capabilities should be represented by capability bits, advertised through the CAP registry, and used to gate capability-specific output. Future history work can add broader reference modes, message IDs, retention controls, private-message policy, and persistent-channel integration through ChanServ.
+New IRCv3 capabilities should be represented by capability bits, advertised through the CAP registry, and used to gate capability-specific output. Any future history expansion should preserve the existing bounded-storage and wire-safety rules while adding only protocol scope that is deliberately selected after 1.0 hardening.
