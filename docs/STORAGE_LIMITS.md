@@ -94,13 +94,7 @@ ChanServ has compile-time hard ceilings of:
 - 50,000 registered channels globally.
 - 256 explicit access entries per registered channel.
 
-A founder additionally has a runtime fair-share ceiling:
-
-```text
-chanserv_max_channels_per_account = 20
-```
-
-A value of `0` disables the per-founder fair-share limit but not the 50,000-row global ceiling. Lowering the setting does not remove existing registrations; it only prevents that founder from creating additional registrations until usage falls below the configured limit. Network administrators may bypass the founder fair-share limit for recovery and administration.
+Creating and dropping persistent channel registrations is restricted to network administrators (`+N`). A newly registered channel initially uses the issuing administrator's authenticated NickServ account as founder; a network administrator may transfer founder authority with `CSSET <#channel> FOUNDER <account>`. Founder authority governs management of an existing registration but does not provide authority to create or destroy registrations.
 
 At the access-list ceiling, existing entries can still be changed or removed. A new entry can be added after capacity is freed.
 
@@ -109,6 +103,8 @@ The auxiliary `channel_runtime` table is one row per registered channel. Persist
 ## DNS and DNSBL helper queues
 
 FCrDNS and DNSBL work is submitted through nonblocking OS pipes to dedicated workers. Pipe capacity therefore provides a finite queue: when submission is saturated, the server does not allocate an unbounded user-space backlog. DNS result pipes are also nonblocking, and registration deadlines recover from missing or delayed results according to the configured policy.
+
+Shutdown and in-process RESTART stop accepting new resolver submissions and do not drain already queued lookup work. A resolver lookup already executing in the worker is allowed to finish safely; queued requests behind it are discarded because their clients are being torn down and the new server instance will establish fresh identity state.
 
 ## KLINE, ZLINE, GeoBan, and DNSBL
 
