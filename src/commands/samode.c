@@ -34,6 +34,77 @@ static ClientModeSet allowed_user_mode(char letter) {
     }
 }
 
+static int user_limit_exceeds_persistable_range(const char *param) {
+    static const char maximum[] = "9223372036854775807";
+    const char *digits;
+    const char *p;
+    size_t length;
+
+    if (param == NULL || *param == '\0') return 0;
+    digits = param;
+    if (*digits == '+') ++digits;
+    if (*digits == '-') return 1;
+    if (*digits == '\0') return 0;
+    for (p = digits; *p != '\0'; ++p)
+        if (*p < '0' || *p > '9') return 0;
+    while (digits[0] == '0' && digits[1] != '\0') ++digits;
+    length = strlen(digits);
+    if (length != sizeof(maximum) - 1U)
+        return length > sizeof(maximum) - 1U;
+    return strcmp(digits, maximum) > 0;
+}
+
+/* SAMODE intentionally bypasses MLOCK by calling the mature core MODE parser
+ * directly. Preserve that authority while still enforcing the representation
+ * invariant shared by all persistent channel limits. */
+static int samode_channel_params_valid(Server *server, Client *client,
+                                       const char *rest) {
+    char copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char *modes;
+    char *argv[IRC_MODE_MAX_PARAMS];
+    char *token;
+    size_t argc = 0U;
+    size_t argi = 0U;
+    size_t i;
+    char sign = '+';
+
+    if (server == NULL || client == NULL || rest == NULL) return 1;
+    (void)snprintf(copy, sizeof(copy), "%s", rest);
+    modes = strtok(copy, " ");
+    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL)
+        argv[argc++] = token;
+    if (modes == NULL) return 1;
+
+    for (i = 0U; modes[i] != '\0'; ++i) {
+        char letter = modes[i];
+        const char *param = argi < argc ? argv[argi] : NULL;
+        int consumes = 0;
+        if (letter == '+' || letter == '-') {
+            sign = letter;
+            continue;
+        }
+        if (letter == 'q' || letter == 'a' || letter == 'o' ||
+            letter == 'h' || letter == 'v')
+            consumes = param != NULL;
+        else if (letter == 'k')
+            consumes = param != NULL;
+        else if ((letter == 'l' || letter == 'j' || letter == 'L' || letter == 'B') &&
+                 sign == '+')
+            consumes = param != NULL;
+        else if ((letter == 'b' || letter == 'e' || letter == 'I') && param != NULL)
+            consumes = 1;
+
+        if (letter == 'l' && sign == '+' && param != NULL &&
+            user_limit_exceeds_persistable_range(param)) {
+            client_sendf(client, ERR_NEEDMOREPARAMS,
+                         server->config.server_name, client->nick, "SAMODE");
+            return 0;
+        }
+        if (consumes) ++argi;
+    }
+    return 1;
+}
+
 static CommandResult samode_user(Server *server, Client *actor,
                                  Client *target, const char *modes) {
     char sign = '+';
@@ -97,6 +168,8 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
                          client->nick, target_name);
             return COMMAND_KEEP_CLIENT;
         }
+        if (!samode_channel_params_valid(server, client, rest))
+            return COMMAND_KEEP_CLIENT;
 
         member = channel_find_member(channel, client);
         if (member == NULL) {
