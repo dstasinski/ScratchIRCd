@@ -554,9 +554,7 @@ static void maintain_client_liveness(Server *server) {
             client->ping_deadline =
                 now + (time_t)server->config.ping_timeout_seconds;
             (void)snprintf(client->ping_token, sizeof(client->ping_token),
-                           "%s/%llu/%lld", server->config.server_name,
-                           (unsigned long long)client->id,
-                           (long long)client->ping_deadline);
+                           "%lld", (long long)client->ping_deadline);
             if (client_sendf(client, "PING :%s", client->ping_token) >= 0)
                 client->ping_pending = 1;
         }

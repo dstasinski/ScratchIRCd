@@ -145,6 +145,7 @@ def main():
             # idle interval. Remaining connected beyond the old deadline proves
             # that the matching response was consumed.
             token = responsive.wait_server_ping()
+            assert token.isdigit() and len(token) <= 20, token
             responsive.send(f"PONG :{token}")
             time.sleep(1.2)
             responsive.send("PING :probe-one")
@@ -165,7 +166,7 @@ def main():
             responsive.send("PING :observer-reset")
             responsive.expect("PONG test.local ::observer-reset")
             silent_token = silent.wait_server_ping()
-            assert silent_token != token
+            assert silent_token.isdigit() and len(silent_token) <= 20, silent_token
             answer_pending_pings(responsive)
             silent.send("PONG :wrong-token")
             silent.send("PRIVMSG Responsive :not-a-pong")
