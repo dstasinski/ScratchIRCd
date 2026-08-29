@@ -322,6 +322,12 @@ static int process_buffered_lines(Server *server, Client *client, int *pending,
             return 1;
         }
         if (!client_input_line_fits(base, line_length)) {
+            if (base[0] != '@') {
+                snotice_broadcast(server, SNOTICE_SECURITY,
+                                  "Protocol violation from %s: malformed or overlong IRC framing",
+                                  client->real_ip);
+                return 1;
+            }
             client_sendf(client, ":%s 417 %s :Input line was too long",
                          server->config.server_name, command_reply_nick(client));
             offset += consumed;
@@ -345,7 +351,9 @@ static int process_buffered_lines(Server *server, Client *client, int *pending,
         if (offset < client->inbuf_len) memmove(client->inbuf, client->inbuf + offset, client->inbuf_len - offset);
         client->inbuf_len -= offset;
     }
-    if (client->inbuf_len > IRC_INPUT_LINE_MAX + 1U &&
+    if (client->inbuf_len >
+            (client->inbuf[0] == '@' ? IRC_INPUT_LINE_MAX
+                                     : IRC_LINE_CONTENT_MAX) + 1U &&
         memchr(client->inbuf, '\n', client->inbuf_len) == NULL) {
         snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: overlong partial IRC line (%zu bytes)", client->real_ip, client->inbuf_len);
         client_sendf(client, ":%s 417 %s :Input line was too long",
