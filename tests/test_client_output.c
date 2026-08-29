@@ -8,8 +8,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define TEST_IRCV3_SERVER_TAG_SECTION_MAX 4096U
-
 static void nonblock(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     assert(flags >= 0);
@@ -96,8 +94,8 @@ static void test_tagged_line_framing(void) {
     int fds[2];
     Client *client;
     char untagged[IRC_LINE_CONTENT_MAX + 2U];
-    char tagged[TEST_IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX + 2U];
-    size_t separator = TEST_IRCV3_SERVER_TAG_SECTION_MAX - 1U;
+    char tagged[IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX + 2U];
+    size_t separator = IRCV3_SERVER_TAG_SECTION_MAX - 1U;
 
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
     nonblock(fds[0]);
@@ -125,13 +123,75 @@ static void test_tagged_line_framing(void) {
     tagged[separator] = ' ';
     memset(tagged + separator + 1U, 'T', IRC_LINE_CONTENT_MAX);
     tagged[separator + 1U + IRC_LINE_CONTENT_MAX] = '\0';
-    assert(separator + 1U == TEST_IRCV3_SERVER_TAG_SECTION_MAX);
-    assert(strlen(tagged) == TEST_IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX);
+    assert(separator + 1U == IRCV3_SERVER_TAG_SECTION_MAX);
+    assert(strlen(tagged) == IRCV3_SERVER_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX);
     assert(client_send_line(client, tagged) >= 0);
 
     tagged[separator + 1U + IRC_LINE_CONTENT_MAX] = 'T';
     tagged[separator + 1U + IRC_LINE_CONTENT_MAX + 1U] = '\0';
     assert(client_send_line(client, tagged) < 0);
+
+    client_free(client);
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static size_t receive_available(int fd, char *buffer, size_t size) {
+    size_t used = 0U;
+    while (used + 1U < size) {
+        ssize_t rc = recv(fd, buffer + used, size - used - 1U, 0);
+        if (rc > 0) {
+            used += (size_t)rc;
+            continue;
+        }
+        assert(rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK));
+        break;
+    }
+    buffer[used] = '\0';
+    return used;
+}
+
+static void test_server_time_and_labeled_framing(void) {
+    int fds[2];
+    Client *client;
+    char output[8192];
+    char batch_id[IRCD_HISTORY_BATCH_ID_MAX + 1U];
+    char marker[128];
+    char *start;
+    char *end;
+    size_t length;
+
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+    nonblock(fds[0]);
+    nonblock(fds[1]);
+    client = client_create(fds[0], 6U, AF_UNIX, "127.0.0.1");
+    assert(client != NULL);
+    client->capabilities = CLIENT_CAP_SERVER_TIME | CLIENT_CAP_BATCH |
+                           CLIENT_CAP_LABELED_RESPONSE;
+
+    assert(client_send_line(client, ":server NOTICE nick :timed") >= 0);
+    assert(receive_available(fds[1], output, sizeof(output)) > 0U);
+    assert(strncmp(output, "@time=", 6U) == 0);
+    assert(strstr(output, " :server NOTICE nick :timed\r\n") != NULL);
+
+    client_labeled_response_begin(client, "server", "unit-label");
+    assert(client_send_line(client, ":server PONG server :token") >= 0);
+    client_labeled_response_end(client);
+    assert(receive_available(fds[1], output, sizeof(output)) > 0U);
+    assert(strstr(output, "label=unit-label") != NULL);
+    start = strstr(output, " BATCH +");
+    assert(start != NULL);
+    start += strlen(" BATCH +");
+    end = strchr(start, ' ');
+    assert(end != NULL);
+    length = (size_t)(end - start);
+    assert(length > 0U && length < sizeof(batch_id));
+    memcpy(batch_id, start, length);
+    batch_id[length] = '\0';
+    assert(snprintf(marker, sizeof(marker), "batch=%s", batch_id) > 0);
+    assert(strstr(output, marker) != NULL);
+    assert(snprintf(marker, sizeof(marker), " BATCH -%s\r\n", batch_id) > 0);
+    assert(strstr(output, marker) != NULL);
 
     client_free(client);
     close(fds[0]);
@@ -200,5 +260,6 @@ int main(void) {
     test_flush_budget();
     test_tls_send_waits_for_input_retry();
     test_tagged_line_framing();
+    test_server_time_and_labeled_framing();
     return 0;
 }
