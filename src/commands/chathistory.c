@@ -21,16 +21,15 @@
 static void format_timestamp(int64_t milliseconds, char *out, size_t out_size) {
     time_t seconds = (time_t)(milliseconds / 1000);
     struct tm utc;
-    long millis = (long)(milliseconds % 1000);
-    if (millis < 0) millis = 0;
-    if (gmtime_r(&seconds, &utc) == NULL) {
+    char base[32];
+    long remainder = (long)(milliseconds % 1000);
+    unsigned int millis = remainder < 0L ? 0U : (unsigned int)remainder;
+    if (gmtime_r(&seconds, &utc) == NULL ||
+        strftime(base, sizeof(base), "%Y-%m-%dT%H:%M:%S", &utc) != 19U) {
         (void)snprintf(out, out_size, "1970-01-01T00:00:00.000Z");
         return;
     }
-    (void)snprintf(out, out_size,
-                   "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                   utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-                   utc.tm_hour, utc.tm_min, utc.tm_sec, millis);
+    (void)snprintf(out, out_size, "%.19s.%03uZ", base, millis);
 }
 
 CommandResult command_chathistory(Server *server, Client *client, char *params) {

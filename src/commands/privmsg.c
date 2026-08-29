@@ -32,8 +32,11 @@ static void store_channel_history(Server *server, Client *client,
     HistoryDb *db;
     HistoryRecord record;
     struct timespec now;
+    size_t text_length;
 
     if (server == NULL || client == NULL || target == NULL || text == NULL) return;
+    text_length = strlen(text);
+    if (text_length > IRCD_HISTORY_TEXT_MAX) return;
     memset(&record, 0, sizeof(record));
     (void)snprintf(record.target, sizeof(record.target), "%s", target);
     (void)snprintf(record.command, sizeof(record.command), "%s", command);
@@ -41,7 +44,7 @@ static void store_channel_history(Server *server, Client *client,
     (void)snprintf(record.user, sizeof(record.user), "%s", client->user);
     (void)snprintf(record.host, sizeof(record.host), "%s", client->display_host);
     (void)snprintf(record.account, sizeof(record.account), "%s", client->account_name);
-    (void)snprintf(record.text, sizeof(record.text), "%s", text);
+    memcpy(record.text, text, text_length + 1U);
     if (clock_gettime(CLOCK_REALTIME, &now) == 0)
         record.created_at_ms = (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
     else

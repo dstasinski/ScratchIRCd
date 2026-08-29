@@ -24,23 +24,22 @@ static int seen_in_earlier_channel(const Client *source,
 static void current_timestamp(char *out, size_t out_size) {
     struct timespec now;
     struct tm utc;
-    long millis = 0L;
+    char base[32];
+    unsigned int millis = 0U;
     time_t seconds;
 
     if (clock_gettime(CLOCK_REALTIME, &now) == 0) {
         seconds = now.tv_sec;
-        millis = now.tv_nsec / 1000000L;
+        millis = (unsigned int)(now.tv_nsec / 1000000L);
     } else {
         seconds = time(NULL);
     }
-    if (gmtime_r(&seconds, &utc) == NULL) {
+    if (gmtime_r(&seconds, &utc) == NULL ||
+        strftime(base, sizeof(base), "%Y-%m-%dT%H:%M:%S", &utc) != 19U) {
         (void)snprintf(out, out_size, "1970-01-01T00:00:00.000Z");
         return;
     }
-    (void)snprintf(out, out_size,
-                   "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                   utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-                   utc.tm_hour, utc.tm_min, utc.tm_sec, millis);
+    (void)snprintf(out, out_size, "%.19s.%03uZ", base, millis);
 }
 
 int ircv3_message_wire_fits(const Client *source, const char *command,

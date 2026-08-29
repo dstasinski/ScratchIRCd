@@ -160,9 +160,12 @@ void presence_whowas_record(Server *server, const Client *client,
                             const char *nick_override) {
     WhowasRecord *record;
     const char *nick;
+    char server_name[IRC_SERVER_NAME_MAX + 1U];
     if (server == NULL || client == NULL || !client->registered) return;
     nick = nick_override != NULL && *nick_override != '\0' ? nick_override : client->nick;
     if (*nick == '\0') return;
+    (void)snprintf(server_name, sizeof(server_name), "%s",
+                   server->config.server_name);
     record = &server->whowas[server->whowas_next];
     memset(record, 0, sizeof(*record));
     (void)snprintf(record->nick, sizeof(record->nick), "%s", nick);
@@ -170,7 +173,7 @@ void presence_whowas_record(Server *server, const Client *client,
     (void)snprintf(record->host, sizeof(record->host), "%s", client->display_host);
     (void)snprintf(record->realname, sizeof(record->realname), "%s", client->realname);
     (void)snprintf(record->server_name, sizeof(record->server_name), "%s",
-                   server->config.server_name);
+                   server_name);
     record->when = time(NULL);
     server->whowas_next = (server->whowas_next + 1U) % IRCD_WHOWAS_MAX;
     if (server->whowas_count < IRCD_WHOWAS_MAX) ++server->whowas_count;
