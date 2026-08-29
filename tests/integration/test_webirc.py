@@ -176,7 +176,7 @@ def main():
             limited.send("JOIN #stillblocked")
             limited.expect("respond to the CTCP VERSION")
             limited.send("PRIVMSG observer :blocked message")
-            limited.expect("respond to the CTCP VERSION request before sending private messages")
+            limited.expect("respond to the CTCP VERSION request before joining channels or messaging anyone except an IRC operator or network administrator")
             assert not any("blocked message" in line for line in observer.collect()),"restricted PRIVMSG reached ordinary user"
             limited.send("PRIVMSG webuser :operator exemption works")
             trusted.expect(" PRIVMSG webuser :operator exemption works")
