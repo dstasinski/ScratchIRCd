@@ -98,7 +98,7 @@ def main():
 
             # A valid CTCP VERSION NOTICE to the server clears no-spoof message
             # restrictions; case-insensitive lookup relays the canonical nick.
-            alice.send("MODE Alice +x");alice.expect(" MODE Alice +x")
+            alice.send("MODE Alice +x");alice.expect(" 221 Alice +x")
             alice.send("PRIVMSG bOb :direct route")
             direct=bob.expect("PRIVMSG Bob :direct route")
             assert direct.startswith(":Alice!alice@"),direct
@@ -132,7 +132,7 @@ def main():
             alice.expect_not("notice blocked");bob.expect_not("notice blocked")
 
             # +T rejects CTCP PRIVMSG with 492 and silently rejects CTCP NOTICE.
-            bob.send("MODE Bob +T");bob.expect(" MODE Bob +T")
+            bob.send("MODE Bob +T");bob.expect(" 221 Bob +T")
             alice.send("PRIVMSG Bob :\x01VERSION\x01");alice.expect(" 492 Alice Bob ")
             bob.expect_not("PRIVMSG Bob :\x01VERSION\x01")
             alice.send("NOTICE Bob :\x01VERSION reply\x01")
