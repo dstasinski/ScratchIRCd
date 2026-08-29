@@ -133,7 +133,7 @@ def main():
 
             # +T rejects CTCP PRIVMSG with 492 and silently rejects CTCP NOTICE.
             bob.send("MODE Bob +T");bob.expect(" 221 Bob +T")
-            alice.send("PRIVMSG Bob :\x01VERSION\x01");alice.expect(" 492 Alice Bob ")
+            alice.send("PRIVMSG Bob :\x01VERSION\x01");alice.expect(" 492 Alice :Bob does not accept CTCPs")
             bob.expect_not("PRIVMSG Bob :\x01VERSION\x01")
             alice.send("NOTICE Bob :\x01VERSION reply\x01")
             bob.expect_not("NOTICE Bob :\x01VERSION reply\x01")
