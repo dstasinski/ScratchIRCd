@@ -109,6 +109,7 @@ target_include_directories(test_dnsbl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_compile_definitions(test_dnsbl PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_dnsbl PRIVATE Threads::Threads)
 add_test(NAME dnsbl COMMAND test_dnsbl)
+set_tests_properties(dnsbl PROPERTIES TIMEOUT 10)
 
 add_executable(test_runtime_config tests/test_runtime_config.c src/runtime_config.c)
 target_include_directories(test_runtime_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -269,8 +270,15 @@ add_test(NAME general_flood_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CU
 set_tests_properties(general_flood_integration PROPERTIES TIMEOUT 60)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    foreach(target scratchircd scratchircd-mkpasswd test_client_identity test_client_output test_cloak test_geoip test_geoban_db test_dnsbl test_runtime_config test_modes test_channel_policy test_visibility test_oper test_operator_db test_ban_db test_history_db test_nickserv_db test_chanserv_db test_chanserv_persist test_channel_log test_chanserv_logging_db test_memoserv_db)
+    get_property(scratchircd_build_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target IN LISTS scratchircd_build_targets)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+
+        # Unit tests use assert() for checks and some required setup calls.
+        # Release configurations define NDEBUG, so keep assertions active.
+        if(target MATCHES "^test_")
+            target_compile_options(${target} PRIVATE -UNDEBUG)
+        endif()
     endforeach()
 endif()
 

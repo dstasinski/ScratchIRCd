@@ -16,15 +16,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: GCC strict
+          - name: GCC Debug strict
             cc: gcc
+            build_type: Debug
             sanitizer: OFF
-          - name: Clang strict
+          - name: Clang Debug strict
             cc: clang
+            build_type: Debug
             sanitizer: OFF
-          - name: Clang ASan and UBSan
+          - name: Clang Debug ASan and UBSan
             cc: clang
+            build_type: Debug
             sanitizer: ON
+          - name: GCC Release strict
+            cc: gcc
+            build_type: Release
+            sanitizer: OFF
 
     env:
       CC: ${{ matrix.cc }}
@@ -43,7 +50,7 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON
           -DSCRATCHIRCD_ENABLE_SANITIZERS=${{ matrix.sanitizer }}
 
