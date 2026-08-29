@@ -225,6 +225,9 @@ CommandResult command_dispatch(Server *server,Client *client,const char *command
     size_t index;
     int flood_result;
     if(server==NULL||client==NULL||command==NULL)return COMMAND_KEEP_CLIENT;
+    /* Any complete client command is activity before a liveness challenge.
+     * Once PING is outstanding, only its matching PONG may clear the deadline. */
+    if(!client->ping_pending)client->last_activity=time(NULL);
     if(server->config.nospoof_enabled&&client->nospoof_started&&!client->nospoof_verified&&time(NULL)>=client->nospoof_deadline){
         snotice_broadcast(server,SNOTICE_SECURITY,"No-spoof timeout: %s [real_ip=%s]",command_reply_nick(client),client->real_ip);
         client_sendf(client,":%s ERROR :No-spoof PING timeout",server->config.server_name);

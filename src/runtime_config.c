@@ -87,6 +87,8 @@ void runtime_config_defaults(ServerConfig *config) {
     config->max_channels = IRCD_DEFAULT_MAX_CHANNELS;
     config->max_connections_per_ip = IRCD_DEFAULT_MAX_CONNECTIONS_PER_IP;
     config->registration_timeout_seconds = IRCD_DEFAULT_REGISTRATION_TIMEOUT_SECONDS;
+    config->ping_interval_seconds = IRCD_DEFAULT_PING_INTERVAL_SECONDS;
+    config->ping_timeout_seconds = IRCD_DEFAULT_PING_TIMEOUT_SECONDS;
     config->output_queue_max_bytes = IRCD_DEFAULT_OUTPUT_QUEUE_MAX_BYTES;
     config->dns_timeout_seconds = IRCD_DEFAULT_DNS_TIMEOUT_SECONDS;
     config->dnsbl_timeout_seconds = IRCD_DEFAULT_DNSBL_TIMEOUT_SECONDS;
@@ -276,6 +278,16 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     if (strcmp(key, "registration_timeout_seconds") == 0) {
         if (number < 5UL || number > 600UL) return -1;
         config->registration_timeout_seconds = (unsigned int)number;
+        return 0;
+    }
+    if (strcmp(key, "ping_interval_seconds") == 0) {
+        if (number == 0UL || number > IRCD_PING_SECONDS_HARD_MAX) return -1;
+        config->ping_interval_seconds = (unsigned int)number;
+        return 0;
+    }
+    if (strcmp(key, "ping_timeout_seconds") == 0) {
+        if (number == 0UL || number > IRCD_PING_SECONDS_HARD_MAX) return -1;
+        config->ping_timeout_seconds = (unsigned int)number;
         return 0;
     }
     if (strcmp(key, "output_queue_max_bytes") == 0) {

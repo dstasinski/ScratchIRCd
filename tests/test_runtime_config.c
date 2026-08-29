@@ -44,6 +44,8 @@ int main(int argc, char **argv) {
 
     runtime_config_defaults(&config);
     assert(config.max_channels == IRCD_DEFAULT_MAX_CHANNELS);
+    assert(config.ping_interval_seconds == IRCD_DEFAULT_PING_INTERVAL_SECONDS);
+    assert(config.ping_timeout_seconds == IRCD_DEFAULT_PING_TIMEOUT_SECONDS);
     assert(config.history_retention_days == IRCD_DEFAULT_HISTORY_RETENTION_DAYS);
     assert(config.history_max_rows == IRCD_DEFAULT_HISTORY_MAX_ROWS);
     assert(config.channel_log_queue_max_rows == IRCD_DEFAULT_CHANNEL_LOG_QUEUE_MAX_ROWS);
@@ -66,6 +68,8 @@ int main(int argc, char **argv) {
     assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
     assert(fputs("registration_timeout_seconds = 75\n", file) >= 0);
+    assert(fputs("ping_interval_seconds = 45\n", file) >= 0);
+    assert(fputs("ping_timeout_seconds = 30\n", file) >= 0);
     assert(fputs("output_queue_max_bytes = 32768\n", file) >= 0);
     assert(fputs("cloak_prefix = dru\n", file) >= 0);
     assert(fputs("cloak_key = runtime-test-cloak-key-0123456789\n", file) >= 0);
@@ -109,6 +113,8 @@ int main(int argc, char **argv) {
     assert(strcmp(config.connection_limit_exempt_ips[0], "192.0.2.10") == 0);
     assert(strcmp(config.connection_limit_exempt_ips[1], "2001:db8::10") == 0);
     assert(config.registration_timeout_seconds == 75U);
+    assert(config.ping_interval_seconds == 45U);
+    assert(config.ping_timeout_seconds == 30U);
     assert(config.output_queue_max_bytes == 32768U);
     assert(strcmp(config.cloak_prefix, "dru") == 0);
     assert(strcmp(config.cloak_key, "runtime-test-cloak-key-0123456789") == 0);
@@ -151,6 +157,12 @@ int main(int argc, char **argv) {
     assert(load_single_option("max_channels = 0\n") != 0);
     assert(load_single_option("max_channels = 262145\n") != 0);
     assert(load_single_option("max_channels = 262144\n") == 0);
+    assert(load_single_option("ping_interval_seconds = 0\n") != 0);
+    assert(load_single_option("ping_interval_seconds = 3601\n") != 0);
+    assert(load_single_option("ping_interval_seconds = 3600\n") == 0);
+    assert(load_single_option("ping_timeout_seconds = 0\n") != 0);
+    assert(load_single_option("ping_timeout_seconds = 3601\n") != 0);
+    assert(load_single_option("ping_timeout_seconds = 3600\n") == 0);
     assert(load_single_option("history_retention_days = 3651\n") != 0);
     assert(load_single_option("history_retention_days = 0\n") == 0);
     assert(load_single_option("history_max_rows = 0\n") != 0);

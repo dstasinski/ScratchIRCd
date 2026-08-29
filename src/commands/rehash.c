@@ -37,6 +37,8 @@ static int restart_required(const ServerConfig *current,
     if (updated->nospoof_enabled != current->nospoof_enabled ||
         updated->nospoof_timeout_seconds != current->nospoof_timeout_seconds ||
         updated->registration_timeout_seconds != current->registration_timeout_seconds ||
+        updated->ping_interval_seconds != current->ping_interval_seconds ||
+        updated->ping_timeout_seconds != current->ping_timeout_seconds ||
         updated->output_queue_max_bytes != current->output_queue_max_bytes ||
         updated->max_channels != current->max_channels ||
         strcmp(updated->server_password, current->server_password) != 0 ||

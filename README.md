@@ -10,6 +10,20 @@ The `Genesis` branch contains a broad development implementation. Implemented fe
 
 The daemon currently provides a C11/CMake build, dynamic clients, IPv4/IPv6 listeners, RFC1459 casemapping, `#` and `&` channels, asynchronous FCrDNS, OpenSSL TLS, authorized WebIRC gateways, MaxMind GeoLite2 City/ASN enrichment, asynchronous DNSBL enforcement, IRCv3 CAP negotiation with SASL PLAIN and persistent channel history, runtime configuration, modular IRC commands, user/channel mode state, per-channel membership privileges, Argon2id operator/NickServ authentication, SQLite-backed operator/ban/account/channel/history persistence, a virtual NickServ service with nickname and email-based account recovery, and a virtual ChanServ service for registered persistent channels.
 
+## Connection liveness
+
+Registered clients that send no complete IRC command for 90 seconds receive a
+server `PING`. The client must return the exact token in `PONG` within another
+90 seconds or it is disconnected with `Ping Timeout: 90 seconds`. Other client
+traffic does not substitute for the required PONG once a challenge is pending.
+
+The release defaults may be changed between 1 and 3600 seconds:
+
+```text
+ping_interval_seconds = 90
+ping_timeout_seconds = 90
+```
+
 ## TLS
 
 ScratchIRCd can expose plaintext and TLS listeners simultaneously:

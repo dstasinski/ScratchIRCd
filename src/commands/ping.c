@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 CommandResult command_ping(Server *server, Client *client, char *params) {
     const char *token = (params != NULL && *params != '\0') ? params : server->config.server_name;
@@ -23,7 +24,33 @@ CommandResult command_ping(Server *server, Client *client, char *params) {
     return COMMAND_KEEP_CLIENT;
 }
 
+static const char *pong_token(const char *params) {
+    const char *token;
+    const char *last;
+
+    if (params == NULL) return NULL;
+    token = params;
+    while (*token == ' ') ++token;
+    last = strrchr(token, ' ');
+    if (last != NULL) {
+        token = last + 1;
+        while (*token == ' ') ++token;
+    }
+    if (*token == ':') ++token;
+    return *token != '\0' ? token : NULL;
+}
+
 CommandResult command_pong(Server *server, Client *client, char *params) {
+    const char *token;
+
     (void)nospoof_handle_pong(server, client, params);
+    token = pong_token(params);
+    if (client != NULL && client->ping_pending && token != NULL &&
+        strcmp(token, client->ping_token) == 0) {
+        client->ping_pending = 0;
+        client->ping_deadline = 0;
+        client->ping_token[0] = '\0';
+        client->last_activity = time(NULL);
+    }
     return COMMAND_KEEP_CLIENT;
 }

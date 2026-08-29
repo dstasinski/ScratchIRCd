@@ -103,6 +103,9 @@ typedef struct Client {
     time_t dnsbl_deadline;
     time_t signon_time;
     time_t last_activity;
+    int ping_pending;
+    time_t ping_deadline;
+    char ping_token[IRCD_PING_TOKEN_MAX + 1U];
 
     size_t silence_count;
     ClientSilenceEntry *silence_list;

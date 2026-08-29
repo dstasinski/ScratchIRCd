@@ -517,6 +517,53 @@ static void expire_connection_lookups(Server *server) {
     }
 }
 
+static void maintain_client_liveness(Server *server) {
+    time_t now = time(NULL);
+    size_t index = 0U;
+
+    while (index < server->client_count) {
+        Client *client = server->clients[index];
+
+        /* Unregistered sockets have their own stricter registration timeout.
+         * Liveness PINGs begin only after successful IRC registration. */
+        if (!client->registered) {
+            ++index;
+            continue;
+        }
+
+        if (client->ping_pending) {
+            if (client->ping_deadline <= now) {
+                char reason[64];
+                (void)snprintf(reason, sizeof(reason), "Ping Timeout: %u seconds",
+                               server->config.ping_timeout_seconds);
+                snotice_broadcast(server, SNOTICE_CONNECTIONS,
+                                  "PING timeout for %s (nick=%s)", client->real_ip,
+                                  client->nick[0] != '\0' ? client->nick : "*");
+                client_sendf(client, ":%s ERROR :%s",
+                             server->config.server_name, reason);
+                server_disconnect(server, client, reason);
+                continue;
+            }
+            ++index;
+            continue;
+        }
+
+        if (now < client->last_activity) client->last_activity = now;
+        if (now - client->last_activity >=
+            (time_t)server->config.ping_interval_seconds) {
+            client->ping_deadline =
+                now + (time_t)server->config.ping_timeout_seconds;
+            (void)snprintf(client->ping_token, sizeof(client->ping_token),
+                           "%s/%llu/%lld", server->config.server_name,
+                           (unsigned long long)client->id,
+                           (long long)client->ping_deadline);
+            if (client_sendf(client, "PING :%s", client->ping_token) >= 0)
+                client->ping_pending = 1;
+        }
+        ++index;
+    }
+}
+
 int server_init(Server *server, const ServerConfig *config) {
     if (server == NULL || config == NULL) return -1;
     memset(server, 0, sizeof(*server)); server->config = *config;
@@ -725,6 +772,12 @@ void server_run(Server *server) {
             server->tls_handshake_cursor = (start_index + SERVER_TLS_HANDSHAKE_BUDGET) % snapshot_count;
         else
             server->tls_handshake_cursor = 0U;
+
+        /* Process newly read commands before enforcing wall-clock deadlines.
+         * In particular, a PONG that arrived before its deadline must not sit
+         * buffered until the next poll turn while timeout maintenance runs. */
+        if (!server->restart_requested && input_line_budget > 0U)
+            (void)drain_buffered_client_input(server, &input_line_budget);
         {
             time_t now = time(NULL);
             if (!maintenance_second_known || now != maintenance_second) {
@@ -732,6 +785,7 @@ void server_run(Server *server) {
                 maintenance_second_known = 1;
                 channel_log_rotate_all(now);
                 if (!server->restart_requested) expire_connection_lookups(server);
+                if (!server->restart_requested) maintain_client_liveness(server);
             }
         }
     }

@@ -28,6 +28,11 @@ max_connections_per_ip = 0
 # Maximum time from socket acceptance until IRC registration completes.
 registration_timeout_seconds = 60
 
+# Registered clients receive a server PING after this many seconds without a
+# complete client command. The matching PONG must arrive within the timeout.
+ping_interval_seconds = 90
+ping_timeout_seconds = 90
+
 # Maximum unsent data retained per client when a nonblocking socket applies
 # backpressure. Slow clients exceeding this bounded SendQ are disconnected.
 # Valid range: 4096-1048576 bytes. Changing it requires RESTART.

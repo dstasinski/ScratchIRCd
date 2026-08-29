@@ -14,6 +14,22 @@ WHO, ordinary WHOIS, USERHOST, channel/user prefixes, channel ban masks, and rep
 
 KLINE checks `user@real_host` when available and `user@real_ip`; ZLINE and DNSBL use only `real_ip`. GeoBAN uses only MaxMind-enriched metadata derived from final `real_ip`. Operators can inspect real identity via operator WHOIS and USERIP. Persistent chat history never stores a replayable real IP or real DNS hostname.
 
+## Connection liveness
+
+ScratchIRCd sends a server `PING` to a registered client after 90 seconds with
+no complete inbound IRC command. The client must return the exact PING token in
+a `PONG` within another 90 seconds. A missing or mismatched response disconnects
+the client with `Ping Timeout: 90 seconds`; unrelated commands do not clear an
+outstanding challenge.
+
+```text
+ping_interval_seconds = 90
+ping_timeout_seconds = 90
+```
+
+Both values accept 1 through 3600 seconds. Changing either value requires a
+RESTART so existing client deadlines cannot change underneath live sessions.
+
 ## TLS configuration
 
 ```text
