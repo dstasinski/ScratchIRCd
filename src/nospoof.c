@@ -2,6 +2,7 @@
 #include "nospoof.h"
 #include "commands.h"
 #include "config.h"
+#include "modes.h"
 #include <openssl/rand.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,3 +18,4 @@ int nospoof_handle_pong(Server *server,Client *client,const char *params){const 
 static int capture_ctcp(char *dest,size_t dest_size,const char *text,const char *name){size_t name_len=strlen(name);const char *value;size_t length;if(text==NULL||text[0]!='\001'||strncasecmp(text+1,name,name_len)!=0)return 0;value=text+1+name_len;if(*value!=' '&&*value!='\001')return 0;if(*value==' ')++value;length=strlen(value);if(length!=0U&&value[length-1U]=='\001')--length;if(length>=dest_size)length=dest_size-1U;memcpy(dest,value,length);dest[length]='\0';return 1;}
 int nospoof_handle_notice(Server *server,Client *client,const char *params){char copy[IRCD_MESSAGE_BUFFER_SIZE];char *target,*text;if(server==NULL||client==NULL||params==NULL||!server->config.nospoof_enabled)return 0;(void)snprintf(copy,sizeof(copy),"%s",params);target=strtok(copy," ");text=strtok(NULL,"");if(target==NULL||text==NULL||strcasecmp(target,server->config.server_name)!=0)return 0;if(*text==':')++text;if(client->version_requested&&!client->version_received&&capture_ctcp(client->client_version,sizeof(client->client_version),text,"VERSION")){client->version_received=1;return 1;}if(client->webirc.active&&client->website_requested&&!client->website_received&&capture_ctcp(client->client_website,sizeof(client->client_website),text,"WEBSITE")){client->website_received=1;return 1;}return 0;}
 int nospoof_version_restricted(const Server *server,const Client *client){return server!=NULL&&client!=NULL&&server->config.nospoof_enabled&&client->version_requested&&!client->version_received;}
+int nospoof_version_target_allowed(const Server *server,const Client *client,const char *target){Client *destination;if(!nospoof_version_restricted(server,client))return 1;if(target==NULL||*target=='\0'||strchr(IRC_CHANNEL_PREFIXES,target[0])!=NULL)return 0;destination=hash_get(&server->clients_by_nick,target);return destination!=NULL&&client_mode_has(destination->modes,CLIENT_MODE_OPER|CLIENT_MODE_NETADMIN);}

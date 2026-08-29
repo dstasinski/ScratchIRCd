@@ -53,15 +53,16 @@ def wait_listen(port,proc):
         except OSError:time.sleep(.05)
     raise RuntimeError("server did not listen")
 
-def register(c,nick):
+def register(c,nick,respond_version=True):
     c.send(f"NICK {nick}");c.send(f"USER {nick.lower()} 0 * :{nick} User")
     ping=c.expect("PING :")
     token=ping.rsplit(":",1)[1]
     c.send(f"PONG :{token}")
     c.expect(f"PRIVMSG {nick} :\x01VERSION\x01")
     c.expect(f" 001 {nick} ")
-    c.send(f"NOTICE test.local :\x01VERSION RoutingTest 1.0\x01")
-    c.drain(.15)
+    if respond_version:
+        c.send(f"NOTICE test.local :\x01VERSION RoutingTest 1.0\x01")
+        c.drain(.15)
 
 def stop(proc):
     if proc.poll() is None:
@@ -70,16 +71,20 @@ def stop(proc):
         except subprocess.TimeoutExpired:proc.kill();proc.wait(timeout=3)
 
 def main():
-    if len(sys.argv)!=2:raise SystemExit("usage: test_message_routing.py scratchircd")
-    binary=os.path.abspath(sys.argv[1])
+    if len(sys.argv)!=3:raise SystemExit("usage: test_message_routing.py scratchircd scratchircd-mkpasswd")
+    binary=os.path.abspath(sys.argv[1]);mkpasswd=os.path.abspath(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="scratchircd-routing-") as td:
         port=free_port();conf=os.path.join(td,"ircd.conf");motd=os.path.join(td,"motd.txt")
+        admin_hash=subprocess.check_output([mkpasswd,"adminpass"],text=True).strip()
         with open(motd,"w",encoding="utf-8") as f:f.write("Routing test\n")
         with open(conf,"w",encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\nbind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\nmotd_file = {motd}\n")
             f.write("nospoof = yes\nnospoof_timeout_seconds = 10\n")
             f.write("cloak_key = 0123456789abcdef0123456789abcdef\n")
+            f.write("netadmin_name = root\n")
+            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write("netadmin_hostmask = *!*@127.0.0.1\n")
             for name in ("operators","bans","nickserv","chanserv","memoserv","history"):
                 f.write(f"{name}_db = {td}/{name}.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
@@ -92,9 +97,42 @@ def main():
             raw=IRC(port);clients.append(raw);raw.send("NOTICE Nobody :pre-registration")
             assert not any(" 451 " in x for x in raw.drain(.6))
 
+            admin=IRC(port);clients.append(admin);register(admin,"Admin")
+            admin.send("OPER root adminpass");admin.expect(" 381 Admin ")
             alice=IRC(port);clients.append(alice);register(alice,"Alice")
             bob=IRC(port);clients.append(bob);register(bob,"Bob")
             outsider=IRC(port);clients.append(outsider);register(outsider,"Outsider")
+
+            # From probe transmission until VERSION reply, JOIN and all service,
+            # channel, and ordinary-user messaging are blocked. Direct contact
+            # with an IRC operator or netadmin remains available.
+            restricted=IRC(port);clients.append(restricted)
+            register(restricted,"Restricted",respond_version=False)
+            restricted.send("JOIN #blocked")
+            restricted.expect("respond to the CTCP VERSION request before joining channels")
+            restricted.expect_not(" 366 Restricted #blocked ")
+            restricted.send("PRIVMSG Bob :blocked ordinary private")
+            restricted.expect("messaging anyone except an IRC operator or network administrator")
+            bob.expect_not("blocked ordinary private")
+            restricted.send("NOTICE Bob :blocked ordinary notice")
+            restricted.expect_not("respond to the CTCP VERSION")
+            bob.expect_not("blocked ordinary notice")
+            restricted.send("PRIVMSG #route :blocked channel private")
+            restricted.expect("messaging anyone except an IRC operator or network administrator")
+            restricted.send("NOTICE #route :blocked channel notice")
+            restricted.expect_not("respond to the CTCP VERSION")
+            restricted.send("PRIVMSG NickServ :HELP")
+            restricted.expect("messaging anyone except an IRC operator or network administrator")
+            restricted.send("PRIVMSG Admin :allowed operator private")
+            admin.expect("PRIVMSG Admin :allowed operator private")
+            restricted.send("NOTICE Admin :allowed operator notice")
+            admin.expect("NOTICE Admin :allowed operator notice")
+
+            restricted.send("NOTICE test.local :\x01VERSION RoutingTest 1.0\x01")
+            restricted.send("JOIN #released")
+            restricted.expect(" 366 Restricted #released ")
+            restricted.send("PRIVMSG Bob :released ordinary private")
+            bob.expect("PRIVMSG Bob :released ordinary private")
 
             # A valid CTCP VERSION NOTICE to the server clears no-spoof message
             # restrictions; case-insensitive lookup relays the canonical nick.

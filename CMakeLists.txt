@@ -247,7 +247,7 @@ add_test(NAME user_modes_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(user_modes_integration PROPERTIES TIMEOUT 60)
 add_test(NAME message_policy_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_message_policy.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(message_policy_integration PROPERTIES TIMEOUT 60)
-add_test(NAME message_routing_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_message_routing.py $<TARGET_FILE:scratchircd>)
+add_test(NAME message_routing_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_message_routing.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(message_routing_integration PROPERTIES TIMEOUT 60)
 add_test(NAME knock_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_knock.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(knock_integration PROPERTIES TIMEOUT 60)

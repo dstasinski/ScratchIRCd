@@ -73,6 +73,8 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     if (*text == ':') ++text;
     if (*text == '\0') return COMMAND_KEEP_CLIENT;
+    if (!nospoof_version_target_allowed(server, client, target))
+        return COMMAND_KEEP_CLIENT;
 
     if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
         Channel *channel = hash_get(&server->channels_by_name, target);

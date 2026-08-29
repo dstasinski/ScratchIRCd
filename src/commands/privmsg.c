@@ -93,6 +93,13 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
     }
     if (*text == ':') ++text;
 
+    if (!nospoof_version_target_allowed(server, client, target)) {
+        client_sendf(client,
+                     ":%s NOTICE %s :You must respond to the CTCP VERSION request before joining channels or messaging anyone except an IRC operator or network administrator.",
+                     server->config.server_name, client->nick);
+        return COMMAND_KEEP_CLIENT;
+    }
+
     if (strcasecmp(target, "NickServ") == 0) {
         if (command_expensive_allow(server, client, "NICKSERV", 2U))
             command_nickserv_message(server, client, text);
@@ -175,12 +182,6 @@ CommandResult command_privmsg(Server *server, Client *client, char *params) {
         if (destination == NULL) {
             client_sendf(client, ERR_NOSUCHNICK, server->config.server_name,
                          client->nick, target);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (nospoof_version_restricted(server, client) &&
-            !client_mode_has(destination->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) {
-            client_sendf(client, ":%s NOTICE %s :You must respond to the CTCP VERSION request before messaging ordinary users.",
-                         server->config.server_name, client->nick);
             return COMMAND_KEEP_CLIENT;
         }
         if (presence_silence_matches(destination, client)) return COMMAND_KEEP_CLIENT;

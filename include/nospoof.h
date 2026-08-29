@@ -15,7 +15,10 @@ int nospoof_handle_pong(Server *server, Client *client, const char *params);
 /* Capture CTCP VERSION/WEBSITE NOTICE replies addressed to the server. */
 int nospoof_handle_notice(Server *server, Client *client, const char *params);
 
-/* True after the configured response window when VERSION was not answered. */
+/* True from VERSION probe transmission until a valid reply is captured. */
 int nospoof_version_restricted(const Server *server, const Client *client);
+/* During that window, allow messages only to an IRC operator/netadmin. */
+int nospoof_version_target_allowed(const Server *server, const Client *client,
+                                   const char *target);
 
 #endif

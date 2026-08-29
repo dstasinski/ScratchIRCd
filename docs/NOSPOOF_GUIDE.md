@@ -25,7 +25,7 @@ Only after the correct PONG is received does ScratchIRCd send:
 :<server> PRIVMSG <nick> :\x01VERSION\x01
 ```
 
-The CTCP VERSION reply is optional for registration, but until a VERSION reply is received the client cannot JOIN channels and cannot PRIVMSG ordinary clients. PRIVMSG to IRC operators and network administrators remains available.
+The CTCP VERSION reply is optional for registration, but the client is restricted immediately after the probe is sent and remains restricted until the server receives a valid VERSION reply. During that interval the client cannot JOIN channels, address services, send channel PRIVMSG/NOTICE, or send direct PRIVMSG/NOTICE to ordinary clients. Direct PRIVMSG and NOTICE to IRC operators and network administrators remain available. Rejected NOTICE commands stay silent as required by IRC, while rejected PRIVMSG and JOIN commands receive an explanatory server notice.
 
 ## WebIRC
 
