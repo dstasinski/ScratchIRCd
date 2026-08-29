@@ -15,6 +15,7 @@
 #include "ircv3.h"
 #include "message_policy.h"
 #include "modes.h"
+#include "nospoof.h"
 #include "presence.h"
 
 #include <stdio.h>
@@ -56,8 +57,15 @@ CommandResult command_notice(Server *server, Client *client, char *params) {
     char *target;
     char *text;
 
-    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
-    if (params == NULL) return COMMAND_KEEP_CLIENT;
+    /* RFC NOTICE never produces an automatic error response, including when
+     * received before registration. */
+    if (client == NULL || !client->registered || params == NULL)
+        return COMMAND_KEEP_CLIENT;
+
+    /* CTCP metadata probes target the server identity rather than a Client.
+     * Consume valid no-spoof replies before ordinary nickname routing. */
+    if (nospoof_handle_notice(server, client, params))
+        return COMMAND_KEEP_CLIENT;
 
     target = strtok(params, " ");
     text = strtok(NULL, "");
