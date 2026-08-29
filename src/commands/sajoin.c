@@ -7,6 +7,7 @@
 #include "channel_log.h"
 #include "chanserv.h"
 #include "config.h"
+#include "ircv3.h"
 #include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
@@ -40,7 +41,6 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
 
     for (name = strtok(channels, ", "); name != NULL; name = strtok(NULL, ", ")) {
         Channel *channel;
-        char message[IRCD_MESSAGE_BUFFER_SIZE];
         int first;
 
         if (!channel_name_valid(name) || target->channel_count >= IRC_MAX_CHANNELS_PER_CLIENT) continue;
@@ -58,9 +58,8 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
             (void)channel_add_privileges(channel, target,
                                          CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
         }
-        (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
-                       target->nick, target->user, target->display_host, channel->name);
-        channel_broadcast(channel, NULL, message);
+        ircv3_broadcast_join(channel, target);
+        ircv3_away_notify_join(channel, target);
         channel_log_join(server, channel, target);
         snotice_broadcast(server, SNOTICE_MODERATION,
                           "SAJOIN by %s: %s -> %s [real_ip=%s]",

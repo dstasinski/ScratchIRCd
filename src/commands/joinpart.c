@@ -33,7 +33,6 @@ static void join_one(Server *server, Client *client, const char *name,
                      const char *key, unsigned int redirect_depth) {
     Channel *channel;
     ChannelPrivilegeSet service_privileges;
-    char message[IRCD_MESSAGE_BUFFER_SIZE];
     int first_member;
     int explicitly_invited;
     int owner_account;
@@ -162,10 +161,8 @@ static void join_one(Server *server, Client *client, const char *name,
         service_privileges != 0U)
         (void)channel_add_privileges(channel, client, service_privileges);
 
-    (void)snprintf(message, sizeof(message), ":%s!%s@%s JOIN %s\r\n",
-                   client->nick, client->user, client->display_host,
-                   channel->name);
-    channel_broadcast(channel, NULL, message);
+    ircv3_broadcast_join(channel, client);
+    ircv3_away_notify_join(channel, client);
     channel_log_join(server, channel, client);
 
     if (channel->topic[0] == '\0') {

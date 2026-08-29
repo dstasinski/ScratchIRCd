@@ -46,10 +46,10 @@ TLS is enabled only when both certificate and private-key paths are configured. 
 ScratchIRCd currently advertises:
 
 ```text
-account-notify batch draft/chathistory sasl server-time
+account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl=PLAIN server-time
 ```
 
-SASL mechanism `PLAIN` authenticates against the same NickServ account records in `data/nickserv.db` and therefore shares Argon2id password validation, account state, `+r`, and NickServ vhost behavior. Registration is held while CAP negotiation is open and resumes on `CAP END`. SASL does not grant IRC operator authority; `OPER` remains separate.
+This is the CAP 302 advertisement; clients request `sasl` without its value. SASL mechanism `PLAIN` authenticates against the same NickServ account records in `data/nickserv.db` and therefore shares Argon2id password validation, account state, `+r`, and NickServ vhost behavior. Registration is held while CAP negotiation is open and resumes on `CAP END`. SASL does not grant IRC operator authority; `OPER` remains separate.
 
 Accepted channel PRIVMSG/NOTICE history is stored in SQLite:
 

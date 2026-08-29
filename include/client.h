@@ -26,6 +26,10 @@ typedef uint64_t ClientCapabilitySet;
 #define CLIENT_CAP_BATCH            (UINT64_C(1) << 2)
 #define CLIENT_CAP_SERVER_TIME      (UINT64_C(1) << 3)
 #define CLIENT_CAP_CHATHISTORY      (UINT64_C(1) << 4)
+#define CLIENT_CAP_AWAY_NOTIFY      (UINT64_C(1) << 5)
+#define CLIENT_CAP_EXTENDED_JOIN    (UINT64_C(1) << 6)
+#define CLIENT_CAP_LABELED_RESPONSE (UINT64_C(1) << 7)
+#define CLIENT_CAP_MESSAGE_TAGS     (UINT64_C(1) << 8)
 
 typedef struct ClientWebIrc { int active; char gateway_ip[IRC_IP_MAX + 1U]; char gateway_name[IRCD_WEBIRC_GATEWAY_NAME_MAX + 1U]; char supplied_host[IRC_HOST_MAX + 1U]; } ClientWebIrc;
 
@@ -76,8 +80,20 @@ typedef struct Client {
     char account_name[IRC_NICK_MAX + 1U];
 
     int cap_negotiating;
+    unsigned int cap_version;
     ClientCapabilitySet capabilities;
     ClientSaslState sasl_state;
+
+    /* Per-command IRCv3 metadata. Client-only tags are retained only while
+     * the current command is dispatched. Labeled replies are grouped in a
+     * short-lived labeled-response batch by client_send_line(). */
+    char ircv3_client_tags[IRCV3_CLIENT_TAG_DATA_MAX + 1U];
+    int labeled_response_active;
+    int labeled_response_started;
+    unsigned int labeled_response_suppressed;
+    char labeled_response_label[IRCV3_LABEL_ENCODED_MAX + 1U];
+    char labeled_response_batch[IRCD_HISTORY_BATCH_ID_MAX + 1U];
+    char labeled_response_server[IRC_SERVER_NAME_MAX + 1U];
 
     char real_ip[IRC_IP_MAX + 1U];
     char real_host[IRC_HOST_MAX + 1U];
@@ -130,5 +146,9 @@ void client_free(void *ptr);
 int client_send_raw(Client *client, const char *data, size_t length);
 int client_sendf(Client *client, const char *fmt, ...);
 int client_send_line(Client *client, const char *line);
+void client_labeled_response_begin(Client *client, const char *server_name,
+                                   const char *label);
+void client_labeled_response_end(Client *client);
+void client_labeled_response_suppress(Client *client, int suppress);
 
 #endif

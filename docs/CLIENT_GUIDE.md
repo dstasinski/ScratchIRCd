@@ -24,10 +24,10 @@ ScratchIRCd supports IPv4 and IPv6 connections. FCrDNS, GeoIP and optional DNSBL
 ScratchIRCd currently advertises:
 
 ```text
-account-notify batch draft/chathistory sasl server-time
+account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl=PLAIN server-time
 ```
 
-SASL mechanism `PLAIN` authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
+The line above is the CAP 302 advertisement. Request `sasl` (without `=PLAIN`). SASL mechanism `PLAIN` authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
 
 A typical SASL negotiation is:
 
@@ -215,7 +215,7 @@ CAP REQ :<capability> [capability...]
 CAP END
 ```
 
-Negotiates IRCv3 capabilities. ScratchIRCd currently advertises `account-notify`, `batch`, `draft/chathistory`, `sasl`, and `server-time`. Capability removals use a leading `-` in CAP REQ. Capability names are case-sensitive.
+Negotiates IRCv3 capabilities. CAP 302 advertises `account-notify`, `away-notify`, `batch`, `draft/chathistory`, `extended-join`, `labeled-response`, `message-tags`, `sasl=PLAIN`, and `server-time`. Capability removals use a leading `-` in CAP REQ. Capability names are case-sensitive, and `labeled-response` requires `batch`.
 
 ### CHANSERV
 
@@ -423,6 +423,14 @@ SILENCE -<mask>
 ```
 
 Manages the per-client silence list used to suppress matching direct messages.
+
+### TAGMSG
+
+```text
+@+client-tag=value TAGMSG <nickname-or-channel>
+```
+
+Relays client-only IRCv3 tags without a message body. Both sender and recipient must have negotiated `message-tags`; channel and direct-message access policy still applies.
 
 ### TOPIC
 

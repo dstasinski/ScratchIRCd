@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "ircv3.h"
 #include "numerics.h"
 
 #include <stdio.h>
@@ -27,11 +28,13 @@ CommandResult command_away(Server *server, Client *client, char *params) {
         client->away[0] = '\0';
         client_sendf(client, RPL_UNAWAY,
                      server->config.server_name, client->nick);
+        ircv3_away_notify(client);
         return COMMAND_KEEP_CLIENT;
     }
 
     (void)snprintf(client->away, sizeof(client->away), "%s", message);
     client_sendf(client, RPL_NOWAWAY,
                  server->config.server_name, client->nick);
+    ircv3_away_notify(client);
     return COMMAND_KEEP_CLIENT;
 }

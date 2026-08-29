@@ -6,10 +6,16 @@
 #include "commands.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
-#define CAP_ADVERTISED "account-notify batch draft/chathistory sasl server-time"
+#define CAP_ADVERTISED_LEGACY \
+    "account-notify away-notify batch draft/chathistory extended-join " \
+    "labeled-response message-tags sasl server-time"
+#define CAP_ADVERTISED_302 \
+    "account-notify away-notify batch draft/chathistory extended-join " \
+    "labeled-response message-tags sasl=PLAIN server-time"
 
 typedef struct CapabilityDefinition {
     const char *name;
@@ -18,8 +24,12 @@ typedef struct CapabilityDefinition {
 
 static const CapabilityDefinition capabilities[] = {
     {"account-notify", CLIENT_CAP_ACCOUNT_NOTIFY},
+    {"away-notify", CLIENT_CAP_AWAY_NOTIFY},
     {"batch", CLIENT_CAP_BATCH},
     {"draft/chathistory", CLIENT_CAP_CHATHISTORY},
+    {"extended-join", CLIENT_CAP_EXTENDED_JOIN},
+    {"labeled-response", CLIENT_CAP_LABELED_RESPONSE},
+    {"message-tags", CLIENT_CAP_MESSAGE_TAGS},
     {"sasl", CLIENT_CAP_SASL},
     {"server-time", CLIENT_CAP_SERVER_TIME}
 };
@@ -53,15 +63,17 @@ static void enabled_capabilities(const Client *client, char *out, size_t out_siz
     }
 }
 
-/** Apply a CAP REQ atomically: an unknown capability causes a NAK and no changes. */
-static int apply_request(Client *client, char *request) {
-    ClientCapabilitySet add = 0U;
-    ClientCapabilitySet remove = 0U;
+/** Validate a CAP REQ atomically and return its proposed capability set. */
+static int requested_capabilities(const Client *client, char *request,
+                                  ClientCapabilitySet *proposed_out) {
+    ClientCapabilitySet proposed;
     char copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *save = NULL;
     char *token;
 
-    if (request == NULL || *request == '\0') return 0;
+    if (client == NULL || proposed_out == NULL ||
+        request == NULL || *request == '\0') return 0;
+    proposed = client->capabilities;
     (void)snprintf(copy, sizeof(copy), "%s", request);
     for (token = strtok_r(copy, " ", &save); token != NULL;
          token = strtok_r(NULL, " ", &save)) {
@@ -69,11 +81,12 @@ static int apply_request(Client *client, char *request) {
         const char *name = disable ? token + 1 : token;
         ClientCapabilitySet bit = capability_bit(name);
         if (*name == '\0' || bit == 0U) return 0;
-        if (disable) remove |= bit;
-        else add |= bit;
+        if (disable) proposed &= ~bit;
+        else proposed |= bit;
     }
-    client->capabilities |= add;
-    client->capabilities &= ~remove;
+    if ((proposed & CLIENT_CAP_LABELED_RESPONSE) != 0U &&
+        (proposed & CLIENT_CAP_BATCH) == 0U) return 0;
+    *proposed_out = proposed;
     return 1;
 }
 
@@ -89,16 +102,29 @@ CommandResult command_cap(Server *server, Client *client, char *params) {
     if (rest != NULL) while (*rest == ' ' || *rest == ':') ++rest;
 
     if (strcasecmp(subcommand, "LS") == 0) {
+        char *end = NULL;
+        unsigned long version = rest != NULL ? strtoul(rest, &end, 10) : 0UL;
+        if (rest != NULL && end != rest && *end == '\0' &&
+            version > client->cap_version)
+            client->cap_version = version > 302UL ? 302U : (unsigned int)version;
         client->cap_negotiating = 1;
-        send_cap(server, client, "LS", CAP_ADVERTISED);
+        send_cap(server, client, "LS",
+                 version >= 302UL ? CAP_ADVERTISED_302 : CAP_ADVERTISED_LEGACY);
     } else if (strcasecmp(subcommand, "LIST") == 0) {
         char enabled[IRCD_MESSAGE_BUFFER_SIZE];
         enabled_capabilities(client, enabled, sizeof(enabled));
         send_cap(server, client, "LIST", enabled);
     } else if (strcasecmp(subcommand, "REQ") == 0) {
+        ClientCapabilitySet proposed;
         client->cap_negotiating = 1;
-        if (apply_request(client, rest)) send_cap(server, client, "ACK", rest);
-        else send_cap(server, client, "NAK", rest != NULL ? rest : "");
+        if (requested_capabilities(client, rest, &proposed)) {
+            /* Capability behavior starts only after ACK. This is especially
+             * important for server-time, whose tags may not precede ACK. */
+            send_cap(server, client, "ACK", rest);
+            client->capabilities = proposed;
+        } else {
+            send_cap(server, client, "NAK", rest != NULL ? rest : "");
+        }
     } else if (strcasecmp(subcommand, "END") == 0) {
         client->cap_negotiating = 0;
         command_maybe_register(server, client);

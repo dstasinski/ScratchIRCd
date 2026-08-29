@@ -200,14 +200,14 @@ def main():
             assert stored_version=="L"*255,(len(stored_version),stored_version)
             trusted.send("VERSION")
             server_version=trusted.expect(" 351 webuser ")
-            assert any("ScratchIRCd-0.33" in line and "test.local" in line for line in server_version),server_version
+            assert any("ScratchIRCd-0.34" in line and "test.local" in line for line in server_version),server_version
             trusted.send("TIME")
             server_time=trusted.expect(" 391 webuser test.local :")
             assert any("Unknown server time" not in line for line in server_time if " 391 webuser test.local :" in line),server_time
             trusted.send("INFO")
             server_info=trusted.expect(" 374 webuser :End of /INFO list.")
             assert any(" 373 webuser :Server INFO" in line for line in server_info),server_info
-            assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.33 on test.local" in line for line in server_info),server_info
+            assert any(" 371 webuser :ScratchIRCd ScratchIRCd-0.34 on test.local" in line for line in server_info),server_info
             assert any("virtual services" in line for line in server_info),server_info
             trusted.send("LINKS")
             links=trusted.expect(" 365 webuser * :End of /LINKS list.")

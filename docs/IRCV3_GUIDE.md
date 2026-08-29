@@ -7,14 +7,14 @@ ScratchIRCd uses a general capability bitset and capability registry rather than
 The server currently advertises:
 
 ```text
-account-notify batch draft/chathistory sasl server-time
+account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl=PLAIN server-time
 ```
 
 Clients may negotiate capabilities before registration:
 
 ```text
 CAP LS 302
-CAP REQ :account-notify batch draft/chathistory sasl server-time
+CAP REQ :account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl server-time
 NICK example
 USER example 0 * :Example User
 CAP END
@@ -22,7 +22,9 @@ CAP END
 
 Registration remains held while CAP negotiation is active. `CAP END` releases the registration hold once the ordinary registration prerequisites are satisfied. `CAP LIST` returns the capabilities currently enabled for that connection.
 
-`CAP REQ` accepts multiple space-separated capability names and supports removal with a leading `-`. Requests are atomic: if any requested capability is unknown, the server sends `NAK` and applies none of the request. Capability names are case-sensitive as required by IRCv3.
+`CAP LS 302` includes the supported SASL mechanism as `sasl=PLAIN`; legacy `CAP LS` advertises the capability without a value. Clients request the capability name `sasl`, not its advertised value.
+
+`CAP REQ` accepts multiple space-separated capability names and supports removal with a leading `-`. Requests are atomic: if any requested capability is unknown or would leave `labeled-response` enabled without its required `batch` dependency, the server sends `NAK` and applies none of the request. Capability names are case-sensitive as required by IRCv3. Newly enabled behavior starts after the ACK has been sent.
 
 ## sasl
 
@@ -37,6 +39,30 @@ A client that enables `account-notify` receives IRCv3 `ACCOUNT` messages when an
 ```
 
 A recipient sharing more than one channel with the changing user receives one notification rather than one per shared channel. Account state established by SASL before registration does not produce an ACCOUNT message because the user is not yet visible to peers.
+
+## away-notify
+
+Capable clients receive `AWAY` when a user sharing one or more channels sets, changes, or clears away state. Notifications are deduplicated across shared channels and are not reflected back to the changing client. If an already-away user joins a channel, capable peers receive that user's current away state immediately after JOIN.
+
+## extended-join
+
+JOIN is formatted per recipient. A client with `extended-join` receives the joining user's account name (or `*`) and real name:
+
+```text
+:nick!user@display.host JOIN #channel account :Real Name
+```
+
+Clients without the capability continue to receive the traditional JOIN form.
+
+## message-tags and TAGMSG
+
+ScratchIRCd parses IRCv3 client tag sections independently from the classic 510-byte message budget. Client-only `+` tags are relayed unchanged on `PRIVMSG`, `NOTICE`, and `TAGMSG` to recipients that negotiated `message-tags`; unrecognized unprefixed client tags are stripped. Client tag data is bounded to the IRCv3 4094-byte data limit, and overlong input receives numeric 417 without being truncated.
+
+`TAGMSG <target>` follows ordinary direct/channel message access policy and is delivered only to `message-tags` recipients.
+
+## labeled-response
+
+`labeled-response` requires `batch`. A valid client `label` tag is copied onto a `labeled-response` batch that groups the command's replies. Commands with no ordinary response receive a labeled `ACK`. Nested response batches, including CHATHISTORY, retain valid batch nesting. Labels are limited to 64 decoded bytes.
 
 ## Persistent channel history
 
@@ -61,7 +87,7 @@ History records retain the public identity visible at send time: nickname, usern
 
 ### CHATHISTORY LATEST
 
-ScratchIRCd 0.33 implements the following intentionally limited CHATHISTORY subset:
+ScratchIRCd 0.34 implements the following intentionally limited CHATHISTORY subset:
 
 ```text
 CHATHISTORY LATEST <channel> * <limit>
@@ -110,7 +136,7 @@ The current implementation stores and retrieves channel PRIVMSG/NOTICE history o
 
 ## server-time
 
-When negotiated, `server-time` adds UTC `time` tags to live PRIVMSG/NOTICE delivery and preserves original timestamps on replayed history. The capability is never used before the client's CAP request has been acknowledged.
+When negotiated, `server-time` adds millisecond UTC `time` tags throughout server output, including numerics and presence events. Historical messages retain their original stored timestamps rather than replay time. The capability is never used before the enabling CAP request has been acknowledged, and an existing `time` tag is never overwritten.
 
 ## Development direction
 

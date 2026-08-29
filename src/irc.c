@@ -5,6 +5,7 @@
 
 #include "irc.h"
 #include "commands.h"
+#include "ircv3.h"
 #include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
@@ -51,11 +52,20 @@ size_t irc_topic_limit(const Server *server) {
 }
 
 int irc_handle_line(Server *server, Client *client, char *line) {
+    char *tags = NULL;
     char *command;
     char *params;
     CommandResult result;
 
     if (server == NULL || client == NULL || line == NULL) return 0;
+    if (line[0] == '@') {
+        char *separator = strchr(line, ' ');
+        if (separator == NULL) return 0;
+        *separator = '\0';
+        tags = line + 1;
+        line = separator + 1;
+        while (*line == ' ') ++line;
+    }
     if (line[0] == ':') {
         snotice_broadcast(server, SNOTICE_SECURITY,
                           "Protocol violation: client-supplied prefix from %s [real_ip=%s]",
@@ -67,6 +77,8 @@ int irc_handle_line(Server *server, Client *client, char *line) {
     command = strtok(line, " ");
     params = strtok(NULL, "");
     if (command == NULL) return 0;
+    ircv3_begin_command(server, client, tags);
     result = command_dispatch(server, client, command, params);
+    ircv3_end_command(client);
     return result == COMMAND_DISCONNECT_CLIENT ? 1 : 0;
 }

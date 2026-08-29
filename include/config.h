@@ -9,7 +9,7 @@
 
 #define IRCD_DEFAULT_SERVER_NAME "scratch.local"
 #define IRCD_DEFAULT_NETWORK_NAME "ScratchNet"
-#define IRCD_VERSION "ScratchIRCd-0.33"
+#define IRCD_VERSION "ScratchIRCd-0.34"
 #define IRCD_CREATED "August 2026"
 #define IRCD_DEFAULT_PORT "6667"
 #define IRCD_DEFAULT_TLS_PORT "6697"
@@ -167,7 +167,16 @@
 #define IRC_IP_MAX 45U
 #define IRC_WIRE_LINE_MAX 512U
 #define IRC_LINE_CONTENT_MAX (IRC_WIRE_LINE_MAX - 2U)
-#define IRC_INPUT_BUFFER_SIZE 4096U
+/* IRCv3 tag limits include the leading '@' and separating space.  Client
+ * tags and the classic IRC message have independent wire budgets. */
+#define IRCV3_CLIENT_TAG_SECTION_MAX 4096U
+#define IRCV3_SERVER_TAG_SECTION_MAX 4096U
+#define IRCV3_COMBINED_TAG_SECTION_MAX 8191U
+#define IRCV3_CLIENT_TAG_DATA_MAX (IRCV3_CLIENT_TAG_SECTION_MAX - 2U)
+#define IRCV3_LABEL_MAX 64U
+#define IRCV3_LABEL_ENCODED_MAX (IRCV3_LABEL_MAX * 2U)
+#define IRC_INPUT_LINE_MAX (IRCV3_CLIENT_TAG_SECTION_MAX + IRC_LINE_CONTENT_MAX)
+#define IRC_INPUT_BUFFER_SIZE 8192U
 #define IRC_MAX_CHANNELS_PER_CLIENT 32U
 #define IRC_UNKNOWN_HOST "unknown"
 #define IRC_DEFAULT_QUIT_REASON "Client quit"

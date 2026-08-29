@@ -203,6 +203,7 @@ int channel_mask_remove(ChannelMaskEntry **list, const char *mask) {
 void channel_broadcast(Channel *channel, const Client *except, const char *message) {
     ChannelMember *member;
     size_t length;
+    char line[IRC_LINE_CONTENT_MAX + 1U];
     if (channel == NULL || message == NULL) return;
     length = strlen(message);
     /* Raw fanout must already be one complete classic IRC frame. Refuse
@@ -213,8 +214,10 @@ void channel_broadcast(Channel *channel, const Client *except, const char *messa
         memchr(message, '\r', length - 2U) != NULL ||
         memchr(message, '\n', length - 2U) != NULL)
         return;
+    memcpy(line, message, length - 2U);
+    line[length - 2U] = '\0';
     for (member = channel->members; member != NULL; member = member->next) {
         if (member->client == except) continue;
-        (void)client_send_raw(member->client, message, length);
+        (void)client_send_line(member->client, line);
     }
 }

@@ -42,10 +42,10 @@ TLS handshakes are non-blocking. User mode `+z` is granted only after a successf
 ScratchIRCd currently advertises:
 
 ```text
-account-notify batch draft/chathistory sasl server-time
+account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl=PLAIN server-time
 ```
 
-SASL `PLAIN` authenticates against the NickServ account database. `account-notify` reports post-registration account changes to capable peers sharing a channel.
+This is the CAP 302 form; legacy `CAP LS` omits the `=PLAIN` capability value. SASL `PLAIN` authenticates against the NickServ account database. Presence notifications, extended JOIN data, client-only message tags, labeled responses, and UTC server timestamps are enabled only for clients that request their corresponding capabilities.
 
 Channel `PRIVMSG` and `NOTICE` history is persisted in:
 

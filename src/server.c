@@ -286,6 +286,18 @@ static int advance_tls_handshake(Server *server, Client *client) {
     return 1;
 }
 
+static int client_input_line_fits(const char *line, size_t length) {
+    const char *separator;
+    size_t tag_section_length;
+    if (line == NULL) return 0;
+    if (line[0] != '@') return length <= IRC_LINE_CONTENT_MAX;
+    separator = memchr(line, ' ', length);
+    if (separator == NULL || separator == line + 1) return 0;
+    tag_section_length = (size_t)(separator - line) + 1U;
+    return tag_section_length <= IRCV3_CLIENT_TAG_SECTION_MAX &&
+           length - tag_section_length <= IRC_LINE_CONTENT_MAX;
+}
+
 static int process_buffered_lines(Server *server, Client *client, int *pending,
                                   size_t *global_budget) {
     size_t offset = 0U;
@@ -298,15 +310,24 @@ static int process_buffered_lines(Server *server, Client *client, int *pending,
         size_t remaining = client->inbuf_len - offset;
         char *newline = memchr(base, '\n', remaining);
         size_t raw_length, line_length, consumed;
-        char line[IRC_LINE_CONTENT_MAX + 1U];
+        char line[IRC_INPUT_LINE_MAX + 1U];
         if (newline == NULL) break;
         raw_length = (size_t)(newline - base);
         consumed = raw_length + 1U;
         line_length = raw_length;
         if (line_length > 0U && base[line_length - 1U] == '\r') --line_length;
-        if (line_length > IRC_LINE_CONTENT_MAX || memchr(base, '\0', raw_length) != NULL || memchr(base, '\r', line_length) != NULL) {
+        if (memchr(base, '\0', raw_length) != NULL ||
+            memchr(base, '\r', line_length) != NULL) {
             snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: malformed or overlong IRC framing", client->real_ip);
             return 1;
+        }
+        if (!client_input_line_fits(base, line_length)) {
+            client_sendf(client, ":%s 417 %s :Input line was too long",
+                         server->config.server_name, command_reply_nick(client));
+            offset += consumed;
+            ++handled;
+            --*global_budget;
+            continue;
         }
         memcpy(line, base, line_length);
         line[line_length] = '\0';
@@ -324,8 +345,11 @@ static int process_buffered_lines(Server *server, Client *client, int *pending,
         if (offset < client->inbuf_len) memmove(client->inbuf, client->inbuf + offset, client->inbuf_len - offset);
         client->inbuf_len -= offset;
     }
-    if (client->inbuf_len > IRC_LINE_CONTENT_MAX + 1U && memchr(client->inbuf, '\n', client->inbuf_len) == NULL) {
+    if (client->inbuf_len > IRC_INPUT_LINE_MAX + 1U &&
+        memchr(client->inbuf, '\n', client->inbuf_len) == NULL) {
         snotice_broadcast(server, SNOTICE_SECURITY, "Protocol violation from %s: overlong partial IRC line (%zu bytes)", client->real_ip, client->inbuf_len);
+        client_sendf(client, ":%s 417 %s :Input line was too long",
+                     server->config.server_name, command_reply_nick(client));
         return 1;
     }
     if (pending != NULL && memchr(client->inbuf, '\n', client->inbuf_len) != NULL) *pending = 1;
@@ -611,13 +635,11 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     if (server == NULL || client == NULL) return;
     snotice_broadcast(server, SNOTICE_CONNECTIONS, "Client disconnect: nick=%s user=%s display_host=%s real_ip=%s real_host=%s registered=%s reason=%s", client->nick[0] != '\0' ? client->nick : "*", client->user[0] != '\0' ? client->user : "*", client->display_host[0] != '\0' ? client->display_host : client->real_ip, client->real_ip, client->real_host[0] != '\0' ? client->real_host : "-", client->registered ? "yes" : "no", quit_reason);
     if (client->registered) {
-        size_t length;
-        (void)snprintf(quit_message, sizeof(quit_message), ":%s!%s@%s QUIT :%s\r\n", client->nick, client->user, client->display_host, quit_reason);
-        length = strlen(quit_message);
+        (void)snprintf(quit_message, sizeof(quit_message), ":%s!%s@%s QUIT :%s", client->nick, client->user, client->display_host, quit_reason);
         for (index = 0U; index < server->client_count; ++index) {
             Client *candidate = server->clients[index];
             if (candidate != NULL && candidate != client && clients_share_channel(client, candidate))
-                (void)client_send_raw(candidate, quit_message, length);
+                (void)client_send_line(candidate, quit_message);
         }
     }
     while (client->channels != NULL) {
