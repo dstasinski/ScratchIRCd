@@ -67,6 +67,21 @@ def wait_listen(port, proc):
     raise RuntimeError("TLS listener did not start")
 
 
+def wait_closed(sock, duration=6.0):
+    deadline = time.monotonic() + duration
+    sock.settimeout(0.2)
+    while time.monotonic() < deadline:
+        try:
+            data = sock.recv(4096)
+            if not data:
+                return
+        except (ConnectionResetError, BrokenPipeError):
+            return
+        except socket.timeout:
+            pass
+    raise AssertionError("connection was not closed before its deadline")
+
+
 def register(client, nick):
     client.send(f"NICK {nick}")
     client.send(f"USER {nick} 0 * :{nick} User")
@@ -97,6 +112,7 @@ def main():
             f.write(f"port = {plain_port}\ntls_port = {tls_port}\n")
             f.write(f"tls_cert_file = {cert}\ntls_key_file = {key}\n")
             f.write("max_clients = 32\ndns_timeout_seconds = 1\n")
+            f.write("registration_timeout_seconds = 2\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
 
@@ -104,8 +120,28 @@ def main():
                                 stderr=subprocess.PIPE, text=True)
         tls_client = None
         plain_client = None
+        malformed = None
+        silent = None
         try:
             wait_listen(tls_port, proc)
+
+            # Plain IRC sent to the TLS listener must fail closed without
+            # affecting subsequent clients or granting a registered session.
+            malformed = socket.create_connection(("127.0.0.1", tls_port), timeout=3.0)
+            malformed.sendall(b"NICK nottls\r\nUSER nottls 0 * :Not TLS\r\n")
+            wait_closed(malformed)
+            malformed.close()
+            malformed = None
+            assert proc.poll() is None, "server exited after a malformed TLS handshake"
+
+            # A peer that opens TCP but never starts TLS is still bounded by
+            # the registration deadline. It must not retain a client slot
+            # indefinitely.
+            silent = socket.create_connection(("127.0.0.1", tls_port), timeout=3.0)
+            wait_closed(silent)
+            silent.close()
+            silent = None
+            assert proc.poll() is None, "server exited after a TLS handshake timeout"
 
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             context.check_hostname = False
@@ -137,7 +173,18 @@ def main():
             assert any(" 489 " in line or "secure" in line.lower()
                        for line in denied), denied
 
+            # Exercise process shutdown while established plain and TLS
+            # clients are still live. Cleanup must complete without a signal
+            # crash or a forced kill.
+            proc.terminate()
+            proc.wait(timeout=3)
+            assert proc.returncode == 0, proc.stderr.read()
+
         finally:
+            if malformed is not None:
+                malformed.close()
+            if silent is not None:
+                silent.close()
             if tls_client is not None:
                 tls_client.close()
             if plain_client is not None:
