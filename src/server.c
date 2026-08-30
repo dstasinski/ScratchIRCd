@@ -156,27 +156,50 @@ static int add_listeners(Server *server, const char *port, int use_tls) {
     struct addrinfo *result = NULL;
     struct addrinfo *candidate;
     const char *bind_address;
+    const char *display_address;
+    const char *listener_kind = use_tls ? "TLS" : "plaintext";
+    int address_error;
+    int last_error = 0;
     size_t before = server->listener_count;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
     bind_address = server->config.bind_address[0] != '\0' ? server->config.bind_address : NULL;
-    if (getaddrinfo(bind_address, port, &hints, &result) != 0) return -1;
+    display_address = bind_address != NULL ? bind_address : "*";
+    address_error = getaddrinfo(bind_address, port, &hints, &result);
+    if (address_error != 0) {
+        fprintf(stderr, "Failed to resolve %s listener address %s:%s: %s\n",
+                listener_kind, display_address, port, gai_strerror(address_error));
+        return -1;
+    }
     for (candidate = result; candidate != NULL && server->listener_count < IRCD_MAX_LISTENERS; candidate = candidate->ai_next) {
         int fd;
         int reuse = 1;
         fd = socket(candidate->ai_family, candidate->ai_socktype, candidate->ai_protocol);
-        if (fd < 0) continue;
+        if (fd < 0) {
+            last_error = errno;
+            continue;
+        }
         (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
         if (candidate->ai_family == AF_INET6) { int v6only = 1; (void)setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)); }
-        if (set_nonblocking(fd) != 0 || bind(fd, candidate->ai_addr, candidate->ai_addrlen) != 0 || listen(fd, IRCD_LISTEN_BACKLOG) != 0) { close(fd); continue; }
+        if (set_nonblocking(fd) != 0 ||
+            bind(fd, candidate->ai_addr, candidate->ai_addrlen) != 0 ||
+            listen(fd, IRCD_LISTEN_BACKLOG) != 0) {
+            last_error = errno;
+            close(fd);
+            continue;
+        }
         server->listen_fds[server->listener_count] = fd;
         server->listener_tls[server->listener_count] = use_tls ? 1U : 0U;
         ++server->listener_count;
     }
     freeaddrinfo(result);
-    return server->listener_count > before ? 0 : -1;
+    if (server->listener_count > before) return 0;
+    fprintf(stderr, "Failed to create %s listener on %s:%s: %s\n",
+            listener_kind, display_address, port,
+            last_error != 0 ? strerror(last_error) : "no usable address");
+    return -1;
 }
 
 static int make_listeners(Server *server) {
@@ -193,8 +216,32 @@ static int init_tls(Server *server) {
     if (server->config.tls_cert_file[0] == '\0' && server->config.tls_key_file[0] == '\0') return 0;
     if (server->config.tls_cert_file[0] == '\0' || server->config.tls_key_file[0] == '\0') { fprintf(stderr, "TLS requires both tls_cert_file and tls_key_file\n"); return -1; }
     server->tls_ctx = SSL_CTX_new(TLS_server_method());
-    if (server->tls_ctx == NULL) return -1;
-    if (SSL_CTX_set_min_proto_version(server->tls_ctx, TLS1_2_VERSION) != 1 || SSL_CTX_use_certificate_chain_file(server->tls_ctx, server->config.tls_cert_file) != 1 || SSL_CTX_use_PrivateKey_file(server->tls_ctx, server->config.tls_key_file, SSL_FILETYPE_PEM) != 1 || SSL_CTX_check_private_key(server->tls_ctx) != 1) { fprintf(stderr, "Failed to initialize TLS certificate/key\n"); return -1; }
+    if (server->tls_ctx == NULL) {
+        fprintf(stderr, "Failed to create the TLS server context\n");
+        return -1;
+    }
+    if (SSL_CTX_set_min_proto_version(server->tls_ctx, TLS1_2_VERSION) != 1) {
+        fprintf(stderr, "Failed to require TLS 1.2 or newer\n");
+        return -1;
+    }
+    if (SSL_CTX_use_certificate_chain_file(server->tls_ctx,
+                                           server->config.tls_cert_file) != 1) {
+        fprintf(stderr, "Failed to load TLS certificate chain: %s\n",
+                server->config.tls_cert_file);
+        return -1;
+    }
+    if (SSL_CTX_use_PrivateKey_file(server->tls_ctx,
+                                    server->config.tls_key_file,
+                                    SSL_FILETYPE_PEM) != 1) {
+        fprintf(stderr, "Failed to load TLS private key: %s\n",
+                server->config.tls_key_file);
+        return -1;
+    }
+    if (SSL_CTX_check_private_key(server->tls_ctx) != 1) {
+        fprintf(stderr, "TLS private key does not match certificate: %s / %s\n",
+                server->config.tls_cert_file, server->config.tls_key_file);
+        return -1;
+    }
     SSL_CTX_set_options(server->tls_ctx, SSL_OP_NO_COMPRESSION);
     return 0;
 }
