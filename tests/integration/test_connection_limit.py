@@ -68,12 +68,12 @@ def rejected(sock):
         return True
 
 
-def write_config(path, port, extra=""):
+def write_config(path, port, extra="", max_clients=32):
     td = os.path.dirname(path)
     with open(path, "w", encoding="utf-8") as f:
         f.write("server_name = test.local\nnetwork_name = TestNet\n")
         f.write("bind_address = 127.0.0.1\n")
-        f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
+        f.write(f"port = {port}\nmax_clients = {max_clients}\ndns_timeout_seconds = 1\n")
         f.write(f"operators_db = {td}/operators.db\n")
         f.write(f"bans_db = {td}/bans.db\n")
         f.write(f"nickserv_db = {td}/nickserv.db\n")
@@ -91,6 +91,30 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-connlimit-") as td:
         conf = os.path.join(td, "ircd.conf")
+
+        # The global client ceiling applies before registration and capacity
+        # must return immediately after a connection is removed.
+        port = free_port()
+        write_config(conf, port, max_clients=2)
+        proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        sockets = []
+        try:
+            wait_listen(port, proc)
+            first = connect(port); sockets.append(first); assert accepted(first)
+            second = connect(port); sockets.append(second); assert accepted(second)
+            excess = connect(port); sockets.append(excess)
+            assert rejected(excess), "connection above max_clients was admitted"
+
+            first.close(); sockets.remove(first)
+            time.sleep(0.35)
+            replacement = connect(port); sockets.append(replacement)
+            assert accepted(replacement), "global client capacity was not released"
+        finally:
+            for sock in sockets:
+                try: sock.close()
+                except OSError: pass
+            stop(proc)
 
         # Ordinary transport IPs are limited immediately, before registration.
         port = free_port()
