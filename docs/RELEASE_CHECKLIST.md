@@ -53,6 +53,7 @@ candidate when practical:
 python3 tools/run_soak.py build-release/scratchircd \
   --duration-hours 12 \
   --clients 12 \
+  --release-candidate \
   --report "soak-$(git rev-parse --short HEAD).json"
 ```
 
@@ -64,9 +65,13 @@ growth and 16 additional file descriptors above the post-registration
 baseline. Tighten those limits when the deployment baseline is known; do not
 raise them merely to make a failed run pass.
 
-The command must exit zero and the JSON record must contain `"passed": true`.
-Investigate every daemon exit, stable-client disconnect, protocol stall,
-sanitizer diagnostic, or resource-limit failure before restarting the soak.
+The command must exit zero and the JSON record must contain both
+`"passed": true` and `"release_qualified": true`. Release-candidate mode fails
+before starting the daemon when the requested duration is under 12 hours, the
+checkout is dirty, the build is not `Release`, or warnings-as-errors was not
+enabled. Investigate every daemon exit, stable-client disconnect, protocol
+stall, sanitizer diagnostic, or resource-limit failure before restarting the
+soak.
 
 ## 5. Preserve release evidence
 

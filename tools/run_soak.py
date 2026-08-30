@@ -16,6 +16,9 @@ import tempfile
 import time
 
 
+MINIMUM_RELEASE_SOAK_SECONDS = 12 * 60 * 60
+
+
 class IRCClient:
     def __init__(self, port, nick):
         self.nick = nick
@@ -96,6 +99,14 @@ def parse_args():
     parser.add_argument("--sample-interval-seconds", type=float, default=60.0)
     parser.add_argument("--max-rss-growth-kib", type=int, default=32768)
     parser.add_argument("--max-fd-growth", type=int, default=16)
+    parser.add_argument(
+        "--release-candidate",
+        action="store_true",
+        help=(
+            "require a clean checkout, a strict Release build, and a soak of "
+            "at least 12 hours"
+        ),
+    )
     parser.add_argument("--report", help="write the JSON evidence record to this path")
     return parser.parse_args()
 
@@ -145,6 +156,65 @@ def build_metadata(binary):
         "cmake_cache": selected,
         "compiler": command_output([compiler, "--version"]),
     }
+
+
+def git_metadata(repository):
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repository,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {
+            "commit": f"unavailable: {error}",
+            "status": f"unavailable: {error}",
+            "clean": False,
+        }
+
+    commit = commit_result.stdout.strip()
+    status = status_result.stdout.strip()
+    usable = commit_result.returncode == 0 and status_result.returncode == 0
+    return {
+        "commit": commit if commit else f"exit status {commit_result.returncode}",
+        "status": status,
+        "clean": usable and not status,
+    }
+
+
+def release_preflight_failures(duration, build, repository_state):
+    failures = []
+    if duration < MINIMUM_RELEASE_SOAK_SECONDS:
+        failures.append(
+            "release-candidate soak must run for at least "
+            f"{MINIMUM_RELEASE_SOAK_SECONDS} seconds"
+        )
+    if not repository_state["clean"]:
+        detail = repository_state["status"] or "Git metadata unavailable"
+        failures.append(f"release-candidate checkout is not clean: {detail}")
+
+    cache = build["cmake_cache"]
+    if cache.get("CMAKE_BUILD_TYPE") != "Release":
+        failures.append("release-candidate binary was not built with CMAKE_BUILD_TYPE=Release")
+    if cache.get("SCRATCHIRCD_WARNINGS_AS_ERRORS") != "ON":
+        failures.append(
+            "release-candidate binary was not built with "
+            "SCRATCHIRCD_WARNINGS_AS_ERRORS=ON"
+        )
+    return failures
 
 
 def free_port():
@@ -275,6 +345,24 @@ def tail(path, limit=40):
         return []
 
 
+def emit_report(report, destination_name):
+    encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    if destination_name:
+        destination = Path(destination_name).resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(encoded, encoding="utf-8")
+        print(f"soak evidence: {destination}")
+    summary = report.get("resource_summary", {})
+    print(
+        f"soak {'passed' if report['passed'] else 'failed'}: "
+        f"elapsed={report['elapsed_seconds']}s churn={report['traffic']['churn_connections']} "
+        f"rss_growth={summary.get('rss_growth_kib', 'n/a')}KiB "
+        f"fd_growth={summary.get('fd_growth', 'n/a')}"
+    )
+    for failure in report["failures"]:
+        print(f"failure: {failure}", file=sys.stderr)
+
+
 def main():
     args = parse_args()
     binary = Path(args.binary).resolve()
@@ -288,10 +376,12 @@ def main():
     if not Path("/proc/self/status").exists():
         raise SystemExit("the soak runner requires Linux /proc process metrics")
 
+    started = time.monotonic()
     repository = Path(__file__).resolve().parents[1]
     build = build_metadata(binary)
+    repository_state = git_metadata(repository)
     report = {
-        "schema": "scratchircd-milestone1-soak-v1",
+        "schema": "scratchircd-milestone1-soak-v2",
         "started_at": utc_now(),
         "requested_duration_seconds": duration,
         "stable_clients": args.clients,
@@ -304,8 +394,9 @@ def main():
             "sha256": sha256_file(binary),
         },
         "environment": {
-            "git_commit": command_output(["git", "rev-parse", "HEAD"], repository),
-            "git_status": command_output(["git", "status", "--short"], repository),
+            "git_commit": repository_state["commit"],
+            "git_status": repository_state["status"],
+            "git_clean": repository_state["clean"],
             "platform": platform.platform(),
             "python": platform.python_version(),
             "compiler": build["compiler"],
@@ -323,12 +414,31 @@ def main():
         "samples": [],
         "failures": [],
         "passed": False,
+        "release_qualified": False,
+        "qualification": {
+            "requested": args.release_candidate,
+            "minimum_duration_seconds": MINIMUM_RELEASE_SOAK_SECONDS,
+            "preflight_passed": None,
+        },
     }
+
+    preflight_failures = []
+    if args.release_candidate:
+        preflight_failures = release_preflight_failures(
+            duration, build, repository_state
+        )
+        report["qualification"]["preflight_passed"] = not preflight_failures
+    if preflight_failures:
+        report["failures"].extend(preflight_failures)
+        report["completed_at"] = utc_now()
+        report["elapsed_seconds"] = round(time.monotonic() - started, 3)
+        report["shutdown_exit_status"] = None
+        emit_report(report, args.report)
+        return 1
 
     process = None
     stable = []
     shutdown_exit_status = None
-    started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="scratchircd-soak-") as temporary:
         directory = Path(temporary)
         config = directory / "ircd.conf"
@@ -418,22 +528,8 @@ def main():
     if report["traffic"]["churn_connections"] == 0:
         report["failures"].append("no churn cycle completed")
     report["passed"] = not report["failures"]
-
-    encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
-    if args.report:
-        destination = Path(args.report).resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(encoded, encoding="utf-8")
-        print(f"soak evidence: {destination}")
-    summary = report.get("resource_summary", {})
-    print(
-        f"soak {'passed' if report['passed'] else 'failed'}: "
-        f"elapsed={report['elapsed_seconds']}s churn={report['traffic']['churn_connections']} "
-        f"rss_growth={summary.get('rss_growth_kib', 'n/a')}KiB "
-        f"fd_growth={summary.get('fd_growth', 'n/a')}"
-    )
-    for failure in report["failures"]:
-        print(f"failure: {failure}", file=sys.stderr)
+    report["release_qualified"] = args.release_candidate and report["passed"]
+    emit_report(report, args.report)
     return 0 if report["passed"] else 1
 
 

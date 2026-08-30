@@ -1,4 +1,5 @@
 build/
+build-*/
 ircd.conf
 
 # Runtime databases and downloaded MaxMind datasets live under data/. Keep the

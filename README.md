@@ -266,20 +266,29 @@ ctest --test-dir build --output-on-failure
 
 ## Release qualification
 
-After a clean strict build and complete CTest pass, run the Milestone 1
+After a clean strict Release build and complete CTest pass, run the Milestone 1
 small-client soak for 12 to 24 hours. The runner starts an isolated daemon,
 keeps a stable client set active, repeatedly connects and disconnects transient
 clients, and fails on a daemon exit, client loss, stalled protocol traffic, or
 resource growth beyond its explicit limits.
 
 ```sh
-python3 tools/run_soak.py build/scratchircd \
+CC=gcc cmake -S . -B build-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON
+cmake --build build-release --parallel
+ctest --test-dir build-release --output-on-failure
+
+python3 tools/run_soak.py build-release/scratchircd \
   --duration-hours 12 \
+  --release-candidate \
   --report "soak-$(git rev-parse --short HEAD).json"
 ```
 
 The JSON record includes the exact commit and binary digest, compiler and
 linked-library information, generated non-secret configuration, traffic counts,
 process samples, shutdown result, and the resource thresholds used. Preserve a
-passing record with the release evidence before tagging. See
+record with both `"passed": true` and `"release_qualified": true` before
+tagging. Release-candidate mode refuses a run shorter than 12 hours, a dirty
+checkout, or a binary that was not produced by a strict Release build. See
 [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the full gate.

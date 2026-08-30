@@ -218,6 +218,8 @@ add_test(NAME sendq_pressure_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_C
 set_tests_properties(sendq_pressure_integration PROPERTIES TIMEOUT 60)
 add_test(NAME soak_runner_smoke_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_soak.py $<TARGET_FILE:scratchircd> --duration-seconds 4 --clients 3 --cycle-delay-seconds 0.1 --sample-interval-seconds 1)
 set_tests_properties(soak_runner_smoke_integration PROPERTIES TIMEOUT 30)
+add_test(NAME soak_release_gate_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_soak_release_gate.py ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_soak.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(soak_release_gate_integration PROPERTIES TIMEOUT 30)
 add_test(NAME operator_identity_security_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_identity_security.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_identity_security_integration PROPERTIES TIMEOUT 60)
 add_test(NAME registration_timeout_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_registration_timeout.py $<TARGET_FILE:scratchircd>)
