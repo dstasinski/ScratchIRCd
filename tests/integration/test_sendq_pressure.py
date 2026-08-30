@@ -192,7 +192,11 @@ def main():
             assert slow_disconnected, "slow reader did not exceed its bounded SendQ"
             assert proc.poll() is None, "server exited under SendQ pressure"
 
-            sender.send("PING :sender-alive")
+            # The preceding bounded flood can leave legitimate commands in the
+            # client-to-server kernel buffer even after the slow reader has
+            # been dropped. Use the same finite five-second write allowance as
+            # the pressure batches instead of the normal 200 ms probe timeout.
+            sender.send_lines(["PING :sender-alive"])
             sender.expect("PONG test.local ::sender-alive")
 
             # The disconnected client's slot and nickname index must both be
