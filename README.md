@@ -263,3 +263,23 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
+
+## Release qualification
+
+After a clean strict build and complete CTest pass, run the Milestone 1
+small-client soak for 12 to 24 hours. The runner starts an isolated daemon,
+keeps a stable client set active, repeatedly connects and disconnects transient
+clients, and fails on a daemon exit, client loss, stalled protocol traffic, or
+resource growth beyond its explicit limits.
+
+```sh
+python3 tools/run_soak.py build/scratchircd \
+  --duration-hours 12 \
+  --report "soak-$(git rev-parse --short HEAD).json"
+```
+
+The JSON record includes the exact commit and binary digest, compiler and
+linked-library information, generated non-secret configuration, traffic counts,
+process samples, shutdown result, and the resource thresholds used. Preserve a
+passing record with the release evidence before tagging. See
+[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the full gate.
