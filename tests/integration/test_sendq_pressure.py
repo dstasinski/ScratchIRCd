@@ -24,7 +24,11 @@ class IRCClient:
 
     def send_lines(self, lines):
         payload = "".join(line + "\r\n" for line in lines).encode()
-        self.sock.sendall(payload)
+        self.sock.settimeout(5.0)
+        try:
+            self.sock.sendall(payload)
+        finally:
+            self.sock.settimeout(0.2)
 
     def expect(self, needle, duration=5.0):
         deadline = time.monotonic() + duration
@@ -110,18 +114,25 @@ def stop(proc):
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: test_sendq_pressure.py scratchircd")
+    if len(sys.argv) != 3:
+        raise SystemExit("usage: test_sendq_pressure.py scratchircd scratchircd-mkpasswd")
     binary = os.path.abspath(sys.argv[1])
+    mkpasswd = os.path.abspath(sys.argv[2])
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-sendq-") as directory:
         port = free_port()
         config = os.path.join(directory, "ircd.conf")
+        admin_hash = subprocess.check_output(
+            [mkpasswd, "adminpass"], text=True
+        ).strip()
         with open(config, "w", encoding="utf-8") as handle:
             handle.write("server_name = test.local\nnetwork_name = TestNet\n")
             handle.write("bind_address = 127.0.0.1\n")
             handle.write(f"port = {port}\nmax_clients = 16\ndns_timeout_seconds = 1\n")
             handle.write("output_queue_max_bytes = 4096\n")
+            handle.write("netadmin_name = root\n")
+            handle.write(f"netadmin_password_hash = {admin_hash}\n")
+            handle.write("netadmin_hostmask = *!*@127.0.0.1\n")
             for name in ("operators", "bans", "nickserv", "chanserv", "memoserv", "history"):
                 handle.write(f"{name}_db = {directory}/{name}.db\n")
             handle.write("geoip_city_db = \ngeoip_asn_db = \n")
@@ -139,34 +150,40 @@ def main():
             clients.append(slow)
             assert slow.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF) <= 8192
             register(slow, "Slow")
+            slow.send("JOIN #pressure")
+            slow.expect(" 366 Slow #pressure ")
+            slow.drain()
 
             observer = IRCClient(port)
             clients.append(observer)
             register(observer, "Observer")
             assert is_online(observer, "Slow")
 
-            payload = "X" * 430
-            senders = []
-            slow_disconnected = False
-            for sender_index in range(4):
-                sender = IRCClient(port)
-                clients.append(sender)
-                senders.append(sender)
-                nick = f"Sender{sender_index}"
-                register(sender, nick)
+            sender = IRCClient(port)
+            clients.append(sender)
+            register(sender, "Pressure")
+            sender.send("OPER root adminpass")
+            sender.expect(" 381 Pressure ")
+            sender.send("JOIN #pressure")
+            sender.expect(" 366 Pressure #pressure ")
+            sender.drain()
 
-                # Forty maximum-sized direct messages consume the sender's
-                # normal 80-token burst without tripping inbound flood policy.
-                # The slow peer receives no reads after registration, so its
-                # 4 KiB application SendQ must remain the hard memory ceiling.
+            payload = "X" * 420
+            slow_disconnected = False
+            for batch_index in range(10):
+                # The authenticated test netadmin is exempt from inbound flood
+                # throttling, allowing enough legal IRC traffic to fill the
+                # bounded Linux TCP send buffer before exercising the 4 KiB
+                # application SendQ. Each batch is finite and under 1.2 MiB.
                 sender.send_lines(
-                    f"PRIVMSG Slow :{index:02d}-{payload}" for index in range(40)
+                    f"PRIVMSG #pressure :{batch_index:02d}-{index:04d}-{payload}"
+                    for index in range(2500)
                 )
 
                 # A separate client must remain responsive while another
                 # client's socket and bounded output queue are saturated.
-                observer.send(f"PING :pressure-{sender_index}")
-                observer.expect(f"PONG test.local ::pressure-{sender_index}")
+                observer.send(f"PING :pressure-{batch_index}")
+                observer.expect(f"PONG test.local ::pressure-{batch_index}")
                 time.sleep(0.1)
                 if not is_online(observer, "Slow"):
                     slow_disconnected = True
@@ -175,12 +192,8 @@ def main():
             assert slow_disconnected, "slow reader did not exceed its bounded SendQ"
             assert proc.poll() is None, "server exited under SendQ pressure"
 
-            # PRIVMSG exhausts an individual sender's normal burst exactly.
-            # Allow one refill interval before asking those clients for PING.
-            time.sleep(1.1)
-            for index, sender in enumerate(senders):
-                sender.send(f"PING :sender-alive-{index}")
-                sender.expect(f"PONG test.local ::sender-alive-{index}")
+            sender.send("PING :sender-alive")
+            sender.expect("PONG test.local ::sender-alive")
 
             # The disconnected client's slot and nickname index must both be
             # reclaimed rather than leaking capacity or stale identity state.

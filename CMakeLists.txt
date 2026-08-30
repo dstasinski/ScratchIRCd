@@ -214,7 +214,7 @@ add_test(NAME command_budget_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_C
 set_tests_properties(command_budget_integration PROPERTIES TIMEOUT 60)
 add_test(NAME fanout_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_fanout.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(fanout_integration PROPERTIES TIMEOUT 60)
-add_test(NAME sendq_pressure_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sendq_pressure.py $<TARGET_FILE:scratchircd>)
+add_test(NAME sendq_pressure_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sendq_pressure.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(sendq_pressure_integration PROPERTIES TIMEOUT 60)
 add_test(NAME operator_identity_security_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_identity_security.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_identity_security_integration PROPERTIES TIMEOUT 60)
