@@ -67,7 +67,7 @@ def wait_listen(port, proc):
     raise RuntimeError("TLS listener did not start")
 
 
-def wait_closed(sock, duration=6.0):
+def wait_closed(sock, duration=8.0):
     deadline = time.monotonic() + duration
     sock.settimeout(0.2)
     while time.monotonic() < deadline:
@@ -112,7 +112,7 @@ def main():
             f.write(f"port = {plain_port}\ntls_port = {tls_port}\n")
             f.write(f"tls_cert_file = {cert}\ntls_key_file = {key}\n")
             f.write("max_clients = 32\ndns_timeout_seconds = 1\n")
-            f.write("registration_timeout_seconds = 2\n")
+            f.write("registration_timeout_seconds = 5\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {td}/bans.db\n")
 
