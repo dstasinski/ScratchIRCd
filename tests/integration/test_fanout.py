@@ -136,7 +136,7 @@ def main():
             # fit on one IRC line. All members must still be returned across
             # multiple 353 replies, each within the 512-byte wire limit.
             large = []
-            for index in range(18):
+            for index in range(32):
                 nick = f"Member{index:02d}" + ("X" * 7)
                 c = IRCClient(port); clients.append(c); register(c, nick)
                 c.send("JOIN #large"); c.expect(f" 366 {nick} #large ")

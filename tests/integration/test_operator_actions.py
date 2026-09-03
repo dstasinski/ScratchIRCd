@@ -142,7 +142,7 @@ def main():
             admin.expect(" 381 alice :You are now a Network Administrator")
 
             # NSINFO must not silently disappear when every persisted identity
-            # field is valid but the rendered NOTICE exceeds one IRC envelope.
+            # field is at its legal maximum and the rendered NOTICE is large.
             long_account = "n" * 15
             long_vhost = "v" * 63
             long_email = "e" * 64 + "@" + "d" * 185 + ".com"
@@ -156,11 +156,10 @@ def main():
             admin.send(f"NSSET {long_account} EMAIL {long_email}")
             admin.expect("NickServ account updated.")
             admin.send(f"NSINFO {long_account}")
-            info_head = admin.expect(f"NICKSERV {long_account} enabled=1")
+            info_lines = admin.expect(f"NICKSERV {long_account} enabled=1")
             prefix = f":{server_name} NOTICE alice :"
-            info_tail = admin.expect(prefix)
-            info_lines = info_head + info_tail
             payloads = [line[len(prefix):] for line in info_lines if line.startswith(prefix)]
+            assert payloads, info_lines
             expected_info = (
                 f"NICKSERV {long_account} enabled=1 vhost={long_vhost} "
                 f"email={long_email} email_verified=1 created="
