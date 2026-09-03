@@ -69,14 +69,14 @@ def wait_listen(port, proc):
 
 def register_direct(client, nick):
     client.send(f"NICK {nick}")
-    client.send(f"USER {nick} 0 * :{nick} User")
+    client.send(f"USER {nick[:10]} 0 * :{nick} User")
     client.expect(f" 001 {nick} ")
 
 
 def register_webirc(client, nick, real_ip):
     client.send(f"WEBIRC gateway-secret web.example user.example {real_ip}")
     client.send(f"NICK {nick}")
-    client.send(f"USER {nick} 0 * :{nick} User")
+    client.send(f"USER {nick[:10]} 0 * :{nick} User")
 
 
 def stop(proc):

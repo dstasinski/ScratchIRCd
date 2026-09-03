@@ -78,7 +78,7 @@ def wait_listen(port, proc):
 
 def register(client, nick):
     client.send(f"NICK {nick}")
-    client.send(f"USER {nick} 0 * :{nick}")
+    client.send(f"USER {nick[:10]} 0 * :{nick}")
     client.expect(f" 001 {nick} ")
 
 
@@ -137,7 +137,7 @@ def main():
             # multiple 353 replies, each within the 512-byte wire limit.
             large = []
             for index in range(18):
-                nick = f"Member{index:02d}" + ("X" * 20)
+                nick = f"Member{index:02d}" + ("X" * 7)
                 c = IRCClient(port); clients.append(c); register(c, nick)
                 c.send("JOIN #large"); c.expect(f" 366 {nick} #large ")
                 large.append((c, nick))

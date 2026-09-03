@@ -54,7 +54,7 @@ def wait_listen(port,proc):
         except OSError:time.sleep(0.05)
     raise RuntimeError("server did not listen")
 
-def register(c,nick): c.send(f"NICK {nick}"); c.send(f"USER {nick} 0 * :{nick}"); c.expect(f" 001 {nick} ")
+def register(c,nick): c.send(f"NICK {nick}"); c.send(f"USER {nick[:10]} 0 * :{nick}"); c.expect(f" 001 {nick} ")
 def stop(proc):
     if proc.poll() is None:
         proc.terminate()
@@ -185,7 +185,7 @@ def main():
             outsider.send("JOIN #limitsource");link=outsider.expect(" 470 RenamedOutside [Link] #limitsource ")
             assert "#limitdest" in link,link
             joined=protect.expect(" JOIN #limitdest")
-            assert joined.startswith(":RenamedOutside!RenamedOutside@"),joined
+            assert joined.startswith(":RenamedOutside!RenamedOut@"),joined
             outsider.expect(" 366 RenamedOutside #limitdest ")
 
             # Cross-channel redirect loops are bounded by IRC_JOIN_REDIRECT_MAX and never force a JOIN.

@@ -60,7 +60,7 @@ def wait_listen(port, proc):
     raise RuntimeError("listener did not start")
 
 def register(c, nick):
-    c.send(f"NICK {nick}"); c.send(f"USER {nick} 0 * :{nick}"); c.expect(f" 001 {nick} ")
+    c.send(f"NICK {nick}"); c.send(f"USER {nick[:10]} 0 * :{nick}"); c.expect(f" 001 {nick} ")
 
 def stop(proc):
     if proc.poll() is None:
@@ -180,7 +180,7 @@ def main():
 
             time.sleep(0.2)
             wait_listen(port, proc)
-            alice3 = IRCClient(port); register(alice3, "AliceAfterRestart")
+            alice3 = IRCClient(port); register(alice3, "AliceAfterStart")
             alice3.send("IDENTIFY Alice alicepass")
             alice3.expect("Password accepted - you are now identified.")
             alice3.send("MEMOSERV STATUS")

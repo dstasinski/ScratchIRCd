@@ -152,9 +152,9 @@ def main():
             c.expect(" 468 ValidNick :Invalid USER identity")
             c.send("USER " + ("u" * 32) + " 0 * :Valid Real Name")
             c.expect(" 468 ValidNick :Invalid USER identity")
-            c.send("USER valid_ident 0 * :" + ("R" * 128))
+            c.send("USER validident 0 * :" + ("R" * 128))
             c.expect(" 468 ValidNick :Invalid USER identity")
-            c.send("USER valid_ident 0 * :Valid Real Name")
+            c.send("USER validident 0 * :Valid Real Name")
             c.expect(" 001 ValidNick ", duration=5.0)
 
             # A single receive buffer may contain far more complete lines than

@@ -44,7 +44,7 @@ def wait_listen(port,proc):
     raise RuntimeError("server did not listen")
 
 def register(c,nick):
-    c.send(f"NICK {nick}"); c.send(f"USER {nick} 0 * :{nick} User"); c.expect(f" 001 {nick} ")
+    c.send(f"NICK {nick}"); c.send(f"USER {nick[:10]} 0 * :{nick} User"); c.expect(f" 001 {nick} ")
 
 def start_server(binary,config,cwd):
     return subprocess.Popen([binary,config],cwd=cwd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)

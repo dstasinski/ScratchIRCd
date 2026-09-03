@@ -69,7 +69,7 @@ def wait_listen(port, proc):
 
 def register(client, nick):
     client.send(f"NICK {nick}")
-    client.send(f"USER {nick} 0 * :{nick}")
+    client.send(f"USER {nick[:10]} 0 * :{nick}")
     client.expect(f" 001 {nick} ")
 
 

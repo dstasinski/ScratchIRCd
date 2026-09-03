@@ -231,7 +231,7 @@ def main():
             # that WHOIS requires multiple 319 numerics. Every membership must
             # survive the split, with no emitted IRC line exceeding 512 bytes.
             long_channels = []
-            for index in range(12):
+            for index in range(16):
                 suffix = f"{index:02d}"
                 channel = "#" + ("c" * (31 - len(suffix))) + suffix
                 assert len(channel) == 32
