@@ -114,7 +114,9 @@ def main():
             hidden_modes=trusted.expect(" 221 webuser ")
             hidden_token=mode_token(hidden_modes,"webuser")
             assert all(letter in hidden_token for letter in "HIW"),hidden_modes
-            observer.send("MODE observer +x")
+            # Every registered client starts in +x; with a configured cloak key,
+            # the automatic mode also hides the direct client's real address.
+            observer.send("MODE observer")
             cloak_modes=observer.expect(" 221 observer ")
             assert "x" in mode_token(cloak_modes,"observer"),cloak_modes
             observer.send("WHOIS webuser")
@@ -155,24 +157,34 @@ def main():
             observer.expect(" PONG test.local ::idle-check")
             trusted.send("WHOIS observer")
             idle_after_ping=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
-            assert idle_after_ping<=1,idle_after_ping
+            assert idle_after_ping>=idle_before,(idle_before,idle_after_ping)
             time.sleep(1.2)
             observer.send("WHOIS webuser")
             observer.expect(" 318 observer webuser ")
             trusted.send("WHOIS observer")
             idle_after_whois=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
-            assert idle_after_whois<=1,idle_after_whois
+            assert idle_after_whois>=idle_after_ping,(idle_after_ping,idle_after_whois)
             observer.send("PRIVMSG webuser :idle reset by privmsg")
             trusted.expect(" PRIVMSG webuser :idle reset by privmsg")
             trusted.send("WHOIS observer")
             idle_after_privmsg=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_privmsg<=1,idle_after_privmsg
             time.sleep(1.2)
-            observer.send("NOTICE webuser :idle reset by notice")
-            trusted.expect(" NOTICE webuser :idle reset by notice")
+            observer.send("NOTICE webuser :notice does not reset idle")
+            trusted.expect(" NOTICE webuser :notice does not reset idle")
             trusted.send("WHOIS observer")
             idle_after_notice=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
-            assert idle_after_notice<=1,idle_after_notice
+            assert idle_after_notice>=1,idle_after_notice
+            observer.send("JOIN #idle")
+            observer.expect(" 366 observer #idle ")
+            trusted.send("JOIN #idle")
+            trusted.expect(" 366 webuser #idle ")
+            time.sleep(1.2)
+            observer.send("PRIVMSG #idle :channel privmsg resets idle")
+            trusted.expect(" PRIVMSG #idle :channel privmsg resets idle")
+            trusted.send("WHOIS observer")
+            idle_after_channel_privmsg=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
+            assert idle_after_channel_privmsg<=1,idle_after_channel_privmsg
             limited=IRCClient(socket.create_connection(("127.0.0.1",port),timeout=3))
             limited.send("NICK limited");limited.send("USER limited 0 * :Limited User")
             limited_lines=limited.expect("PING :")

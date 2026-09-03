@@ -118,7 +118,10 @@ typedef struct Client {
     ClientDnsblState dnsbl_state;
     time_t dnsbl_deadline;
     time_t signon_time;
+    /** User-visible idle clock. Only delivered user/channel PRIVMSG resets it. */
     time_t last_activity;
+    /** Transport liveness clock, independent from WHOIS idle accounting. */
+    time_t last_liveness_activity;
     int ping_pending;
     time_t ping_deadline;
     char ping_token[IRCD_PING_TOKEN_MAX + 1U];

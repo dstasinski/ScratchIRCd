@@ -627,8 +627,9 @@ static void maintain_client_liveness(Server *server) {
             continue;
         }
 
-        if (now < client->last_activity) client->last_activity = now;
-        if (now - client->last_activity >=
+        if (now < client->last_liveness_activity)
+            client->last_liveness_activity = now;
+        if (now - client->last_liveness_activity >=
             (time_t)server->config.ping_interval_seconds) {
             client->ping_deadline =
                 now + (time_t)server->config.ping_timeout_seconds;

@@ -106,7 +106,7 @@
 #define RPL_USERIP  ":%s 340 %s :%s=+%s@%s"
 #define RPL_INVITING  ":%s 341 %s %s %s"
 #define RPL_SUMMONING  ":%s 342 %s %s :User summoned to irc"
-#define RPL_FLASH  ":%s 343 %s %s"
+#define RPL_FLASH  ":%s 343 %s :%s"
 #define RPL_INVEXLIST  ":%s 346 %s %s %s %s %lu"
 #define RPL_ENDOFINVEXLIST  ":%s 347 %s %s :End of Channel Invite List"
 #define RPL_EXLIST  ":%s 348 %s %s %s %s %lu"
@@ -261,4 +261,3 @@
 #define RPL_SERVICES_NEEDPASS ":%s 801 %s %s %s %s"
 #define RPL_SERVICES_PASSOK ":%s 802 %s %s %s :password accepted"
 #define RPL_SERVICES_BADPASS ":%s 803 %s %s %s :password wrong"
-

@@ -9,7 +9,6 @@
 #include "presence.h"
 
 #include <string.h>
-#include <time.h>
 
 static int is_oper_or_above(const Client *client) {
     return client != NULL &&
@@ -110,6 +109,5 @@ CommandResult command_tagmsg(Server *server, Client *client, char *params) {
             return COMMAND_KEEP_CLIENT;
         ircv3_send_tagmsg(destination, client, destination->nick);
     }
-    client->last_activity = time(NULL);
     return COMMAND_KEEP_CLIENT;
 }

@@ -154,8 +154,8 @@ def main():
             alice.send("CHANSERV SET #persist MLOCK +nt")
             alice.expect("Persistent mode lock updated.")
 
-            safe_topic = "T" * 310
-            unsafe_topic = "U" * 311
+            safe_topic = "T" * 378
+            unsafe_topic = "U" * 379
             alice.send(f"CHANSERV SET #persist TOPIC :{safe_topic}")
             alice.expect("Persistent topic updated.")
             alice.send("TOPIC #persist")

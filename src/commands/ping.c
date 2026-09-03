@@ -50,7 +50,7 @@ CommandResult command_pong(Server *server, Client *client, char *params) {
         client->ping_pending = 0;
         client->ping_deadline = 0;
         client->ping_token[0] = '\0';
-        client->last_activity = time(NULL);
+        client->last_liveness_activity = time(NULL);
     }
     return COMMAND_KEEP_CLIENT;
 }

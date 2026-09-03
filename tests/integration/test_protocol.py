@@ -244,7 +244,7 @@ def run_unprotected(binary, mkpasswd, tempdir):
         d.send("MODE delta")
         dmodes = d.expect(" 221 delta ")
         delta_modes = mode_token(dmodes, "delta")
-        assert delta_modes == "+o", dmodes
+        assert delta_modes == "+ox", dmodes
 
         # Delete record and verify subsequent logins fail.
         a.send("OPERDEL helper")

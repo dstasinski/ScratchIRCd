@@ -63,7 +63,7 @@ ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. S
 
 Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
 
-A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. A vhost (`+t`) replaces only the displayed hostname. Cloak mode `+x` likewise changes only the displayed hostname; keyed cloaks are generated from the client's real verified identity without exposing that identity. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
+A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. Every client receives cloak mode `+x` automatically at registration. When the administrator configures `cloak_key`, a keyed cloak is generated from the client's real verified identity without exposing that identity. A vhost (`+t`) replaces only the displayed hostname. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
 
 Historical channel records also store the displayed identity that was public when the message was sent; replay does not reveal `real_ip` or `real_host`.
 
@@ -473,6 +473,8 @@ WHOIS <nickname>
 ```
 
 Displays public information about a user, including displayed hostname, visible channel membership, authenticated account state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
+
+The reported idle time is reset only when that user successfully sends a private or channel `PRIVMSG`. Commands such as `PING`, `WHOIS`, `NOTICE`, and `TAGMSG` do not reset it. ScratchIRCd tracks connection liveness separately, so a client can remain responsive to server PING challenges without changing its reported messaging idle time.
 
 ### WHOWAS
 

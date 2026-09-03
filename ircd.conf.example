@@ -44,9 +44,10 @@ dns_timeout_seconds = 5
 nospoof = yes
 nospoof_timeout_seconds = 30
 
-# MODE +x cloaking. cloak_key must be a private random secret of at least
-# 16 characters; an empty key disables +x cloak generation. Changing either
-# value requires RESTART because cloaks are used in public identity and bans.
+# All registered clients receive MODE +x. cloak_key must be a private random
+# secret of at least 16 characters for +x to replace their displayed hostname;
+# an empty key leaves the displayed host unchanged. Changing either value
+# requires RESTART because cloaks are used in public identity and bans.
 cloak_prefix = dru
 cloak_key =
 

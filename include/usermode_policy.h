@@ -11,7 +11,7 @@
 /** Return non-zero when a +d recipient should still receive channel text. */
 int usermode_deaf_allows_text(const Client *recipient, const char *text);
 
-/** Apply +x by replacing only display_host with a deterministic cloak. */
+/** Apply +x and refresh display_host from the configured cloak policy. */
 void usermode_apply_cloak(const Server *server, Client *client);
 
 /** Remove +x and restore display_host from the verified real identity. */

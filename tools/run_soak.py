@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and record the Milestone 1 small-client operational soak."""
+"""Run and record the ScratchIRCd small-client operational soak."""
 
 import argparse
 import datetime as dt
@@ -17,6 +17,9 @@ import time
 
 
 MINIMUM_RELEASE_SOAK_SECONDS = 12 * 60 * 60
+IRC_NICK_MAX = 15
+IRC_USER_MAX = 10
+IRC_CHANNEL_NAME_MAX = 32
 
 
 class IRCClient:
@@ -268,20 +271,22 @@ def write_config(path, directory, port, max_clients):
     return text
 
 
-def register(port, nick):
+def register(port, nick, user=None, channel="#soak"):
     client = IRCClient(port, nick)
     try:
+        if user is None:
+            user = nick[:IRC_USER_MAX]
         client.send(f"NICK {nick}")
-        client.send(f"USER {nick} 0 * :{nick} soak client")
+        client.send(f"USER {user} 0 * :{nick} soak client")
         client.expect(f" 001 {nick} ", 8.0)
         # Registration follows the matching no-spoof PONG, but JOIN remains
         # restricted until the server's CTCP VERSION request is answered.
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
             client.read(min(0.1, deadline - time.monotonic()))
-            client.send("JOIN #soak")
+            client.send(f"JOIN {channel}")
             try:
-                client.expect(f" 366 {nick} #soak ", 0.3)
+                client.expect(f" 366 {nick} {channel} ", 0.3)
                 return client
             except RuntimeError:
                 continue
@@ -289,6 +294,37 @@ def register(port, nick):
     except Exception:
         client.close()
         raise
+
+
+def validate_protocol_limits(port):
+    maximum_nick = "N" * IRC_NICK_MAX
+    maximum_user = "u" * IRC_USER_MAX
+    maximum_channel = "#" + ("c" * (IRC_CHANNEL_NAME_MAX - 1))
+    boundary = register(port, maximum_nick, maximum_user, maximum_channel)
+    try:
+        boundary.send(f"MODE {maximum_nick}")
+        boundary.expect(f" 221 {maximum_nick} +x")
+        boundary.send("JOIN #" + ("x" * IRC_CHANNEL_NAME_MAX))
+        boundary.expect(f" 403 {maximum_nick} ")
+    finally:
+        boundary.close(orderly=True)
+
+    overlong_nick = IRCClient(port, "overlong-nick")
+    try:
+        overlong_nick.send("NICK " + ("N" * (IRC_NICK_MAX + 1)))
+        overlong_nick.expect(" 432 * ")
+    finally:
+        overlong_nick.close()
+
+    overlong_user = IRCClient(port, "overlong-user")
+    try:
+        overlong_user.send("NICK UserLimit")
+        overlong_user.send(
+            "USER " + ("u" * (IRC_USER_MAX + 1)) + " 0 * :Overlong User"
+        )
+        overlong_user.expect(" 468 UserLimit :Invalid USER identity")
+    finally:
+        overlong_user.close()
 
 
 def process_sample(pid, started):
@@ -411,6 +447,12 @@ def main():
             "health_pings": 0,
             "churn_connections": 0,
         },
+        "protocol_limits": {
+            "nick": IRC_NICK_MAX,
+            "user": IRC_USER_MAX,
+            "channel_name": IRC_CHANNEL_NAME_MAX,
+            "validated": False,
+        },
         "samples": [],
         "failures": [],
         "passed": False,
@@ -450,6 +492,8 @@ def main():
                 process = subprocess.Popen([str(binary), str(config)], stdout=log_handle,
                                            stderr=subprocess.STDOUT, text=True)
                 wait_listen(port, process)
+                validate_protocol_limits(port)
+                report["protocol_limits"]["validated"] = True
                 for index in range(args.clients):
                     stable.append(register(port, f"S{index:03d}"))
                 drain_clients(stable)

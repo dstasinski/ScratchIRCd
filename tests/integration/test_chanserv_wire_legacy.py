@@ -127,12 +127,12 @@ def main():
     mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
     admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
     server_name = "s" * 63
-    founder = "F" * 31
-    channel = "#" + "c" * 62
+    founder = "F" * 15
+    channel = "#" + "c" * 31
     description = "D" * 255
-    legacy_topic = "T" * 311
-    malformed_channel = "#" + "x" * 63
-    clipped_alias = malformed_channel[:63]
+    legacy_topic = "T" * 379
+    malformed_channel = "#" + "x" * 32
+    clipped_alias = malformed_channel[:32]
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-wire-") as td:
         port = free_port()
@@ -247,7 +247,7 @@ def main():
 
         stderr = proc.stderr.read() if proc.stderr is not None else ""
         assert "persistent topic" in stderr and "live topic left unset" in stderr, stderr
-        assert "311 bytes" in stderr, stderr
+        assert "379 bytes" in stderr, stderr
         assert "PCHANNELS" in stderr and "malformed" in stderr, stderr
 
     print("ChanServ legacy wire boundary integration tests passed")

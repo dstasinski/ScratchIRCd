@@ -128,6 +128,7 @@ Sending either command requires both IRC operator status and `+g`. ScratchIRCd i
 DEAF +<nick>
 DEAF -<nick>
 DIE
+FLASH <#channel|nick[,nick...]|*> :<message>
 GEOBAN <COUNTRY|REGION|ASN|ORG> <value> <duration|0> [:reason]
 GEOBAN LIST
 GLOBOPS :<message>
@@ -157,6 +158,8 @@ WHOIS <nickname>
 ```
 
 `DIE` requires `can_die`. It requests an orderly daemon shutdown through the normal event-loop teardown path; it does not call `exit()` from command dispatch. Remaining clients are disconnected during normal server destruction.
+
+`FLASH` is available to every authenticated IRC operator and network administrator. It sends a server-originated `RPL_FLASH` numeric (`343`) to every member of a channel, a comma-separated nickname list, or all registered clients with `*`.
 
 Explicit KLINE matches `user@real_host` and `user@real_ip`; explicit ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
 
@@ -200,6 +203,7 @@ CHANSERV
 CHATHISTORY
 DEAF
 DIE
+FLASH
 GEOBAN
 GLOBOPS
 IDENTIFY

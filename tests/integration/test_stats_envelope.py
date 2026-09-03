@@ -114,7 +114,7 @@ def main():
         with open(config, "w", encoding="utf-8") as f:
             f.write(f"server_name = {server_name}\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
-            f.write(f"port = {port}\nmax_clients = 20\ndns_timeout_seconds = 1\n")
+            f.write(f"port = {port}\nmax_clients = 40\ndns_timeout_seconds = 1\n")
             f.write(f"motd_file = {motd_file}\nrules_file = {rules_file}\n")
             f.write(f"operators_db = {td}/operators.db\n")
             f.write(f"bans_db = {bans_db}\n")
@@ -284,10 +284,10 @@ def main():
             # entries must split at token boundaries instead of truncating the
             # list or losing numeric 606 behind the 510-byte wire guard.
             watch_names = []
-            for index in range(20):
+            for index in range(40):
                 prefix = f"W{index:02d}"
-                watch_names.append(prefix + ("w" * (31 - len(prefix))))
-            for batch_index, batch in enumerate((watch_names[:12], watch_names[12:])):
+                watch_names.append(prefix + ("w" * (15 - len(prefix))))
+            for batch_index, batch in enumerate((watch_names[:20], watch_names[20:])):
                 client.send("WATCH " + " ".join("+" + name for name in batch))
                 marker = f"watch-add-{batch_index}"
                 client.send(f"PING :{marker}")
@@ -308,9 +308,9 @@ def main():
             # reply can carry once a maximum-length server prefix is added.
             # Preserve every online result across multiple 303 numerics.
             ison_names = []
-            for index in range(14):
+            for index in range(30):
                 prefix = f"I{index:02d}"
-                nick = prefix + ("i" * (31 - len(prefix)))
+                nick = prefix + ("i" * (15 - len(prefix)))
                 peer = IRCClient(port)
                 peers.append(peer)
                 register(peer, nick)

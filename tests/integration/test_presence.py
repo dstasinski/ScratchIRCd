@@ -213,10 +213,10 @@ def main():
             watcher.expect(" 369 Watcher Subject :End of WHOWAS")
 
             # TOPICLEN is a server-wide wire guarantee, not merely storage size.
-            # Exactly 310 bytes is advertised/accepted; 311 must be rejected
+            # Exactly 378 bytes is advertised/accepted; 379 must be rejected
             # before mutation, and the previously stored topic must remain.
-            topic_ok = "t" * 310
-            topic_too_long = "x" * 311
+            topic_ok = "t" * 378
+            topic_too_long = "x" * 379
             subject.send(f"TOPIC #presence :{topic_ok}")
             subject.expect(f" TOPIC #presence :{topic_ok}")
             watcher.send("TOPIC #presence")
@@ -233,8 +233,8 @@ def main():
             long_channels = []
             for index in range(12):
                 suffix = f"{index:02d}"
-                channel = "#" + ("c" * (62 - len(suffix))) + suffix
-                assert len(channel) == 63
+                channel = "#" + ("c" * (31 - len(suffix))) + suffix
+                assert len(channel) == 32
                 long_channels.append(channel)
                 subject.send(f"JOIN {channel}")
                 subject.expect(f" 366 Renamed {channel} ")

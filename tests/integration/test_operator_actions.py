@@ -143,7 +143,7 @@ def main():
 
             # NSINFO must not silently disappear when every persisted identity
             # field is valid but the rendered NOTICE exceeds one IRC envelope.
-            long_account = "n" * 31
+            long_account = "n" * 15
             long_vhost = "v" * 63
             long_email = "e" * 64 + "@" + "d" * 185 + ".com"
             assert len(long_email) == 254

@@ -50,7 +50,7 @@ add_executable(scratchircd
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_db_logging.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
     src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
-    src/commands/deafmute.c src/commands/die.c src/commands/dispatch.c src/commands/geoban.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
+    src/commands/deafmute.c src/commands/die.c src/commands/dispatch.c src/commands/flash.c src/commands/geoban.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c src/commands/kline.c src/commands/knock.c
     src/commands/list.c src/commands/lusers.c
     src/commands/memoserv.c src/commands/memoserv_admin.c src/commands/mode.c src/commands/mode_persist.c src/commands/mode_control.c src/commands/moderation_policy.c src/commands/motd.c src/commands/names.c
@@ -200,6 +200,8 @@ add_test(NAME ping_timeout_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CUR
 set_tests_properties(ping_timeout_integration PROPERTIES TIMEOUT 30)
 add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
+add_test(NAME flash_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_flash.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(flash_integration PROPERTIES TIMEOUT 60)
 add_test(NAME stats_envelope_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_stats_envelope.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(stats_envelope_integration PROPERTIES TIMEOUT 60)
 add_test(NAME channel_logging_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_logging.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)

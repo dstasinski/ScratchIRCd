@@ -41,6 +41,12 @@ def main():
         assert report_path.is_file(), result.stdout
         report = json.loads(report_path.read_text(encoding="utf-8"))
         assert report["schema"] == "scratchircd-milestone1-soak-v2"
+        assert report["protocol_limits"] == {
+            "nick": 15,
+            "user": 10,
+            "channel_name": 32,
+            "validated": False,
+        }
         assert report["passed"] is False
         assert report["release_qualified"] is False
         assert report["qualification"] == {

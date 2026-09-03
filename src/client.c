@@ -34,6 +34,7 @@ Client *client_create(int fd, uint64_t id, int address_family, const char *ip) {
     client->tls_state = CLIENT_TLS_NONE;
     client->signon_time = now;
     client->last_activity = now;
+    client->last_liveness_activity = now;
     client->outbuf_limit = IRCD_DEFAULT_OUTPUT_QUEUE_MAX_BYTES;
     (void)snprintf(client->real_ip, sizeof(client->real_ip), "%s", ip != NULL ? ip : IRC_UNKNOWN_HOST);
     client->real_host[0] = '\0';

@@ -82,8 +82,8 @@ def main():
 
     binary = os.path.abspath(sys.argv[1])
     server_name = "s" * 63
-    nick = "N" * 31
-    long_channel = "#" + "c" * 62
+    nick = "N" * 15
+    long_channel = "#" + "c" * 31
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-channel-limit-") as td:
         port = free_port()
@@ -124,7 +124,7 @@ def main():
             client.expect(f" 366 {nick} #three ")
 
             # Exercise TOPIC with the maximum legal server, nick and channel
-            # envelopes. The derived worst-case relay limit is 310 bytes. An
+            # envelopes. The derived worst-case relay limit is 378 bytes. An
             # oversized topic must be rejected before mutation so a later 332
             # still returns the previous value instead of disappearing at the
             # central 510-byte send guard.
@@ -134,7 +134,7 @@ def main():
             client.expect(f" 366 {nick} {long_channel} ")
             client.send(f"TOPIC {long_channel} :stable-topic")
             client.expect(f" TOPIC {long_channel} :stable-topic")
-            client.send(f"TOPIC {long_channel} :{'x' * 311}")
+            client.send(f"TOPIC {long_channel} :{'x' * 379}")
             client.expect(f" 417 {nick} TOPIC :Topic would exceed the IRC line limit")
             client.send(f"TOPIC {long_channel}")
             client.expect(f" 332 {nick} {long_channel} :stable-topic")
