@@ -64,11 +64,12 @@ CAP REQ :sasl
 NICK alice
 USER alice 0 * :Alice Example
 AUTHENTICATE PLAIN
-AUTHENTICATE <base64-plain-payload>
+AUTHENTICATE <base64-frame-1>
+AUTHENTICATE <base64-final-frame>
 CAP END
 ```
 
-The decoded PLAIN payload is `authzid NUL authcid NUL password`. `authzid` may be empty or equal to the account name. The encoded payload must fit in one frame of at most 400 characters. `AUTHENTICATE *` aborts the exchange. Successful authentication returns numeric `903`, attaches the account, and enables service-controlled mode `+r`; failure returns numeric `904` and does not prevent unauthenticated registration after `CAP END`.
+The decoded PLAIN payload is `authzid NUL authcid NUL password`. `authzid` may be empty or equal to the account name. Send the base64 text in frames of no more than 400 characters. A frame shorter than 400 characters is the final frame. If the total is an exact multiple of 400, send `AUTHENTICATE +` afterward. ScratchIRCd accepts at most 800 encoded characters. `AUTHENTICATE *` aborts the exchange. Successful authentication returns numeric `903`, attaches the account, and enables service-controlled mode `+r`; invalid credentials return `904`, an oversized payload returns `905`, and cancellation returns `906`. A failed exchange does not prevent unauthenticated registration after `CAP END`.
 
 ### Persistent channel history
 
@@ -112,7 +113,8 @@ Continues or aborts an IRCv3 SASL exchange after the `sasl` capability is reques
 
 ```text
 AUTHENTICATE PLAIN
-AUTHENTICATE <base64-plain-payload>
+AUTHENTICATE <base64-frame>
+AUTHENTICATE +
 AUTHENTICATE *
 ```
 

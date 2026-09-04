@@ -397,7 +397,7 @@ This section contains the complete ordinary client command set. Operator status 
 | Command | Purpose | Example |
 | --- | --- | --- |
 | `ADMIN` | Show the server's administrator contact and location. | `ADMIN` |
-| `AUTHENTICATE` | Continue or abort SASL PLAIN negotiation. | `AUTHENTICATE PLAIN`<br>`AUTHENTICATE <base64-payload>`<br>`AUTHENTICATE *` |
+| `AUTHENTICATE` | Continue, finish, or abort SASL PLAIN negotiation using frames of at most 400 characters. | `AUTHENTICATE PLAIN`<br>`AUTHENTICATE <base64-frame>`<br>`AUTHENTICATE +`<br>`AUTHENTICATE *` |
 | `AWAY` | Set or clear away status. | `AWAY :Out to lunch`<br>`AWAY` |
 | `CAP` | Negotiate IRCv3 capabilities. | `CAP LS 302`<br>`CAP REQ :server-time message-tags`<br>`CAP END` |
 | `CHANSERV` | Use ordinary ChanServ functions. | `CHANSERV INFO #chat`<br>`CHANSERV ACCESS #chat LIST`<br>`CHANSERV HELP` |
@@ -532,13 +532,14 @@ ScratchIRCd advertises `account-notify`, `away-notify`, `batch`, `draft/chathist
 CAP LS 302
 CAP REQ :batch draft/chathistory server-time
 AUTHENTICATE PLAIN
-AUTHENTICATE <base64-plain-payload>
+AUTHENTICATE <base64-frame-1>
+AUTHENTICATE <base64-final-frame>
 CAP END
 JOIN #chat
 CHATHISTORY LATEST #chat * 50
 ```
 
-`CHATHISTORY` still requires current channel membership. Operator status alone does not bypass it.
+SASL frames may contain at most 400 characters each and the combined encoded payload may contain at most 800. If the encoded payload is an exact multiple of 400 characters, finish it with `AUTHENTICATE +`. `CHATHISTORY` still requires current channel membership. Operator status alone does not bypass it.
 
 ### Identity and idle reporting
 

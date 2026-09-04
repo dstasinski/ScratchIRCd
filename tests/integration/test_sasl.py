@@ -18,6 +18,19 @@ class IRCClient:
                 self.buf+=data
             except socket.timeout: pass
         raise AssertionError(f"expected {needle!r}; got {got!r}")
+    def read_for(self,duration=0.4):
+        end=time.monotonic()+duration; got=[]
+        while time.monotonic()<end:
+            while b"\n" in self.buf:
+                raw,self.buf=self.buf.split(b"\n",1); got.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                data=self.sock.recv(4096)
+                if not data: break
+                self.buf+=data
+            except socket.timeout: pass
+        while b"\n" in self.buf:
+            raw,self.buf=self.buf.split(b"\n",1); got.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return got
     def close(self):
         try:self.sock.close()
         except OSError:pass
@@ -42,19 +55,25 @@ def plain(account,password):
 def encoded(raw):
     return base64.b64encode(raw).decode()
 
-def expect_sasl_rejection(port,clients,nick,payload,numeric="904"):
-    client=IRCClient(port); clients.append(client)
+def begin_sasl(client,nick):
     client.send("CAP LS 302"); client.expect(" CAP * LS :")
     client.send("CAP REQ :sasl"); client.expect(" CAP * ACK :sasl")
     client.send(f"NICK {nick}"); client.send(f"USER sasltest 0 * :{nick}")
     client.send("AUTHENTICATE PLAIN"); client.expect("AUTHENTICATE +")
-    client.send("AUTHENTICATE "+payload); client.expect(f" {numeric} {nick} ")
-    # A rejected exchange must not authenticate the connection or prevent
-    # ordinary unauthenticated registration after CAP negotiation ends.
+
+def finish_unauthenticated(client,nick):
     client.send("CAP END"); client.expect(f" 001 {nick} ")
     client.send(f"WHOIS {nick}")
     whois=client.expect(f" 318 {nick} {nick} ")
     assert not any("is logged in as" in line for line in whois),whois
+
+def expect_sasl_rejection(port,clients,nick,payload,numeric="904"):
+    client=IRCClient(port); clients.append(client)
+    begin_sasl(client,nick)
+    client.send("AUTHENTICATE "+payload); client.expect(f" {numeric} {nick} ")
+    # A rejected exchange must not authenticate the connection or prevent
+    # ordinary unauthenticated registration after CAP negotiation ends.
+    finish_unauthenticated(client,nick)
 
 def main():
     binary=os.path.abspath(sys.argv[1])
@@ -73,6 +92,12 @@ def main():
             seed.send("NICKSERV REGISTER secretpass"); seed.expect("Nickname registered and identified.")
             seed.send("QUIT :seed done"); seed.close(); clients.remove(seed)
 
+            long_password="p"*420
+            chunk_seed=IRCClient(port); clients.append(chunk_seed); register(chunk_seed,"Chunked")
+            chunk_seed.send("NICKSERV REGISTER "+long_password)
+            chunk_seed.expect("Nickname registered and identified.")
+            chunk_seed.send("QUIT :seed done"); chunk_seed.close(); clients.remove(chunk_seed)
+
             c=IRCClient(port); clients.append(c)
             c.send("CAP LS 302"); ls=c.expect(" CAP * LS :")
             assert any("sasl" in line for line in ls),ls
@@ -80,6 +105,7 @@ def main():
             c.send("NICK Traveler"); c.send("USER traveler 0 * :Traveler")
             c.send("AUTHENTICATE PLAIN"); c.expect("AUTHENTICATE +")
             c.send("AUTHENTICATE "+plain("Alice","secretpass")); c.expect(" 903 Traveler ")
+            c.send("AUTHENTICATE PLAIN"); c.expect(" 907 Traveler ")
             # Registration remains held until CAP END.
             c.send("CAP END"); c.expect(" 001 Traveler ")
             c.send("MODE Traveler"); modes=c.expect(" 221 Traveler ")
@@ -96,6 +122,29 @@ def main():
             bad.send("AUTHENTICATE "+plain("Alice","wrong")); bad.expect(" 904 Bad ")
             bad.send("CAP END"); bad.expect(" 001 Bad ")
 
+            chunked=IRCClient(port); clients.append(chunked); begin_sasl(chunked,"Framed")
+            chunked_payload=plain("Chunked",long_password)
+            assert 400<len(chunked_payload)<=800,len(chunked_payload)
+            chunked.send("AUTHENTICATE "+chunked_payload[:400])
+            interim=chunked.read_for()
+            assert not any(f" 90{n} Framed " in line for n in range(3,8) for line in interim),interim
+            chunked.send("AUTHENTICATE "+chunked_payload[400:]); chunked.expect(" 903 Framed ")
+            chunked.send("CAP END"); chunked.expect(" 001 Framed ")
+
+            exact=IRCClient(port); clients.append(exact); begin_sasl(exact,"ExactFrame")
+            exact.send("AUTHENTICATE "+"A"*400)
+            interim=exact.read_for()
+            assert not any(" 904 ExactFrame " in line for line in interim),interim
+            exact.send("AUTHENTICATE +"); exact.expect(" 904 ExactFrame ")
+            finish_unauthenticated(exact,"ExactFrame")
+
+            cancelled=IRCClient(port); clients.append(cancelled); begin_sasl(cancelled,"Cancelled")
+            cancelled.send("AUTHENTICATE "+"A"*400)
+            cancelled.send("AUTHENTICATE *"); cancelled.expect(" 906 Cancelled ")
+            cancelled.send("AUTHENTICATE PLAIN"); cancelled.expect("AUTHENTICATE +")
+            cancelled.send("AUTHENTICATE "+plain("Alice","secretpass")); cancelled.expect(" 903 Cancelled ")
+            cancelled.send("CAP END"); cancelled.expect(" 001 Cancelled ")
+
             malformed=[
                 ("NoSeparators",encoded(b"Alice")),
                 ("OneSeparator",encoded(b"\0Alice")),
@@ -108,6 +157,12 @@ def main():
             for nick,payload in malformed:
                 expect_sasl_rejection(port,clients,nick,payload)
             expect_sasl_rejection(port,clients,"TooLong","A"*404,"905")
+
+            aggregate=IRCClient(port); clients.append(aggregate); begin_sasl(aggregate,"Aggregate")
+            aggregate.send("AUTHENTICATE "+"A"*400)
+            aggregate.send("AUTHENTICATE "+"A"*400)
+            aggregate.send("AUTHENTICATE AAAA"); aggregate.expect(" 905 Aggregate ")
+            finish_unauthenticated(aggregate,"Aggregate")
         finally:
             for c in clients:c.close()
             if proc.poll() is None:

@@ -30,7 +30,9 @@ Registration remains held while CAP negotiation is active. `CAP END` releases th
 
 The `sasl` capability enables `AUTHENTICATE PLAIN`. SASL uses the NickServ account database and therefore produces the same authenticated account, `+r`, and account vhost state as NickServ IDENTIFY.
 
-The PLAIN payload is one base64 frame of at most 400 characters containing exactly `authzid NUL authcid NUL password`. The authorization identity may be empty or case-insensitively equal to the authentication identity. Missing separators, an empty authentication identity or password, an additional NUL-delimited field, invalid base64, and mismatched identities are rejected without authenticating the connection. After rejection, the client may still finish CAP negotiation and register without an account.
+The PLAIN payload is base64 containing exactly `authzid NUL authcid NUL password`. The authorization identity may be empty or case-insensitively equal to the authentication identity. Clients split encoded payloads into 400-character `AUTHENTICATE` frames. A shorter frame completes the payload; an exact multiple of 400 characters is completed by a final `AUTHENTICATE +`. ScratchIRCd accepts up to 800 encoded characters and discards partial payloads on failure or `AUTHENTICATE *` cancellation.
+
+Missing separators, an empty authentication identity or password, an additional NUL-delimited field, invalid base64, and mismatched identities are rejected without authenticating the connection. After rejection, the client may restart SASL or finish CAP negotiation and register without an account. Sending another AUTHENTICATE command after successful SASL returns numeric `907` without changing the authenticated account.
 
 ## account-notify
 

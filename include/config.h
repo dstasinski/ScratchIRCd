@@ -127,6 +127,12 @@
 #define IRCD_RESET_TOKEN_BYTES 16U
 #define IRCD_RESET_TOKEN_HEX_LEN (IRCD_RESET_TOKEN_BYTES * 2U)
 #define IRCD_TOKEN_HASH_HEX_LEN 64U
+/* IRCv3 AUTHENTICATE frames are limited to 400 bytes. Two frames cover the
+ * longest credential that can be created through an ordinary IRC command
+ * while keeping per-client SASL storage tightly bounded. */
+#define IRCD_SASL_FRAME_MAX 400U
+#define IRCD_SASL_ENCODED_MAX 800U
+#define IRCD_SASL_DECODED_MAX ((IRCD_SASL_ENCODED_MAX / 4U) * 3U)
 #define IRCD_DEFAULT_NICKSERV_RESET_SECONDS 1800U
 #define IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS 86400U
 #define IRCD_DEFAULT_SENDMAIL_PATH ""

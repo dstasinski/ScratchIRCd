@@ -83,6 +83,9 @@ typedef struct Client {
     unsigned int cap_version;
     ClientCapabilitySet capabilities;
     ClientSaslState sasl_state;
+    char *sasl_buffer;
+    size_t sasl_buffer_len;
+    size_t sasl_buffer_capacity;
 
     /* Per-command IRCv3 metadata. Client-only tags are retained only while
      * the current command is dispatched. Labeled replies are grouped in a

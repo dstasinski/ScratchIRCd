@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <openssl/crypto.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -168,6 +169,10 @@ void client_free(void *ptr) {
     while (client->watch_list != NULL) { ClientWatchEntry *next = client->watch_list->next; free(client->watch_list); client->watch_list = next; }
     free(client->outbuf);
     client->outbuf = NULL;
+    if (client->sasl_buffer != NULL)
+        OPENSSL_cleanse(client->sasl_buffer, client->sasl_buffer_capacity);
+    free(client->sasl_buffer);
+    client->sasl_buffer = NULL;
     if (client->ssl != NULL) { (void)SSL_shutdown(client->ssl); SSL_free(client->ssl); client->ssl = NULL; }
     free(client);
 }
