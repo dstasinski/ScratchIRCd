@@ -39,6 +39,23 @@ def register(c,nick):
 def plain(account,password):
     return base64.b64encode(("\0"+account+"\0"+password).encode()).decode()
 
+def encoded(raw):
+    return base64.b64encode(raw).decode()
+
+def expect_sasl_rejection(port,clients,nick,payload,numeric="904"):
+    client=IRCClient(port); clients.append(client)
+    client.send("CAP LS 302"); client.expect(" CAP * LS :")
+    client.send("CAP REQ :sasl"); client.expect(" CAP * ACK :sasl")
+    client.send(f"NICK {nick}"); client.send(f"USER {nick} 0 * :{nick}")
+    client.send("AUTHENTICATE PLAIN"); client.expect("AUTHENTICATE +")
+    client.send("AUTHENTICATE "+payload); client.expect(f" {numeric} {nick} ")
+    # A rejected exchange must not authenticate the connection or prevent
+    # ordinary unauthenticated registration after CAP negotiation ends.
+    client.send("CAP END"); client.expect(f" 001 {nick} ")
+    client.send(f"WHOIS {nick}")
+    whois=client.expect(f" 318 {nick} {nick} ")
+    assert not any("is logged in as" in line for line in whois),whois
+
 def main():
     binary=os.path.abspath(sys.argv[1])
     with tempfile.TemporaryDirectory(prefix="scratchircd-sasl-") as td:
@@ -78,6 +95,19 @@ def main():
             bad.send("AUTHENTICATE PLAIN"); bad.expect("AUTHENTICATE +")
             bad.send("AUTHENTICATE "+plain("Alice","wrong")); bad.expect(" 904 Bad ")
             bad.send("CAP END"); bad.expect(" 001 Bad ")
+
+            malformed=[
+                ("NoSeparators",encoded(b"Alice")),
+                ("OneSeparator",encoded(b"\0Alice")),
+                ("EmptyAuthcid",encoded(b"\0\0secretpass")),
+                ("EmptyPassword",encoded(b"\0Alice\0")),
+                ("ExtraSeparator",encoded(b"\0Alice\0secretpass\0ignored")),
+                ("WrongAuthzid",encoded(b"Mallory\0Alice\0secretpass")),
+                ("InvalidBase64","!!!!"),
+            ]
+            for nick,payload in malformed:
+                expect_sasl_rejection(port,clients,nick,payload)
+            expect_sasl_rejection(port,clients,"TooLong","A"*404,"905")
         finally:
             for c in clients:c.close()
             if proc.poll() is None:

@@ -30,6 +30,8 @@ Registration remains held while CAP negotiation is active. `CAP END` releases th
 
 The `sasl` capability enables `AUTHENTICATE PLAIN`. SASL uses the NickServ account database and therefore produces the same authenticated account, `+r`, and account vhost state as NickServ IDENTIFY.
 
+The PLAIN payload is one base64 frame of at most 400 characters containing exactly `authzid NUL authcid NUL password`. The authorization identity may be empty or case-insensitively equal to the authentication identity. Missing separators, an empty authentication identity or password, an additional NUL-delimited field, invalid base64, and mismatched identities are rejected without authenticating the connection. After rejection, the client may still finish CAP negotiation and register without an account.
+
 ## account-notify
 
 A client that enables `account-notify` receives IRCv3 `ACCOUNT` messages when another registered client sharing a channel becomes authenticated after registration:

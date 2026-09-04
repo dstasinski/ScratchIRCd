@@ -2,7 +2,7 @@
  * @file authenticate.c
  * @brief IRCv3 SASL AUTHENTICATE command using the NickServ account database.
  *
- * This first SASL implementation supports PLAIN. Credentials are decoded from
+ * This SASL implementation supports PLAIN. Credentials are decoded from
  * one base64 payload and authenticated through nickserv_identify(), ensuring
  * SASL and IDENTIFY produce identical account, +r and vhost state.
  */
@@ -22,9 +22,41 @@ static void sasl_fail(Server *server, Client *client) {
                  command_reply_nick(client));
 }
 
+static int plain_fields(unsigned char *decoded, size_t decoded_len,
+                        char **authzid, char **authcid, char **password) {
+    unsigned char *end;
+    unsigned char *first_separator;
+    unsigned char *second_separator;
+
+    if (decoded == NULL || decoded_len == 0U || authzid == NULL ||
+        authcid == NULL || password == NULL) return 0;
+
+    end = decoded + decoded_len;
+    first_separator = memchr(decoded, '\0', decoded_len);
+    if (first_separator == NULL) return 0;
+
+    second_separator = memchr(first_separator + 1, '\0',
+                              (size_t)(end - (first_separator + 1)));
+    if (second_separator == NULL || second_separator == first_separator + 1 ||
+        second_separator + 1 == end) return 0;
+
+    /* PLAIN has exactly three fields. An embedded NUL in the password would
+     * otherwise let C-string verification silently ignore trailing bytes. */
+    if (memchr(second_separator + 1, '\0',
+               (size_t)(end - (second_separator + 1))) != NULL) return 0;
+
+    decoded[decoded_len] = '\0';
+    *authzid = (char *)decoded;
+    *authcid = (char *)(first_separator + 1);
+    *password = (char *)(second_separator + 1);
+    return 1;
+}
+
 CommandResult command_authenticate(Server *server, Client *client, char *params) {
     unsigned char decoded[512];
     int decoded_len;
+    size_t decoded_size;
+    size_t padding = 0U;
     char *authzid;
     char *authcid;
     char *password;
@@ -68,25 +100,23 @@ CommandResult command_authenticate(Server *server, Client *client, char *params)
         client->sasl_state = CLIENT_SASL_FAILED;
         return COMMAND_KEEP_CLIENT;
     }
-    decoded_len = EVP_DecodeBlock(decoded, (const unsigned char *)params, (int)payload_len);
-    if (decoded_len <= 0 || (size_t)decoded_len >= sizeof(decoded)) {
-        sasl_fail(server, client);
-        return COMMAND_KEEP_CLIENT;
-    }
-    while (payload_len > 0U && params[payload_len - 1U] == '=') {
-        --decoded_len;
-        --payload_len;
-    }
-    decoded[decoded_len] = '\0';
 
-    authzid = (char *)decoded;
-    authcid = authzid + strlen(authzid) + 1U;
-    if (authcid >= (char *)decoded + decoded_len) {
+    while (padding < payload_len && params[payload_len - padding - 1U] == '=')
+        ++padding;
+    if (padding > 2U ||
+        memchr(params, '=', payload_len - padding) != NULL) {
         sasl_fail(server, client);
         return COMMAND_KEEP_CLIENT;
     }
-    password = authcid + strlen(authcid) + 1U;
-    if (password > (char *)decoded + decoded_len || *authcid == '\0' || *password == '\0') {
+
+    decoded_len = EVP_DecodeBlock(decoded, (const unsigned char *)params, (int)payload_len);
+    if (decoded_len <= 0 || (size_t)decoded_len < padding) {
+        sasl_fail(server, client);
+        return COMMAND_KEEP_CLIENT;
+    }
+    decoded_size = (size_t)decoded_len - padding;
+    if (decoded_size >= sizeof(decoded) ||
+        !plain_fields(decoded, decoded_size, &authzid, &authcid, &password)) {
         sasl_fail(server, client);
         return COMMAND_KEEP_CLIENT;
     }
