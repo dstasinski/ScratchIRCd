@@ -160,6 +160,8 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
         Channel *channel = hash_get(&server->channels_by_name, target_name);
         ChannelMember *member;
         ChannelPrivilegeSet saved = 0U;
+        ChannelPrivilegeSet saved_manual = 0U;
+        ChannelPrivilegeSet saved_service = 0U;
         int temporary = 0;
         char mode_params[IRCD_MESSAGE_BUFFER_SIZE];
 
@@ -178,6 +180,8 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
             member = channel_find_member(channel, client);
         } else {
             saved = member->privileges;
+            saved_manual = member->manual_privileges;
+            saved_service = member->service_privileges;
         }
         if (member == NULL) return COMMAND_KEEP_CLIENT;
         member->privileges |= CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
@@ -190,7 +194,11 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
                           client->nick, target_name, rest);
 
         if (temporary) channel_remove_client(channel, client);
-        else member->privileges = saved;
+        else {
+            member->privileges = saved;
+            member->manual_privileges = saved_manual;
+            member->service_privileges = saved_service;
+        }
         return COMMAND_KEEP_CLIENT;
     }
 

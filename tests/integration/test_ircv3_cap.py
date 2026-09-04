@@ -111,6 +111,15 @@ def main():
             assert any(x.startswith("@time=") and " :Alice!" in x
                        for x in notice if " ACCOUNT Alice" in x),notice
 
+            alice.send("NICKSERV LOGOUT")
+            alice.expect("You are now logged out of your account.")
+            logout_notice=watcher.expect(" ACCOUNT *")
+            assert any(x.startswith("@time=") and " :Alice!" in x
+                       for x in logout_notice if " ACCOUNT *" in x),logout_notice
+            alice.send("IDENTIFY Alice secretpass")
+            alice.expect("Password accepted - you are now identified.")
+            watcher.expect(" ACCOUNT Alice")
+
             tagger=IRCClient(port); clients.append(tagger); register(tagger,"Tagger",True)
             tagger.expect(" CAP * LS :")
             tagger.send("CAP REQ :message-tags")

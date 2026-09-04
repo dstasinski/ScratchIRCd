@@ -52,7 +52,7 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
             ChannelPrivilegeSet privileges =
                 chanserv_client_privileges(server, target, channel->name);
             if (privileges != 0U) {
-                (void)channel_add_privileges(channel, target, privileges);
+                (void)channel_set_service_privileges(channel, target, privileges);
             }
         } else if (first) {
             (void)channel_add_privileges(channel, target,

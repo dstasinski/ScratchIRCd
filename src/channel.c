@@ -134,6 +134,8 @@ int channel_set_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
     if (member == NULL) return -1;
+    member->manual_privileges = privileges;
+    member->service_privileges = 0U;
     member->privileges = privileges;
     return 0;
 }
@@ -142,7 +144,8 @@ int channel_add_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
     if (member == NULL) return -1;
-    member->privileges |= privileges;
+    member->manual_privileges |= privileges;
+    member->privileges = member->manual_privileges | member->service_privileges;
     return 0;
 }
 
@@ -150,8 +153,29 @@ int channel_remove_privileges(Channel *channel, Client *client,
                               ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);
     if (member == NULL) return -1;
-    member->privileges &= ~privileges;
+    member->manual_privileges &= ~privileges;
+    member->service_privileges &= ~privileges;
+    member->privileges = member->manual_privileges | member->service_privileges;
     return 0;
+}
+
+int channel_set_service_privileges(Channel *channel, Client *client,
+                                   ChannelPrivilegeSet privileges) {
+    ChannelMember *member = channel_find_member(channel, client);
+    if (member == NULL) return -1;
+    member->service_privileges = privileges;
+    member->privileges = member->manual_privileges | member->service_privileges;
+    return 0;
+}
+
+void channel_forget_service_privileges(Channel *channel) {
+    ChannelMember *member;
+    if (channel == NULL) return;
+    for (member = channel->members; member != NULL; member = member->next) {
+        member->manual_privileges |= member->service_privileges;
+        member->service_privileges = 0U;
+        member->privileges = member->manual_privileges;
+    }
 }
 
 int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,

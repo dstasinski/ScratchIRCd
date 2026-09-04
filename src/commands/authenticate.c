@@ -9,6 +9,8 @@
  */
 
 #include "commands.h"
+#include "chanserv.h"
+#include "ircv3.h"
 #include "memoserv.h"
 #include "nickserv.h"
 #include "numerics.h"
@@ -110,6 +112,7 @@ static void sasl_finish_plain(Server *server, Client *client) {
     char *password;
     const char *payload;
     size_t payload_len = client->sasl_buffer_len;
+    int was_identified = client->account_name[0] != '\0';
 
     payload = client->sasl_buffer != NULL ? client->sasl_buffer : "";
     if (payload_len == 0U || (payload_len % 4U) != 0U) {
@@ -143,6 +146,10 @@ static void sasl_finish_plain(Server *server, Client *client) {
 
     OPENSSL_cleanse(decoded, sizeof(decoded));
     sasl_reset_payload(client);
+    if (!was_identified && client->registered) {
+        ircv3_account_notify(client);
+        chanserv_sync_client_privileges(server, client);
+    }
     memoserv_notify_unread(server, client);
     client->sasl_state = CLIENT_SASL_COMPLETE;
     client_sendf(client, RPL_LOGGEDIN, server->config.server_name,

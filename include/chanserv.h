@@ -23,6 +23,12 @@ int chanserv_client_is_founder(Server *server, const Client *client, const char 
 ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *client,
                                                const char *channel_name);
 
+/** Reconcile one live client's service-derived privileges after account changes. */
+void chanserv_sync_client_privileges(Server *server, Client *client);
+
+/** Reconcile every live member after a channel registration/access mutation. */
+void chanserv_sync_channel_privileges(Server *server, Channel *channel);
+
 /**
  * Return non-zero when a boolean MODE change is compatible with the stored
  * ChanServ MLOCK. Unregistered channels are always allowed.

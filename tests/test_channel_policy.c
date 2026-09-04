@@ -66,6 +66,24 @@ int main(void) {
     assert(channel.join_throttle_window_count == 0U);
     assert(channel.join_throttle_window_start == 0);
 
+    /* ChanServ status is tracked separately from ordinary MODE grants. */
+    assert(channel_add_client(&channel, &client) == 0);
+    assert(channel_add_privileges(&channel, &client, CHANNEL_PRIV_VOICE) == 0);
+    assert(channel_set_service_privileges(&channel, &client,
+                                          CHANNEL_PRIV_OPERATOR) == 0);
+    assert(channel_find_member(&channel, &client)->privileges ==
+           (CHANNEL_PRIV_VOICE | CHANNEL_PRIV_OPERATOR));
+    assert(channel_set_service_privileges(&channel, &client, 0U) == 0);
+    assert(channel_find_member(&channel, &client)->privileges == CHANNEL_PRIV_VOICE);
+    assert(channel_set_service_privileges(&channel, &client,
+                                          CHANNEL_PRIV_OPERATOR) == 0);
+    channel_forget_service_privileges(&channel);
+    assert(channel_find_member(&channel, &client)->service_privileges == 0U);
+    assert(channel_set_service_privileges(&channel, &client, 0U) == 0);
+    assert(channel_find_member(&channel, &client)->privileges ==
+           (CHANNEL_PRIV_VOICE | CHANNEL_PRIV_OPERATOR));
+    channel_remove_client(&channel, &client);
+
     /* Attacker-controlled linked lists have hard cardinality bounds. */
     channel_mask_clear(&channel.ban_list);
     for (i = 0U; i < IRC_CHANNEL_MASK_LIST_MAX; ++i) {

@@ -42,7 +42,13 @@ A client that enables `account-notify` receives IRCv3 `ACCOUNT` messages when an
 :nick!user@display.host ACCOUNT accountname
 ```
 
-A recipient sharing more than one channel with the changing user receives one notification rather than one per shared channel. Account state established by SASL before registration does not produce an ACCOUNT message because the user is not yet visible to peers.
+NickServ `LOGOUT` sends the corresponding detached state:
+
+```text
+:nick!user@display.host ACCOUNT *
+```
+
+A recipient sharing more than one channel with the changing user receives one notification rather than one per shared channel. Account state established by SASL before registration does not produce an ACCOUNT message because the user is not yet visible to peers. Post-registration SASL authentication does notify shared capable peers.
 
 ## away-notify
 

@@ -417,7 +417,7 @@ This section contains the complete ordinary client command set. Operator status 
 | `MOTD` | Show the message of the day. | `MOTD` |
 | `NAMES` | List visible members of all visible channels or one channel. | `NAMES`<br>`NAMES #chat` |
 | `NICK` | Set or change a nickname. | `NICK alice` |
-| `NICKSERV` | Register, identify, or manage a personal account. | `NICKSERV IDENTIFY password`<br>`NICKSERV HELP` |
+| `NICKSERV` | Register, identify, log out, or manage a personal account. | `NICKSERV IDENTIFY password`<br>`NICKSERV LOGOUT`<br>`NICKSERV HELP` |
 | `NOTICE` | Send a notice to a user or channel. | `NOTICE bob :Meeting starts now`<br>`NOTICE #chat :Meeting starts now` |
 | `PART` | Leave a channel. | `PART #chat :Good night` |
 | `PASS` | Supply the server password before registration. | `PASS server-password` |
@@ -442,12 +442,13 @@ This section contains the complete ordinary client command set. Operator status 
 
 ### NickServ commands
 
-NickServ supports direct commands and `PRIVMSG NickServ :<command>`. Successful identification sets service-controlled mode `+r`.
+NickServ supports direct commands and `PRIVMSG NickServ :<command>`. Successful identification sets service-controlled mode `+r`; `LOGOUT` detaches the account and removes account-derived state.
 
 ```text
 NICKSERV REGISTER account-password
 NICKSERV IDENTIFY account-password
 NICKSERV IDENTIFY alice account-password
+NICKSERV LOGOUT
 NICKSERV SET PASSWORD new-password
 NICKSERV SET EMAIL alice@example.net
 NICKSERV VERIFY emailed-token
@@ -476,7 +477,7 @@ CHANSERV HELP
 PRIVMSG ChanServ :INFO #chat
 ```
 
-Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`. They restore `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins.
+Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`. They apply `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins or identifies, and are removed on logout.
 
 ### MemoServ commands
 

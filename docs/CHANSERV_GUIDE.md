@@ -46,13 +46,15 @@ CHANSERV ACCESS #channel DEL <account>
 CHANSERV ACCESS #channel LIST
 ```
 
-Access is bound to the authenticated account, not the current nickname. On JOIN, the corresponding privileges are restored automatically:
+Access is bound to the authenticated account, not the current nickname. On JOIN or later account identification, the corresponding privileges are applied automatically:
 
 - `OWNER` -> channel owner/operator (`+q/+o`, `~` prefix), authority level 5
 - `PROTECTED` -> protected/operator (`+a/+o`, `&` prefix), authority level 4
 - `OP` -> channel operator (`+o`, `@` prefix), authority level 3
 - `HALFOP` -> halfop (`+h`, `%` prefix), authority level 2
 - `VOICE` -> voice (`+v`, `+` prefix), authority level 1
+
+Live `ACCESS ADD`, `ACCESS DEL`, and role changes take effect immediately for connected account holders already in the channel. `NICKSERV LOGOUT` removes only the membership privileges supplied by ChanServ; unrelated manually assigned channel modes remain intact.
 
 The founder is implicitly an owner and is not stored as a separate access-list entry.
 

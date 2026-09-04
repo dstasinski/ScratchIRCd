@@ -26,7 +26,12 @@ typedef struct ChannelInvite {
 /** One client's membership and privileges in one channel. */
 typedef struct ChannelMember {
     Client *client;
+    /** Effective union used by channel policy and wire presentation. */
     ChannelPrivilegeSet privileges;
+    /** Privileges granted through ordinary channel MODE operations. */
+    ChannelPrivilegeSet manual_privileges;
+    /** Subset of privileges currently supplied by ChanServ account access. */
+    ChannelPrivilegeSet service_privileges;
     struct ChannelMember *next;
 } ChannelMember;
 
@@ -88,6 +93,9 @@ int channel_add_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges);
 int channel_remove_privileges(Channel *channel, Client *client,
                               ChannelPrivilegeSet privileges);
+int channel_set_service_privileges(Channel *channel, Client *client,
+                                   ChannelPrivilegeSet privileges);
+void channel_forget_service_privileges(Channel *channel);
 void channel_broadcast(Channel *channel, const Client *except, const char *message);
 int channel_mask_add(ChannelMaskEntry **list, const char *mask);
 int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,

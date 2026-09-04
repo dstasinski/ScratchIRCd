@@ -53,6 +53,16 @@ Authenticates the current connection to a registered account. Successful identif
 
 If the account has a NickServ vhost, identification changes only `display_host` and sets `+t`; `real_ip` and `real_host` are never changed.
 
+## LOGOUT
+
+```text
+NICKSERV LOGOUT
+```
+
+Detaches the authenticated account from the current connection and removes service-controlled `+r`. ChanServ privileges supplied by that account are removed immediately from joined channels. IRCv3 peers that negotiated `account-notify` receive `ACCOUNT *`.
+
+If the displayed hostname came from the NickServ account, logout removes `+t` and restores the server cloak. An operator or `SETHOST` vhost that superseded the account vhost is preserved.
+
 ## SET PASSWORD
 
 ```text

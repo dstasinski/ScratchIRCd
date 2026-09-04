@@ -62,6 +62,8 @@ Any registered user may self-toggle `+x`. Enabling it replaces only `display_hos
 
 `+x` and `+t` are alternate sources for `display_host`. Enabling `+x` clears `+t`; applying a NickServ/operator/SETHOST vhost clears `+x`. Removing `+x` restores `display_host` from `real_host` when FCrDNS succeeded, otherwise from `real_ip`.
 
+`NICKSERV LOGOUT` removes `+t` only when the vhost came from the authenticated account, then restores the server cloak. A later operator or `SETHOST` vhost supersedes the account vhost and survives logout.
+
 ## Operator listener modes completed in 0.25
 
 ### `+g` — GLOBOPS/LOCOPS

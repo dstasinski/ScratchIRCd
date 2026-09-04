@@ -65,6 +65,9 @@ static int cached_founder_matches(const Channel *channel, const Client *client) 
 
 static void clear_cached_policy(Channel *channel) {
     if (channel == NULL) return;
+    /* A dropped/disabled registration stops future service reconciliation,
+     * but does not rewrite the ordinary live channel's current modes. */
+    channel_forget_service_privileges(channel);
     channel->chanserv_policy_loaded = 1;
     channel->chanserv_policy_valid = 0;
     channel->chanserv_founder[0] = '\0';
@@ -283,6 +286,81 @@ ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *cli
     return privileges;
 }
 
+static void broadcast_privilege_change(Server *server, Channel *channel,
+                                       Client *subject,
+                                       ChannelPrivilegeSet privileges,
+                                       char sign) {
+    ChannelMember *recipient;
+    char letters[6];
+    char parameters[(IRC_NICK_MAX + 2U) * 5U + 1U] = "";
+    size_t used = 0U;
+    size_t i;
+
+    if (server == NULL || channel == NULL || subject == NULL || privileges == 0U)
+        return;
+    (void)channel_privilege_format(privileges, letters, sizeof(letters));
+    for (i = 0U; letters[i] != '\0'; ++i) {
+        int written = snprintf(parameters + used, sizeof(parameters) - used,
+                               " %s", subject->nick);
+        if (written < 0 || (size_t)written >= sizeof(parameters) - used) return;
+        used += (size_t)written;
+    }
+    for (recipient = channel->members; recipient != NULL; recipient = recipient->next)
+        client_sendf(recipient->client, ":%s MODE %s %c%s%s",
+                     server->config.server_name, channel->name,
+                     sign, letters, parameters);
+}
+
+static void sync_member_privileges(Server *server, Channel *channel,
+                                   Client *client) {
+    ChannelMember *member;
+    ChannelPrivilegeSet before;
+    ChannelPrivilegeSet after;
+    ChannelPrivilegeSet desired;
+
+    if (server == NULL || channel == NULL || client == NULL) return;
+    member = channel_find_member(channel, client);
+    if (member == NULL) return;
+    before = member->privileges;
+    desired = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)
+                  ? chanserv_client_privileges(server, client, channel->name)
+                  : 0U;
+    if (channel_set_service_privileges(channel, client, desired) != 0) return;
+    after = member->privileges;
+    broadcast_privilege_change(server, channel, client, before & ~after, '-');
+    broadcast_privilege_change(server, channel, client, after & ~before, '+');
+}
+
+void chanserv_sync_client_privileges(Server *server, Client *client) {
+    ClientChannelLink *link;
+    if (server == NULL || client == NULL) return;
+    for (link = client->channels; link != NULL; link = link->next)
+        sync_member_privileges(server, link->channel, client);
+}
+
+static void sync_account_privileges(Server *server, Channel *channel,
+                                    const char *account_name) {
+    ChannelMember *member;
+    ChannelMember *next;
+    if (server == NULL || channel == NULL || account_name == NULL) return;
+    for (member = channel->members; member != NULL; member = next) {
+        next = member->next;
+        if (member->client->account_name[0] != '\0' &&
+            strcasecmp(member->client->account_name, account_name) == 0)
+            sync_member_privileges(server, channel, member->client);
+    }
+}
+
+void chanserv_sync_channel_privileges(Server *server, Channel *channel) {
+    ChannelMember *member;
+    ChannelMember *next;
+    if (server == NULL || channel == NULL) return;
+    for (member = channel->members; member != NULL; member = next) {
+        next = member->next;
+        sync_member_privileges(server, channel, member->client);
+    }
+}
+
 static int load_founder_channel(Server *server, Client *client, const char *name,
                                 ChanServDb *db, ChanServChannel *record) {
     if (!valid_channel_name(name) || chanserv_db_open(db, server->config.chanserv_db) != 0 ||
@@ -315,7 +393,8 @@ static void command_register(Server *server, Client *client, char *params) {
     (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder), "%s", client->account_name);
     channel->chanserv_mode_lock = 0U;
     channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
-    (void)channel_add_privileges(channel, client, CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+    (void)channel_set_service_privileges(channel, client,
+                                         CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
     chanserv_persist_channel(server, channel);
     cs_notice(server, client, "Channel registered successfully.");
 }
@@ -367,6 +446,11 @@ static void command_access(Server *server, Client *client, char *params) {
     if (strcasecmp(account_name,channel_record.founder)==0) { chanserv_db_close(&db); cs_notice(server,client,"The founder is implicitly OWNER and cannot be added to the access list."); return; }
     if (strcasecmp(action,"DEL")==0) {
         int rc=chanserv_db_access_delete(&db,name,account_name); chanserv_db_close(&db);
+        if (rc == 0) {
+            Channel *channel = hash_get(&server->channels_by_name, name);
+            if (channel != NULL)
+                sync_account_privileges(server, channel, account_name);
+        }
         cs_notice(server,client,rc==0?"Access entry removed.":"No matching access entry."); return;
     }
     level_text=strtok(NULL," ");
@@ -378,9 +462,16 @@ static void command_access(Server *server, Client *client, char *params) {
     }
     nickserv_db_close(&nsdb);
     if (chanserv_db_access_set(&db,name,account.name,parse_access(level_text))==0) {
-        char line[160]; (void)snprintf(line,sizeof(line),"Access set: %s %s",account.name,access_name(parse_access(level_text))); cs_notice(server,client,line);
-    } else cs_notice(server,client,"Failed to update access list.");
-    chanserv_db_close(&db);
+        Channel *channel = hash_get(&server->channels_by_name, name);
+        char line[160];
+        chanserv_db_close(&db);
+        if (channel != NULL)
+            sync_account_privileges(server, channel, account.name);
+        (void)snprintf(line,sizeof(line),"Access set: %s %s",account.name,access_name(parse_access(level_text))); cs_notice(server,client,line);
+    } else {
+        chanserv_db_close(&db);
+        cs_notice(server,client,"Failed to update access list.");
+    }
 }
 
 static void command_set(Server *server, Client *client, char *params) {

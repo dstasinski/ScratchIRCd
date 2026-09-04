@@ -12,6 +12,7 @@
 #include "mail.h"
 #include "modes.h"
 #include "nickserv_db.h"
+#include "usermode_policy.h"
 
 #include <argon2.h>
 #include <ctype.h>
@@ -163,14 +164,26 @@ static int send_token_mail(Server *server, const char *to, const char *account,
 }
 
 /** Apply authenticated account state without changing real_ip/real_host. */
-static void apply_account(Client *client, const NickServAccount *account) {
+static void apply_account(Server *server, Client *client,
+                          const NickServAccount *account) {
     (void)snprintf(client->account_name, sizeof(client->account_name), "%s", account->name);
     client->modes = client_mode_add(client->modes, CLIENT_MODE_REGISTERED);
 
     if (account->vhost[0] != '\0') {
-        (void)snprintf(client->display_host, sizeof(client->display_host), "%s", account->vhost);
-        client->modes = client_mode_remove(client->modes, CLIENT_MODE_CLOAKED);
-        client->modes = client_mode_add(client->modes, CLIENT_MODE_VHOST);
+        /* Preserve an operator/SETHOST vhost. Re-identification may refresh a
+         * vhost that this account already supplied. */
+        if (!client_mode_has(client->modes, CLIENT_MODE_VHOST) ||
+            client->account_vhost_active) {
+            (void)snprintf(client->display_host, sizeof(client->display_host),
+                           "%s", account->vhost);
+            client->modes = client_mode_remove(client->modes, CLIENT_MODE_CLOAKED);
+            client->modes = client_mode_add(client->modes, CLIENT_MODE_VHOST);
+            client->account_vhost_active = 1;
+        }
+    } else if (client->account_vhost_active) {
+        client->account_vhost_active = 0;
+        client->modes = client_mode_remove(client->modes, CLIENT_MODE_VHOST);
+        usermode_apply_cloak(server, client);
     }
 }
 
@@ -192,7 +205,7 @@ int nickserv_identify(Server *server, Client *client,
     if (!auth_limit_consume(server, client, "NickServ IDENTIFY")) return 0;
     if (argon2id_verify(account.password_hash, password, strlen(password)) != ARGON2_OK) return 0;
 
-    apply_account(client, &account);
+    apply_account(server, client, &account);
     return 1;
 }
 
@@ -243,8 +256,29 @@ static void command_register(Server *server, Client *client, char *password) {
         return;
     }
     nickserv_db_close(&db);
-    apply_account(client, &account);
+    apply_account(server, client, &account);
     nickserv_notice(server, client, "Nickname registered and identified.");
+}
+
+static void command_logout(Server *server, Client *client, char *params) {
+    if (params != NULL && *params != '\0') {
+        nickserv_notice(server, client, "Syntax: LOGOUT");
+        return;
+    }
+    if (client->account_name[0] == '\0') {
+        nickserv_notice(server, client, "You are not identified to an account.");
+        return;
+    }
+
+    client->account_name[0] = '\0';
+    client->modes = client_mode_remove(client->modes, CLIENT_MODE_REGISTERED);
+    client->sasl_state = CLIENT_SASL_NONE;
+    if (client->account_vhost_active) {
+        client->account_vhost_active = 0;
+        client->modes = client_mode_remove(client->modes, CLIENT_MODE_VHOST);
+        usermode_apply_cloak(server, client);
+    }
+    nickserv_notice(server, client, "You are now logged out of your account.");
 }
 
 static void command_identify(Server *server, Client *client, char *params) {
@@ -521,6 +555,8 @@ void nickserv_handle_message(Server *server, Client *client, char *text) {
         command_register(server, client, rest);
     } else if (strcasecmp(command, "IDENTIFY") == 0) {
         command_identify(server, client, rest);
+    } else if (strcasecmp(command, "LOGOUT") == 0) {
+        command_logout(server, client, rest);
     } else if (strcasecmp(command, "RECOVER") == 0) {
         command_recover(server, client, rest, 0);
     } else if (strcasecmp(command, "GHOST") == 0) {
@@ -542,7 +578,7 @@ void nickserv_handle_message(Server *server, Client *client, char *text) {
                 "Syntax: SET PASSWORD <new-password>  OR  SET EMAIL <address>");
     } else if (strcasecmp(command, "HELP") == 0) {
         nickserv_notice(server, client,
-            "Commands: REGISTER, IDENTIFY, RECOVER, GHOST, SET PASSWORD, SET EMAIL, VERIFY, RESET");
+            "Commands: REGISTER, IDENTIFY, LOGOUT, RECOVER, GHOST, SET PASSWORD, SET EMAIL, VERIFY, RESET");
     } else {
         nickserv_notice(server, client, "Unknown command. Use HELP.");
     }

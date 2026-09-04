@@ -121,8 +121,11 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
     chanserv_db_close(&db);
     if (rc == 0) {
         Channel *channel = hash_get(&server->channels_by_name, name);
-        if (channel != NULL)
+        if (channel != NULL) {
             chanserv_refresh_channel(server, channel);
+            if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+                chanserv_sync_channel_privileges(server, channel);
+        }
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "CSSET by %s: channel=%s field=%s value=%s",
                           client->nick, name, field, value);

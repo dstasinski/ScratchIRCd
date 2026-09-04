@@ -101,6 +101,8 @@ typedef struct Client {
     char real_ip[IRC_IP_MAX + 1U];
     char real_host[IRC_HOST_MAX + 1U];
     char display_host[IRC_HOST_MAX + 1U];
+    /** True only while +t/display_host came from the authenticated account. */
+    int account_vhost_active;
     ClientWebIrc webirc;
 
     int nospoof_started;

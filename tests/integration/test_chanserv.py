@@ -143,10 +143,18 @@ def main():
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistent test channel")
             alice.expect("Channel registered successfully.")
+            bob.send("JOIN #persist")
+            bob.expect(" 366 Bob #persist ")
             alice.send("CHANSERV ACCESS #persist ADD Bob OP")
-            alice.expect("Access set: Bob OP")
+            live_bob_access = alice.expect("Access set: Bob OP")
+            assert any(" MODE #persist +o Bob" in line
+                       for line in live_bob_access), live_bob_access
+            carol.send("JOIN #persist")
+            carol.expect(" 366 Carol #persist ")
             alice.send("CHANSERV ACCESS #persist ADD Carol PROTECTED")
-            alice.expect("Access set: Carol PROTECTED")
+            live_carol_access = alice.expect("Access set: Carol PROTECTED")
+            assert any(" MODE #persist +ao Carol Carol" in line
+                       for line in live_carol_access), live_carol_access
             alice.send("CHANSERV ACCESS #persist LIST")
             access = alice.expect("End of access list for #persist.")
             assert any("Carol:4" in line for line in access), access
@@ -224,6 +232,18 @@ def main():
             bob.send("JOIN #persist")
             bob_lines = bob.expect(" 366 Helper #persist ")
             assert any("@Helper" in line for line in bob_lines if " 353 Helper " in line), bob_lines
+            traveler.send("MODE #persist +v Helper")
+            traveler.expect(" MODE #persist +v Helper")
+            bob.send("NICKSERV LOGOUT")
+            bob.expect("You are now logged out of your account.")
+            traveler.expect(" MODE #persist -o Helper")
+            bob.send("NAMES #persist")
+            logged_out_names = bob.expect(" 366 Helper #persist ")
+            assert any("+Helper" in line for line in logged_out_names
+                       if " 353 Helper " in line), logged_out_names
+            bob.send("IDENTIFY Bob bobpass")
+            bob.expect("Password accepted - you are now identified.")
+            traveler.expect(" MODE #persist +o Helper")
 
             guardian = IRCClient(port)
             register(guardian, "Guardian")

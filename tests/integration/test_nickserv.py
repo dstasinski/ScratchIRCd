@@ -292,6 +292,32 @@ def main():
             assert any(" 378 Admin Traveler " in line and "127.0.0.1" in line
                        for line in oper_whois), oper_whois
 
+            user.send("NICKSERV LOGOUT")
+            user.expect("You are now logged out of your account.")
+            user.send("MODE Traveler")
+            logout_modes = user.expect(" 221 Traveler ")
+            logout_mode_line = next(line for line in logout_modes
+                                    if " 221 Traveler " in line)
+            assert "r" not in logout_mode_line.rsplit(" ", 1)[-1], logout_modes
+            assert "t" not in logout_mode_line.rsplit(" ", 1)[-1], logout_modes
+            assert "x" in logout_mode_line.rsplit(" ", 1)[-1], logout_modes
+            user.send("WHOIS Traveler")
+            logged_out_whois = user.expect(" 318 Traveler Traveler ")
+            assert any(" 311 Traveler Traveler " in line and " dru-" in line
+                       for line in logged_out_whois), logged_out_whois
+
+            user.send("IDENTIFY Alice thirdpass")
+            user.expect("Password accepted - you are now identified.")
+            admin.send("SETHOST Traveler staff.example.test")
+            admin.expect("NOTICE Admin :SETHOST Traveler -> staff.example.test")
+            user.send("NICKSERV LOGOUT")
+            user.expect("You are now logged out of your account.")
+            user.send("WHOIS Traveler")
+            preserved_vhost = user.expect(" 318 Traveler Traveler ")
+            assert any(" 311 Traveler Traveler " in line and
+                       " staff.example.test " in line
+                       for line in preserved_vhost), preserved_vhost
+
             admin.send("NSSET Alice ENABLED 0")
             admin.expect("NickServ account updated.")
             fresh = IRCClient(port); clients.append(fresh)

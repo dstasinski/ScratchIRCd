@@ -8,6 +8,7 @@
  */
 
 #include "commands.h"
+#include "chanserv.h"
 #include "ircv3.h"
 #include "memoserv.h"
 #include "nickserv.h"
@@ -50,6 +51,7 @@ CommandResult command_identify(Server *server, Client *client, char *params) {
     if (nickserv_identify(server, client, account, password)) {
         if (!was_identified) {
             ircv3_account_notify(client);
+            chanserv_sync_client_privileges(server, client);
             memoserv_notify_unread(server, client);
         }
         client_sendf(client, ":NickServ!service@%s NOTICE %s :Password accepted - you are now identified.",

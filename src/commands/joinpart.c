@@ -159,7 +159,7 @@ static void join_one(Server *server, Client *client, const char *name,
                                      CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
     if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
         service_privileges != 0U)
-        (void)channel_add_privileges(channel, client, service_privileges);
+        (void)channel_set_service_privileges(channel, client, service_privileges);
 
     ircv3_broadcast_join(channel, client);
     ircv3_away_notify_join(channel, client);

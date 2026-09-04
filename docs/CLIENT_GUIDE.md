@@ -154,7 +154,7 @@ CHANSERV HELP
 PRIVMSG ChanServ :INFO #chat
 ```
 
-`INFO` is public. `ACCESS` and `SET` require the registered channel's founder account. Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`; they restore `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins. MLOCK accepts the boolean channel modes `A`, `c`, `i`, `K`, `M`, `m`, `n`, `O`, `p`, `R`, `S`, `s`, `t`, `T`, `V`, and `z`.
+`INFO` is public. `ACCESS` and `SET` require the registered channel's founder account. Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`; they apply `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins or identifies, and are removed on logout. MLOCK accepts the boolean channel modes `A`, `c`, `i`, `K`, `M`, `m`, `n`, `O`, `p`, `R`, `S`, `s`, `t`, `T`, `V`, and `z`.
 
 ### CHATHISTORY
 
@@ -330,6 +330,7 @@ Uses the virtual NickServ service. The traditional `PRIVMSG NickServ` form is al
 NICKSERV REGISTER account-password
 NICKSERV IDENTIFY account-password
 NICKSERV IDENTIFY alice account-password
+NICKSERV LOGOUT
 NICKSERV SET PASSWORD new-password
 NICKSERV SET EMAIL alice@example.net
 NICKSERV VERIFY emailed-token
@@ -342,7 +343,7 @@ NICKSERV HELP
 PRIVMSG NickServ :IDENTIFY account-password
 ```
 
-Successful identification sets service-controlled mode `+r`. `RECOVER` normally renames the occupying client to a generated guest nickname; the optional `KILL` form disconnects it. `GHOST` is an alias for the `KILL` form. Password-reset requests give the same response whether or not an eligible account exists.
+Successful identification sets service-controlled mode `+r`. `LOGOUT` detaches the account and removes account-derived state. `RECOVER` normally renames the occupying client to a generated guest nickname; the optional `KILL` form disconnects it. `GHOST` is an alias for the `KILL` form. Password-reset requests give the same response whether or not an eligible account exists.
 
 ### NOTICE
 

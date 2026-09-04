@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "chanserv.h"
 #include "ircv3.h"
 #include "memoserv.h"
 #include "message_policy.h"
@@ -183,6 +184,7 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
     recover_presence_after(server, recover_target, old_nick);
     if (!was_identified && client->account_name[0] != '\0') {
         ircv3_account_notify(client);
+        chanserv_sync_client_privileges(server, client);
         memoserv_notify_unread(server, client);
         if (registering) {
             if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN))
@@ -191,6 +193,9 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
                               "NickServ registration: account=%s nick=%s real_ip=%s",
                               client->account_name, client->nick, client->real_ip);
         }
+    } else if (was_identified && client->account_name[0] == '\0') {
+        ircv3_account_notify(client);
+        chanserv_sync_client_privileges(server, client);
     }
 }
 
