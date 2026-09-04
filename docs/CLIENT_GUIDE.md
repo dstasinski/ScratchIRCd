@@ -1,544 +1,528 @@
 # ScratchIRCd Client Guide
 
-This guide documents commands and modes intended for ordinary IRC clients. It reflects the current implementation and will be expanded as ScratchIRCd develops.
+This guide covers connecting an ordinary IRC client and every client command supported by ScratchIRCd. IRC operator and network-administrator commands are intentionally omitted.
 
-## Connecting and registering
+## Connecting
 
-If the server requires a connection password, send PASS before registration:
+Connect to the hostname and port supplied by the network administrator. ScratchIRCd accepts IPv4 and IPv6 connections and may provide both a plaintext listener (commonly port 6667) and a TLS listener (commonly port 6697). Prefer TLS when it is available.
 
-```text
-PASS <server-password>
-```
-
-Set nickname and user information with:
+If the server requires a connection password, send `PASS` before registration. Then send `NICK` and `USER`:
 
 ```text
-NICK <nickname>
-USER <username> 0 * :<real name>
+PASS server-password
+NICK alice
+USER alice 0 * :Alice Example
 ```
 
-ScratchIRCd supports IPv4 and IPv6 connections. FCrDNS, GeoIP and optional DNSBL policy are handled before registration completes without blocking the IRC event loop.
+Nicknames are at most 15 characters, usernames are at most 10 characters, and channel names are at most 32 characters.
 
-## IRCv3 CAP, SASL, and history
+ScratchIRCd automatically enables user mode `+x` when registration completes. Other clients see only the resulting displayed hostname; ordinary `WHO`, `WHOIS`, `USERHOST`, messages, and channel activity do not reveal the connection's real IP address or verified hostname.
 
-ScratchIRCd currently advertises:
+### IRCv3 capability negotiation
+
+ScratchIRCd advertises these capabilities through CAP 302:
 
 ```text
 account-notify away-notify batch draft/chathistory extended-join labeled-response message-tags sasl=PLAIN server-time
 ```
 
-The line above is the CAP 302 advertisement. Request `sasl` (without `=PLAIN`). SASL mechanism `PLAIN` authenticates against the same `data/nickserv.db` account database used by NickServ IDENTIFY.
+A basic negotiation is:
 
-A typical SASL negotiation is:
+```text
+CAP LS 302
+CAP REQ :server-time message-tags
+CAP END
+```
+
+Registration waits while CAP negotiation is open, so always finish with `CAP END`.
+
+### No-spoof and client-version checks
+
+When no-spoof protection is enabled, the server sends a random PING cookie during registration. Return that cookie exactly:
+
+```text
+PING :cookie-from-server
+PONG :cookie-from-server
+```
+
+After the cookie is verified, the server requests CTCP VERSION. Most IRC clients answer automatically; a raw client answers the server name with a NOTICE:
+
+```text
+:irc.example.net PRIVMSG alice :\001VERSION\001
+NOTICE irc.example.net :\001VERSION ExampleClient 1.0\001
+```
+
+Until the VERSION reply is received, the client cannot join channels or send `PRIVMSG`/`NOTICE` traffic except to an IRC operator or network administrator. An authenticated WebIRC connection may also receive a CTCP WEBSITE request and should answer it in the same way.
+
+### SASL PLAIN
+
+SASL authenticates a NickServ account during connection. Request `sasl`, not `sasl=PLAIN`:
 
 ```text
 CAP LS 302
 CAP REQ :sasl
-NICK <nickname>
-USER <username> 0 * :<real name>
+NICK alice
+USER alice 0 * :Alice Example
 AUTHENTICATE PLAIN
-AUTHENTICATE <base64 PLAIN payload>
+AUTHENTICATE <base64-plain-payload>
 CAP END
 ```
 
-While CAP negotiation is open, ScratchIRCd deliberately holds normal IRC registration until `CAP END`. Successful SASL returns numeric `903`, attaches the NickServ account before registration completes, sets `+r`, and applies any NickServ vhost exactly as IDENTIFY would. Failed SASL returns numeric `904`; the client may still send `CAP END` and register without an authenticated account.
+The decoded PLAIN payload is `authzid NUL authcid NUL password`. `authzid` may be empty or equal to the account name. The encoded payload must fit in one frame of at most 400 characters. `AUTHENTICATE *` aborts the exchange. Successful authentication returns numeric `903`, attaches the account, and enables service-controlled mode `+r`; failure returns numeric `904` and does not prevent unauthenticated registration after `CAP END`.
 
-The PLAIN payload represents `authzid NUL authcid NUL password`. ScratchIRCd permits an empty authorization identity or one equal to the authentication account. This implementation accepts one base64 AUTHENTICATE data frame of at most 400 characters.
+### Persistent channel history
 
-For full persistent-history presentation, a client may negotiate:
+Negotiate history before registration:
 
 ```text
 CAP REQ :batch draft/chathistory server-time
 ```
 
-Only `draft/chathistory` is required to use the current history command. `batch` packages the response as a `chathistory` batch, while `server-time` adds original UTC timestamps. After joining a channel, request:
+After joining a channel, request its latest messages:
 
 ```text
-CHATHISTORY LATEST <channel> * <limit>
+CHATHISTORY LATEST #chat * 50
 ```
 
-ScratchIRCd currently stores accepted channel PRIVMSG and NOTICE traffic only. See `docs/IRCV3_GUIDE.md` for the detailed history scope and limitations.
+`draft/chathistory` is required. `batch` groups the reply, and `server-time` adds original UTC timestamps. The requester must currently be in the channel.
 
-## Hostname privacy
+### WebIRC gateways
 
-Ordinary IRC clients see only another user's **displayed hostname**. WHO, WHOIS, USERHOST, JOIN/PART/QUIT, messages, channel activity, and channel ban masks use this displayed value.
-
-A user's actual IP and verified DNS hostname are server-security information and are not exposed to ordinary clients. Every client receives cloak mode `+x` automatically at registration. When the administrator configures `cloak_key`, a keyed cloak is generated from the client's real verified identity without exposing that identity. A vhost (`+t`) replaces only the displayed hostname. Channel `+b`, `+e`, and `+I` masks therefore match displayed `nick!user@host` identity rather than hidden real identity.
-
-Historical channel records also store the displayed identity that was public when the message was sent; replay does not reveal `real_ip` or `real_host`.
-
-`USERIP` exists but is restricted to IRC operators.
-
-## NickServ accounts
-
-NickServ is a virtual service. It can receive commands, but it is not a connected IRC client, never joins channels, and does not appear in NAMES, WHO, ISON, or LUSERS. The names `NickServ`, `ChanServ`, and `MemoServ` are reserved.
-
-ScratchIRCd accepts both the direct form:
+`WEBIRC` is only for a gateway whose numeric source IP and password have been configured by the server administrator. The gateway sends it before `NICK` and `USER`:
 
 ```text
-NICKSERV <command> [parameters]
+WEBIRC gateway-password gateway.example client.example 203.0.113.25
 ```
 
-and the traditional form:
+Normal IRC clients do not send this command.
 
-```text
-PRIVMSG NickServ :<command> [parameters]
-```
-
-### Register and identify
-
-```text
-NICKSERV REGISTER <password>
-NICKSERV IDENTIFY <password>
-NICKSERV IDENTIFY <account> <password>
-IDENTIFY <password>
-IDENTIFY <account> <password>
-```
-
-Successful identification sets service-controlled user mode `+r`. An account vhost changes only the displayed hostname and sets `+t`.
-
-### Password and email settings
-
-```text
-NICKSERV SET PASSWORD <new-password>
-NICKSERV SET EMAIL <address>
-NICKSERV VERIFY <token>
-```
-
-`SET PASSWORD` and `SET EMAIL` require identification. Email addresses are not trusted until the verification token sent by the server is confirmed with `VERIFY`.
-
-### Recover a registered nickname
-
-```text
-NICKSERV RECOVER <nick>
-```
-
-You must be identified to the account matching `<nick>`. Default RECOVER safely renames the occupying client to a generated `Guest<connection-id>` nickname. It does not disconnect them. You can then use the normal:
-
-```text
-NICK <nick>
-```
-
-command to take the freed nickname.
-
-To disconnect the occupying connection instead:
-
-```text
-NICKSERV RECOVER <nick> KILL
-```
-
-`GHOST` is a KILL alias:
-
-```text
-NICKSERV GHOST <nick>
-```
-
-### Email password reset
-
-Request a reset:
-
-```text
-NICKSERV RESET <account>
-```
-
-ScratchIRCd always gives the same generic response whether or not the account exists. If the account is enabled and has a verified email address, a one-time reset token is emailed.
-
-Complete the reset:
-
-```text
-NICKSERV RESET <account> <token> <new-password>
-```
-
-Reset tokens expire and can be used only once. The resulting password is stored only as an Argon2id hash.
-
-See `docs/NICKSERV_GUIDE.md` for the complete NickServ guide.
-
-## ChanServ persistent channels
-
-ChanServ is virtual, never joins channels, and stores registered-channel state in `data/chanserv.db`. The founder may manage persistent account privileges with `ACCESS` and persistent boolean modes/topics with `SET`.
-
-```text
-CHANSERV REGISTER <#channel> [:description]
-CHANSERV INFO <#channel>
-CHANSERV ACCESS <#channel> ADD <account> <OWNER|PROTECTED|OP|HALFOP|VOICE>
-CHANSERV ACCESS <#channel> DEL <account>
-CHANSERV ACCESS <#channel> LIST
-CHANSERV SET <#channel> MLOCK <modes>
-CHANSERV SET <#channel> TOPIC :<text>
-CHANSERV DROP <#channel>
-CHANSERV HELP
-```
-
-`REGISTER` and `DROP` are network-administrator (`+N`) operations through both the direct `CHANSERV` command and `PRIVMSG ChanServ`. Founder authority applies to management of an existing registration and does not grant authority to create or destroy registrations.
-
-Access follows authenticated NickServ accounts, not current nicknames. OWNER receives `+q/+o`, PROTECTED receives `+a/+o`, OP receives `+o`, HALFOP receives `+h`, and VOICE receives `+v`. The visible membership prefixes are `~`, `&`, `@`, `%`, and `+` respectively.
-
-A protected (`+a`) member cannot be kicked or deliberately banned by an ordinary OP/HALFOP. Another PROTECTED member or an OWNER may kick or deliberately ban a protected member. Only PROTECTED/OWNER authority may grant or remove `+a`.
-
-Numeric 005 includes `PCHANNELS=` listing enabled ChanServ registrations. See `docs/CHANSERV_GUIDE.md` for details.
-
-## Currently implemented client commands
+## Client command reference
 
 ### ADMIN
+
+Displays the configured server administration contact and location.
 
 ```text
 ADMIN
 ```
 
-Displays configured server administration/location/contact information.
-
 ### AUTHENTICATE
+
+Continues or aborts an IRCv3 SASL exchange after the `sasl` capability is requested.
 
 ```text
 AUTHENTICATE PLAIN
-AUTHENTICATE <base64-data>
+AUTHENTICATE <base64-plain-payload>
 AUTHENTICATE *
 ```
 
-Used during IRCv3 SASL negotiation after requesting the `sasl` capability. `*` aborts the current SASL exchange.
-
 ### AWAY
 
+Sets or clears away status.
+
 ```text
-AWAY :<message>
+AWAY :Out to lunch
 AWAY
 ```
 
-Sets or clears away status. Users sending a direct PRIVMSG to an away client receive the away message.
-
 ### CAP
+
+Lists, requests, removes, and finishes IRCv3 capability negotiation. A leading `-` removes a capability.
 
 ```text
 CAP LS 302
 CAP LIST
-CAP REQ :<capability> [capability...]
+CAP REQ :server-time message-tags
+CAP REQ :-message-tags
 CAP END
 ```
 
-Negotiates IRCv3 capabilities. CAP 302 advertises `account-notify`, `away-notify`, `batch`, `draft/chathistory`, `extended-join`, `labeled-response`, `message-tags`, `sasl=PLAIN`, and `server-time`. Capability removals use a leading `-` in CAP REQ. Capability names are case-sensitive, and `labeled-response` requires `batch`.
-
 ### CHANSERV
 
+Uses the virtual ChanServ service. The traditional `PRIVMSG ChanServ` form is also accepted.
+
 ```text
-CHANSERV <service-command> [parameters]
+CHANSERV INFO #chat
+CHANSERV ACCESS #chat ADD alice OP
+CHANSERV ACCESS #chat DEL alice
+CHANSERV ACCESS #chat LIST
+CHANSERV SET #chat MLOCK +nt
+CHANSERV SET #chat TOPIC :Welcome to #chat
+CHANSERV HELP
+PRIVMSG ChanServ :INFO #chat
 ```
 
-Direct alias for the virtual ChanServ service. See the ChanServ section above and `docs/CHANSERV_GUIDE.md` for the current command set.
+`INFO` is public. `ACCESS` and `SET` require the registered channel's founder account. Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`; they restore `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins. MLOCK accepts the boolean channel modes `A`, `c`, `i`, `K`, `M`, `m`, `n`, `O`, `p`, `R`, `S`, `s`, `t`, `T`, `V`, and `z`.
 
 ### CHATHISTORY
 
-```text
-CHATHISTORY LATEST <channel> * <limit>
-```
+Returns recent channel `PRIVMSG` and `NOTICE` history. The requester must have negotiated `draft/chathistory` and be in the channel.
 
-Returns the most recent persisted PRIVMSG/NOTICE records for a channel. The client must have negotiated `draft/chathistory` and must currently be in the requested channel. `batch` is optional and encloses playback in a `chathistory` batch; `server-time` is optional and adds original timestamps.
+```text
+CHATHISTORY LATEST #chat * 50
+```
 
 ### IDENTIFY
 
+Authenticates to a NickServ account. The one-parameter form uses the current nickname as the account name.
+
 ```text
-IDENTIFY <password>
-IDENTIFY <account> <password>
+IDENTIFY account-password
+IDENTIFY alice account-password
 ```
 
-Authenticates to a NickServ account and sets service-controlled user mode `+r`. A configured NickServ vhost is applied to the displayed hostname.
+### INFO
+
+Displays information about the running ScratchIRCd software.
+
+```text
+INFO
+```
 
 ### INVITE
 
-```text
-INVITE <nickname> <channel>
-```
+Invites a nickname to a channel. An invitation can satisfy mode `+i`, but it does not bypass bans, keys, limits, TLS requirements, or account requirements. Channel mode `+V` disables invitations.
 
-Invites a user to a channel. Channel mode `+V` disables invitations. Explicit invitations can satisfy `+i` invite-only access but do not bypass unrelated restrictions such as bans, keys, limits, TLS requirements, or account requirements.
+```text
+INVITE bob #chat
+```
 
 ### ISON
 
-```text
-ISON <nick1> <nick2> ...
-```
+Returns the requested nicknames that are currently online.
 
-Returns requested nicknames that are currently online. Virtual services are intentionally not ordinary online-client entries.
+```text
+ISON alice bob carol
+```
 
 ### JOIN
 
-```text
-JOIN <channel>
-JOIN <channel> <key>
-```
+Joins a `#` or `&` channel, optionally using its key. `&` channels are private and unlisted.
 
-Joins a channel. Channel names may begin with `#` or `&`. `&` channels are private/unlisted. JOIN enforces keys, limits, bans/exceptions, invite restrictions, throttling, redirects, account/oper/admin requirements, and TLS-only restrictions. ChanServ account authority is restored when applicable.
+```text
+JOIN #chat
+JOIN #private secret-key
+```
 
 ### KICK
 
+Removes a member when the requester has sufficient channel authority.
+
 ```text
-KICK <channel> <nickname> :<reason>
+KICK #chat bob :Flooding
 ```
 
-Removes a member when the requester has sufficient channel privilege. Privilege hierarchy is owner (`+q`) > protected (`+a`) > operator (`+o`) > halfop (`+h`) > voice (`+v`) > normal member. A PROTECTED member may kick another PROTECTED member; only an OWNER can kick above that level.
+Channel authority is owner (`+q`), protected (`+a`), operator (`+o`), halfop (`+h`), voice (`+v`), then ordinary member. Protected members cannot be kicked by an ordinary channel operator or halfop.
 
 ### KNOCK
 
+Asks halfop-or-higher channel staff for entry to a restricted channel. It does not create an invitation. Banned users cannot knock, and channel mode `+K` disables it.
+
 ```text
-KNOCK <channel> [:reason]
+KNOCK #private :May I join?
 ```
 
-Requests attention from halfop-or-higher channel staff when access to a channel is restricted. KNOCK does not create an invitation itself; channel staff must still issue INVITE. Banned users cannot use KNOCK, and channel mode `+K` disables it.
+### LINKS
+
+Shows this server in the network link list. ScratchIRCd is a single-server daemon; an optional mask is accepted.
+
+```text
+LINKS
+LINKS *.example.net
+```
 
 ### LIST
+
+Lists channels visible to the requester. Private, secret, and unlisted channels are hidden as applicable.
 
 ```text
 LIST
 ```
 
-Lists channels visible to the requester. Private/secret/unlisted channels are hidden as appropriate.
-
 ### LUSERS
+
+Displays current user and channel counts.
 
 ```text
 LUSERS
 ```
 
-Displays server user/channel statistics.
-
 ### MEMOSERV
 
-```text
-MEMOSERV <service-command> [parameters]
-PRIVMSG MemoServ :<service-command> [parameters]
-```
+Sends and manages account-to-account memos through the virtual MemoServ service. Except for `HELP`, these commands require an identified NickServ account. `DELETE` is an alias for `DEL`.
 
-Addresses the virtual SQLite-backed MemoServ service. Memo storage is bounded by recipient quota, sender fair-share quota, and retention policy.
+```text
+MEMOSERV SEND bob :Please contact me when you return
+MEMOSERV LIST
+MEMOSERV SENT
+MEMOSERV READ 12
+MEMOSERV REPLY 12 :Thanks, I saw this
+MEMOSERV FORWARD 12 carol
+MEMOSERV DEL 12
+MEMOSERV DEL ALL
+MEMOSERV STATUS
+MEMOSERV HELP
+PRIVMSG MemoServ :LIST
+```
 
 ### MODE
 
+Queries or changes user and channel modes.
+
 ```text
-MODE <nickname>
-MODE <nickname> <modes>
-MODE <channel>
-MODE <channel> <modes> [parameters...]
+MODE alice
+MODE alice +iR
+MODE #chat
+MODE #chat +nt
+MODE #chat +o bob
+MODE #chat +b *!*@bad.example
+MODE #chat b
 ```
 
-Queries or changes user/channel modes subject to authority rules. Security/service-derived user modes such as `+r`, `+o`, `+N`, `+t`, `+V`, and `+z` cannot be self-granted. Channel membership `+a` requires PROTECTED or OWNER authority to add/remove.
+An ordinary client can set or clear its own modes: `B` bot, `d` suppress ordinary channel messages except configured command-prefix traffic, `i` invisible, `p` hide channel membership from `WHOIS`, `R` accept messages only from identified users, `T` reject CTCP, `w` receive wallops, and `x` use the configured cloak. Mode `+x` is applied automatically at registration and may be cleared or reapplied. Modes `g` and `s` require operator status. Other security, transport, service, and authentication modes cannot be self-granted.
+
+Channel boolean modes are:
+
+- `A` network-administrator-only joins; `O` IRC-operator-only joins.
+- `c` reject color/control codes; `S` strip them.
+- `i` invite-only; `K` disable `KNOCK`; `V` disable `INVITE`.
+- `M` identified users only may speak; `R` identified users only may join.
+- `m` moderated; `n` no outside messages.
+- `p` private; `s` secret; `t` topic changes require halfop or higher.
+- `T` disallow channel notices; `z` require TLS.
+- `r` is the service-controlled registered-channel marker.
+
+Membership modes are `q <nick>` owner, `a <nick>` protected, `o <nick>` operator, `h <nick>` halfop, and `v <nick>` voice. List modes are `b <mask>` ban, `e <mask>` ban exception, and `I <mask>` invite exception; query a list by omitting the mask. Parameter modes are `j <joins:seconds>` join throttle, `k <key>` key, `l <count>` user limit, `L <channel>` full-channel redirect, and `B <channel>` banned-client redirect.
 
 ### MOTD
+
+Displays the message of the day.
 
 ```text
 MOTD
 ```
 
-Displays the server message of the day.
-
 ### NAMES
 
-```text
-NAMES <channel>
-```
+Displays visible channel members. Prefixes are `~` owner, `&` protected, `@` operator, `%` halfop, and `+` voice.
 
-Displays visible channel members. Membership prefixes are `~` owner, `&` protected, `@` operator, `%` halfop, and `+` voice.
+```text
+NAMES
+NAMES #chat
+```
 
 ### NICK
 
-```text
-NICK <new-nickname>
-```
+Sets or changes the nickname.
 
-Sets or changes your nickname. Internal service names are reserved.
+```text
+NICK alice
+NICK alice_away
+```
 
 ### NICKSERV
 
+Uses the virtual NickServ service. The traditional `PRIVMSG NickServ` form is also accepted.
+
 ```text
-NICKSERV <service-command> [parameters]
+NICKSERV REGISTER account-password
+NICKSERV IDENTIFY account-password
+NICKSERV IDENTIFY alice account-password
+NICKSERV SET PASSWORD new-password
+NICKSERV SET EMAIL alice@example.net
+NICKSERV VERIFY emailed-token
+NICKSERV RESET alice
+NICKSERV RESET alice emailed-token new-password
+NICKSERV RECOVER alice
+NICKSERV RECOVER alice KILL
+NICKSERV GHOST alice
+NICKSERV HELP
+PRIVMSG NickServ :IDENTIFY account-password
 ```
 
-Direct alias for the virtual NickServ service. Implemented service commands are `REGISTER`, `IDENTIFY`, `RECOVER`, `GHOST`, `SET PASSWORD`, `SET EMAIL`, `VERIFY`, `RESET`, and `HELP`.
+Successful identification sets service-controlled mode `+r`. `RECOVER` normally renames the occupying client to a generated guest nickname; the optional `KILL` form disconnects it. `GHOST` is an alias for the `KILL` form. Password-reset requests give the same response whether or not an eligible account exists.
 
 ### NOTICE
 
-```text
-NOTICE <nickname> :<text>
-NOTICE <channel> :<text>
-```
+Sends a notice to a nickname or channel. Errors are normally silent. Channel mode `+T` blocks channel notices.
 
-Sends a notice. NOTICE failures are normally silent. Channel mode `+T` blocks channel notices. Accepted channel NOTICEs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live NOTICE delivery.
+```text
+NOTICE bob :Meeting starts now
+NOTICE #chat :Meeting starts now
+```
 
 ### PART
 
-```text
-PART <channel>
-PART <channel> :<reason>
-```
+Leaves a channel, optionally with a reason.
 
-Leaves a channel.
+```text
+PART #chat
+PART #chat :Good night
+```
 
 ### PASS
 
-```text
-PASS <server-password>
-```
-
-Supplies an optional server connection password before registration.
-
-### PING / PONG
+Supplies a server connection password before registration.
 
 ```text
-PING <token>
-PONG <token>
+PASS server-password
 ```
 
-Connection keepalive commands.
+### PING
+
+Asks the server to return a matching `PONG`.
+
+```text
+PING client-token
+```
+
+### PONG
+
+Answers a server `PING`. Return the token exactly; unrelated commands do not clear an outstanding liveness challenge.
+
+```text
+PONG server-token
+```
 
 ### PRIVMSG
 
+Sends a private or channel message, or addresses a virtual service.
+
 ```text
-PRIVMSG <nickname> :<text>
-PRIVMSG <channel> :<text>
-PRIVMSG NickServ :<service-command>
-PRIVMSG ChanServ :<service-command>
-PRIVMSG MemoServ :<service-command>
+PRIVMSG bob :Hello
+PRIVMSG #chat :Hello everyone
+PRIVMSG NickServ :IDENTIFY account-password
 ```
 
-Sends private/channel messages or addresses a virtual service. Delivery observes user/channel modes such as moderated and registered-user restrictions. Accepted channel PRIVMSGs are stored in persistent history. Recipients that negotiated `server-time` receive a UTC time tag on live PRIVMSG delivery.
+A client's reported `WHOIS` idle time resets only after one of its private or channel `PRIVMSG` messages is successfully delivered. No other activity, including `NOTICE`, `TAGMSG`, `PING`, or `WHOIS`, resets that messaging-idle timer.
 
 ### QUIT
 
-```text
-QUIT :<reason>
-```
-
 Disconnects from the server.
 
+```text
+QUIT :Leaving
+```
+
 ### RULES
+
+Displays the server's rules.
 
 ```text
 RULES
 ```
 
-Displays the configured server rules file.
-
 ### SILENCE
+
+Lists, adds, or removes masks on the client's personal silence list. Matching direct messages are suppressed.
 
 ```text
 SILENCE
-SILENCE +<mask>
-SILENCE -<mask>
+SILENCE +*!*@noisy.example
+SILENCE -*!*@noisy.example
 ```
 
-Manages the per-client silence list used to suppress matching direct messages.
+### STATS
+
+Lists available statistics selectors or displays server uptime.
+
+```text
+STATS
+STATS ?
+STATS h
+STATS u
+```
 
 ### TAGMSG
 
+Relays client-only IRCv3 tags without a message body. Sender and recipient must have negotiated `message-tags`; normal message-access rules still apply.
+
 ```text
-@+client-tag=value TAGMSG <nickname-or-channel>
+@+typing=active TAGMSG bob
+@+react=thumbsup TAGMSG #chat
 ```
 
-Relays client-only IRCv3 tags without a message body. Both sender and recipient must have negotiated `message-tags`; channel and direct-message access policy still applies.
+### TIME
+
+Displays the server's local date and time.
+
+```text
+TIME
+```
 
 ### TOPIC
 
+Queries or changes a channel topic. With channel mode `+t`, halfop or higher is required to change it.
+
 ```text
-TOPIC <channel>
-TOPIC <channel> :<new topic>
+TOPIC #chat
+TOPIC #chat :Welcome to the channel
 ```
 
-Queries or changes a channel topic. With channel mode `+t`, halfop or higher is required to change it.
+### USER
+
+Supplies the username and real name during initial registration.
+
+```text
+USER alice 0 * :Alice Example
+```
 
 ### USERHOST
 
+Returns displayed hostnames for online nicknames.
+
 ```text
-USERHOST <nick1> [nick2 ...]
+USERHOST alice bob carol
 ```
 
-Returns the displayed hostname for online nicknames. It does not reveal real IP/DNS identity.
+### VERSION
+
+Displays the server software version.
+
+```text
+VERSION
+```
 
 ### WATCH
 
+Lists or changes the bounded nickname watch list and reports watched users' presence changes.
+
 ```text
-WATCH +<nick> -<nick> ...
+WATCH
+WATCH +alice +bob -carol
 ```
 
-Maintains a bounded nickname watch list and reports presence changes for watched users.
+### WEBIRC
+
+Supplies end-user identity from a configured WebIRC gateway before registration. Ordinary IRC clients do not use it.
+
+```text
+WEBIRC gateway-password gateway.example client.example 203.0.113.25
+```
 
 ### WHO
 
+Displays visible users matching a channel or mask. `WHO 0` performs a general query while respecting invisibility and channel visibility.
+
 ```text
-WHO <mask-or-channel>
+WHO #chat
+WHO alice
 WHO 0
 ```
 
-Displays visible matching users while respecting invisibility and channel visibility rules. WHO uses only displayed hostnames.
-
 ### WHOIS
 
+Displays public information about a user, including displayed hostname, visible channels, account and away state, sign-on time, and permitted idle information.
+
 ```text
-WHOIS <nickname>
+WHOIS alice
 ```
-
-Displays public information about a user, including displayed hostname, visible channel membership, authenticated account state, away state, and idle/signon information where permitted. Real IP/DNS identity is not returned to ordinary users.
-
-The reported idle time is reset only when that user successfully sends a private or channel `PRIVMSG`. Commands such as `PING`, `WHOIS`, `NOTICE`, and `TAGMSG` do not reset it. ScratchIRCd tracks connection liveness separately, so a client can remain responsive to server PING challenges without changing its reported messaging idle time.
 
 ### WHOWAS
 
+Returns bounded recent historical identity information for a nickname that is no longer online. An optional count limits replies.
+
 ```text
-WHOWAS <nickname>
+WHOWAS alice
+WHOWAS alice 5
 ```
-
-Returns bounded recent historical identity information for nicknames that are no longer online, subject to the server's visibility rules.
-
-## User modes
-
-ScratchIRCd defines these client modes:
-
-- `B` — bot marker.
-- `d` — suppress ordinary channel PRIVMSGs except configured command-prefix traffic.
-- `g` — globops/locops capability.
-- `H` — hide IRCop status.
-- `h` — HelpOp.
-- `I` — hide operator idle time from regular users.
-- `i` — invisible in general WHO results.
-- `N` — network administrator.
-- `o` — IRC operator.
-- `p` — hide channel membership from WHOIS.
-- `R` — accept PRIVMSG/NOTICE only from authenticated (`+r`) users.
-- `r` — authenticated to a registered NickServ account; service-controlled.
-- `S` — services daemon protection marker.
-- `s` — server notices.
-- `T` — reject CTCPs.
-- `t` — using a vhost; changes only displayed hostname.
-- `V` — authenticated WebIRC client marker.
-- `W` — WHOIS notification for IRCops.
-- `w` — receive WALLOPS messages.
-- `x` — use a keyed cloaked displayed hostname derived from real identity without exposing it.
-- `z` — secure/TLS client marker.
-
-## Channel modes
-
-- `A` — network administrators only.
-- `a <nick>` — protected channel member. Only PROTECTED or OWNER authority may add/remove it; protected members cannot be kicked or deliberately banned by ordinary OP/HALFOP members.
-- `B <channel>` — redirect banned clients.
-- `b <mask>` — ban displayed `nick!user@host` identity; protected-account enforcement observes the `+a` authority rules above.
-- `c` — reject channel messages containing IRC color/control formatting.
-- `e <mask>` — channel-ban exception against displayed identity.
-- `h <nick>` — halfop.
-- `i` — invite only.
-- `I <mask>` — invite exception against displayed identity.
-- `j <joins:seconds>` — per-client join throttle.
-- `K` — disallow KNOCK.
-- `k <key>` — channel key.
-- `l <count>` — member limit.
-- `L <channel>` — redirect when `+l` is full.
-- `M` — authenticated NickServ account (`+r`) required to speak.
-- `m` — moderated; voice/halfop/op/protected/owner may speak.
-- `n` — no outside channel messages.
-- `O` — IRC operators only.
-- `o <nick>` — channel operator.
-- `p` — private channel.
-- `q <nick>` — channel owner.
-- `r` — registered-channel marker controlled by ChanServ. It is restored from `data/chanserv.db` and cannot be set by ordinary MODE.
-- `R` — authenticated NickServ account (`+r`) required to join.
-- `S` — strip IRC color/control formatting from accepted channel messages before delivery/history/logging.
-- `s` — secret channel.
-- `t` — halfop or higher required to set topic.
-- `T` — channel NOTICEs prohibited.
-- `V` — INVITE prohibited.
-- `v <nick>` — voice.
-- `z` — TLS clients only.

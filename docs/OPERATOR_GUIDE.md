@@ -1,277 +1,547 @@
 # ScratchIRCd IRC Operator Guide
 
-This guide documents ordinary IRC operator authentication, permissions, modes, and commands. Ordinary operators are stored in `data/operators.db` and managed by the network administrator.
+This command-only guide is the complete reference for IRC operators and network administrators. Privileged commands and privileged forms appear first; every ordinary client command appears in the second section. Technical administration belongs in `NETWORK_ADMIN_GUIDE.md`.
 
-## Client host identity
+## 1. IRC operator and network-administrator commands
 
-ScratchIRCd keeps three host/address values for each client:
+### Authentication and operator modes
 
-- `real_ip` — actual end-user numeric IP.
-- `real_host` — FCrDNS-verified hostname for the actual IP, when available.
-- `display_host` — the public hostname shown to ordinary IRC users.
-
-WHO, ordinary WHOIS, USERHOST, channel traffic, channel bans, and replayable channel history use `display_host`. A vhost (`+t`) or cloak (`+x`) changes only `display_host`. KLINE, ZLINE, DNSBL, GeoIP, and GeoBAN ignore the displayed hostname and use the real security identity or MaxMind metadata.
-
-For authenticated WebIRC users, `real_ip` and `real_host` describe the actual end user, never the gateway. Gateway audit metadata is kept separately. Successful WebIRC users are marked `+V`.
-
-IRC operators may inspect real identity through operator WHOIS numeric 378 and USERIP. Ordinary users are denied USERIP. Persistent chat history never exposes the real IP or real DNS hostname.
-
-## IRCv3 history
-
-Operators may use the same IRCv3 channel-history interface as ordinary clients. Negotiate:
+Authenticate with the operator name and password assigned to you:
 
 ```text
-CAP REQ :batch draft/chathistory server-time
+OPER helper operator-password
 ```
 
-then, while a member of the target channel:
+Successful authentication grants `+o` and the permissions assigned to that operator. The bootstrap network administrator also receives `+N` and every operator permission. Operator records cannot be granted `+N`.
+
+Operators can control these operator-specific modes on themselves:
 
 ```text
-CHATHISTORY LATEST <channel> * <limit>
+MODE helper +gHsIW
+MODE helper -H
 ```
 
-History is stored in `data/history.db` by default. Operator status does not bypass the current membership requirement for CHATHISTORY; SAJOIN may be used separately when the operator has `can_override` and needs server-authority channel entry.
+- `g` receives and permits sending `GLOBOPS` and `LOCOPS`.
+- `H` hides operator status from ordinary users.
+- `I` hides idle time from ordinary users.
+- `s` receives selected server notices; use `SNOTICE` to choose categories.
+- `W` reports when an ordinary user performs `WHOIS` on the operator.
 
-## NickServ account state and SASL
+### Operator and administrator command reference
 
-NickServ is a virtual service, not a Client. It never joins channels and does not appear in NAMES, WHO, ISON, or LUSERS. A successful NickServ IDENTIFY or SASL login stores an account name on the Client and sets service-controlled user mode `+r`.
+#### CSDROP
 
-Operators may authenticate their personal NickServ account before registration with IRCv3 SASL PLAIN. SASL uses the same NickServ password hash and vhost path as IDENTIFY and does not confer IRC operator privileges; `OPER` remains separate.
-
-Operators have the same personal NickServ account-management commands as ordinary users. See `docs/NICKSERV_GUIDE.md` for the complete command set.
-
-## ChanServ registered channels
-
-ChanServ is a virtual service and never joins channels. Ordinary IRC operator status does not itself confer ChanServ founder authority. Operators authenticated to a founder/access account may use the normal ChanServ commands and receive the corresponding account-based OWNER/PROTECTED/OP/HALFOP/VOICE privileges. Network-administrator-only `CSINFO`, `CSSET`, and `CSDROP` remain separate. See `docs/CHANSERV_GUIDE.md`.
-
-## MemoServ
-
-MemoServ is also virtual and account-based. Operators may use the same personal MemoServ commands as ordinary clients:
+Network administrator only. Deletes a registered channel.
 
 ```text
-MEMOSERV SEND <account> :<message>
+CSDROP #chat
+```
+
+#### CSINFO
+
+Network administrator only. Displays administrative information for a registered channel.
+
+```text
+CSINFO #chat
+```
+
+#### CSSET
+
+Network administrator only. Changes a registered channel's description, founder, or enabled state.
+
+```text
+CSSET #chat DESCRIPTION :General discussion
+CSSET #chat FOUNDER alice
+CSSET #chat ENABLED 0
+CSSET #chat ENABLED 1
+```
+
+#### DEAF
+
+Any authenticated IRC operator or network administrator may set or clear `+D` on a client. A `+D` client cannot exchange direct `PRIVMSG` or `NOTICE` traffic with ordinary users; operators and network administrators are exempt.
+
+```text
+DEAF +trouble
+DEAF -trouble
+```
+
+#### DIE
+
+Requires `can_die`. Requests a graceful server shutdown.
+
+```text
+DIE
+```
+
+#### FLASH
+
+Any authenticated IRC operator or network administrator may send a server-originated `RPL_FLASH` numeric (`343`) to a channel, a comma-separated nickname list, or all registered clients.
+
+```text
+FLASH #chat :This is a message to the channel
+FLASH alice,bob :This is a message to selected clients
+FLASH * :This is a message to all connected clients
+```
+
+#### GEOBAN
+
+Requires `can_geoban`. Adds or lists country, region, ASN, or organization policies. Durations accept `s`, `m`, `h`, `d`, and `w`; `0`, `permanent`, `perm`, and `forever` mean permanent.
+
+```text
+GEOBAN COUNTRY RU 0 :Connections from this country are not accepted
+GEOBAN REGION AZ 7d :Temporary regional restriction
+GEOBAN ASN AS22773 1d :Network abuse
+GEOBAN ORG {*Example Network*} forever :Blocked provider family
+GEOBAN LIST
+```
+
+#### GLOBOPS
+
+Requires operator status and user mode `+g`. Sends a message to local operators with `+g`.
+
+```text
+GLOBOPS :Scheduled maintenance begins in ten minutes
+```
+
+#### KILL
+
+Requires `can_kill`. Disconnects a client.
+
+```text
+KILL trouble :Abusive behavior
+```
+
+#### KLINE
+
+Adding a KLINE requires `can_kline`; removing one requires `can_unkline`. Nickname shorthand creates a temporary policy using the server defaults. Explicit masks are permanent and match `user@real_host` and `user@real_ip`, not a displayed cloak or vhost.
+
+```text
+KLINE trouble
+KLINE *@bad.example :Abusive network
+KLINE -*@bad.example
+```
+
+#### LOCOPS
+
+Requires operator status and user mode `+g`. Sends a local operator message.
+
+```text
+LOCOPS :Please review #help
+```
+
+#### MSINFO
+
+Network administrator only. Displays memo counts and policy information for an account.
+
+```text
+MSINFO alice
+```
+
+#### MSPURGE
+
+Network administrator only. Purges expired memos for one account or all accounts according to the configured retention period.
+
+```text
+MSPURGE alice
+MSPURGE *
+```
+
+#### MUTE
+
+Any authenticated IRC operator or network administrator may set or clear `+M`. It blocks channel messages from an ordinary member; channel privileges and IRC operator status provide immunity.
+
+```text
+MUTE +trouble
+MUTE -trouble
+```
+
+#### NSDROP
+
+Network administrator only. Deletes a NickServ account.
+
+```text
+NSDROP alice
+```
+
+#### NSINFO
+
+Network administrator only. Displays administrative account information.
+
+```text
+NSINFO alice
+```
+
+#### NSSET
+
+Network administrator only. Changes account credentials, vhost, email, or enabled state. `-` clears a vhost or email address.
+
+```text
+NSSET alice PASSWORD new-password
+NSSET alice VHOST users/alice
+NSSET alice VHOST -
+NSSET alice EMAIL alice@example.net
+NSSET alice EMAIL -
+NSSET alice ENABLED 0
+NSSET alice ENABLED 1
+```
+
+#### OPER
+
+Authenticates a configured operator or the bootstrap network administrator.
+
+```text
+OPER helper operator-password
+```
+
+#### OPERADD
+
+Network administrator only. Creates an enabled operator. Use `-` for no vhost or no permissions; permission names are comma-separated.
+
+```text
+OPERADD helper strong-password staff.example :can_kill,can_kline,helpop,get_host
+OPERADD announcer strong-password - :-
+```
+
+#### OPERDEL
+
+Network administrator only. Deletes an operator.
+
+```text
+OPERDEL helper
+```
+
+#### OPERLIST
+
+Network administrator only. Lists all operators or one named operator.
+
+```text
+OPERLIST
+OPERLIST helper
+```
+
+#### OPERSET
+
+Network administrator only. Changes an operator's name, password, permissions, vhost, or enabled state.
+
+```text
+OPERSET helper NAME newhelper
+OPERSET helper PASSWORD new-password
+OPERSET helper PERMISSIONS :can_kill,can_kline
+OPERSET helper VHOST staff.example
+OPERSET helper VHOST -
+OPERSET helper ENABLED 0
+OPERSET helper ENABLED 1
+```
+
+Valid permissions are `can_rehash`, `can_die`, `can_restart`, `helpop`, `can_wallops`, `can_kill`, `can_kline`, `can_unkline`, `can_zline`, `can_geoban`, `get_host`, and `can_override`.
+
+#### REHASH
+
+Requires `can_rehash`. Reloads settings that can change safely while the server is running. Listener and TLS changes require `RESTART`.
+
+```text
+REHASH
+```
+
+#### RESTART
+
+Requires `can_restart`. Gracefully tears down and rebuilds the server in the same process.
+
+```text
+RESTART
+```
+
+#### SAJOIN
+
+Requires `can_override`. Forces a client into one or more channels.
+
+```text
+SAJOIN alice #help
+SAJOIN alice #help,#staff
+```
+
+#### SAMODE
+
+Requires `can_override`. Applies user or channel modes with server authority. User SAMODE cannot manufacture security or provenance modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
+
+```text
+SAMODE alice +i
+SAMODE #chat +o alice
+SAMODE #chat -b *!*@bad.example
+```
+
+#### SAPART
+
+Requires `can_override`. Forces a client out of one or more channels.
+
+```text
+SAPART alice #chat
+SAPART alice #chat,#help
+```
+
+#### SETHOST
+
+Requires `can_override`. Changes only the client's displayed hostname.
+
+```text
+SETHOST alice users/alice
+```
+
+#### SETIDENT
+
+Requires `can_override`. Changes the client's displayed username.
+
+```text
+SETIDENT alice newident
+```
+
+#### SETNAME
+
+Requires `can_override`. Changes the client's real-name field.
+
+```text
+SETNAME alice :Alice Example
+```
+
+#### SNOTICE
+
+Any authenticated IRC operator or network administrator may query or change its server-notice category mask. `*` means every category.
+
+```text
+SNOTICE
+SNOTICE +*
+SNOTICE -*
+SNOTICE +ks
+SNOTICE -f
+```
+
+Category letters are `c` connections, `o` operator activity, `k` kills, `b` KLINE/ZLINE activity, `g` GeoBAN activity, `w` WebIRC, `d` DNS, `s` security, `a` administration, `v` services, `r` registrations, `x` identity changes, `m` moderation, and `f` flood/resource events.
+
+#### UNGEOBAN
+
+Requires `can_geoban`. Removes a GeoBAN policy.
+
+```text
+UNGEOBAN COUNTRY RU
+UNGEOBAN ASN AS22773
+UNGEOBAN ORG {*Example Network*}
+```
+
+#### USERIP
+
+Any authenticated IRC operator or network administrator may inspect the real IP addresses of online clients.
+
+```text
+USERIP alice
+USERIP alice bob carol
+```
+
+#### WALLOPS
+
+Requires `can_wallops`. Sends a wallops message to clients with user mode `+w`.
+
+```text
+WALLOPS :Network maintenance begins shortly
+```
+
+#### ZLINE
+
+Requires `can_zline`. Nickname shorthand creates a temporary exact-IP policy using the server defaults. Explicit masks are permanent and match only the real client IP.
+
+```text
+ZLINE trouble
+ZLINE 203.0.113.* :Abusive network
+ZLINE -203.0.113.*
+```
+
+### Privileged forms of general commands
+
+The following forms belong in this privileged section even though the command names also have ordinary uses.
+
+Network administrators create or delete persistent channel registrations through either direct ChanServ syntax or the traditional service-message form. Registration also requires an identified NickServ account and owner/operator authority in the live channel.
+
+```text
+CHANSERV REGISTER #chat :General discussion
+CHANSERV DROP #chat
+PRIVMSG ChanServ :REGISTER #chat General discussion
+PRIVMSG ChanServ :DROP #chat
+```
+
+An IRC operator or network administrator can control persistent channel logging:
+
+```text
+CHANSERV SET #chat LOGGING ON
+CHANSERV SET #chat LOGGING OFF
+```
+
+Ban and GeoBAN statistics selectors require operator status:
+
+```text
+STATS k
+STATS z
+STATS g
+```
+
+An operator's `WHOIS` reply includes real identity information not disclosed to ordinary users:
+
+```text
+WHOIS alice
+```
+
+## 2. General client commands
+
+This section contains the complete ordinary client command set. Operator status does not bypass ordinary channel authority, capability negotiation, or service-account checks unless a privileged command explicitly says otherwise.
+
+### General command index and examples
+
+| Command | Purpose | Example |
+| --- | --- | --- |
+| `ADMIN` | Show the server's administrator contact and location. | `ADMIN` |
+| `AUTHENTICATE` | Continue or abort SASL PLAIN negotiation. | `AUTHENTICATE PLAIN`<br>`AUTHENTICATE <base64-payload>`<br>`AUTHENTICATE *` |
+| `AWAY` | Set or clear away status. | `AWAY :Out to lunch`<br>`AWAY` |
+| `CAP` | Negotiate IRCv3 capabilities. | `CAP LS 302`<br>`CAP REQ :server-time message-tags`<br>`CAP END` |
+| `CHANSERV` | Use ordinary ChanServ functions. | `CHANSERV INFO #chat`<br>`CHANSERV ACCESS #chat LIST`<br>`CHANSERV HELP` |
+| `CHATHISTORY` | Replay recent channel history. | `CHATHISTORY LATEST #chat * 50` |
+| `IDENTIFY` | Authenticate a NickServ account. | `IDENTIFY password`<br>`IDENTIFY alice password` |
+| `INFO` | Show server software information. | `INFO` |
+| `INVITE` | Invite a user to a channel. | `INVITE bob #chat` |
+| `ISON` | Test whether nicknames are online. | `ISON alice bob carol` |
+| `JOIN` | Join a channel, optionally with a key. | `JOIN #chat`<br>`JOIN #private secret-key` |
+| `KICK` | Remove a channel member with sufficient channel authority. | `KICK #chat bob :Flooding` |
+| `KNOCK` | Ask channel staff for entry to a restricted channel. | `KNOCK #private :May I join?` |
+| `LINKS` | Show the single server in the link list. | `LINKS`<br>`LINKS *.example.net` |
+| `LIST` | List channels visible to the requester. | `LIST` |
+| `LUSERS` | Show current user and channel counts. | `LUSERS` |
+| `MEMOSERV` | Use account-to-account memo services. | `MEMOSERV LIST`<br>`MEMOSERV SEND bob :Please contact me` |
+| `MODE` | Query or change user and channel modes. | `MODE alice +i`<br>`MODE #chat +nt`<br>`MODE #chat +o bob` |
+| `MOTD` | Show the message of the day. | `MOTD` |
+| `NAMES` | List visible members of all visible channels or one channel. | `NAMES`<br>`NAMES #chat` |
+| `NICK` | Set or change a nickname. | `NICK alice` |
+| `NICKSERV` | Register, identify, or manage a personal account. | `NICKSERV IDENTIFY password`<br>`NICKSERV HELP` |
+| `NOTICE` | Send a notice to a user or channel. | `NOTICE bob :Meeting starts now`<br>`NOTICE #chat :Meeting starts now` |
+| `PART` | Leave a channel. | `PART #chat :Good night` |
+| `PASS` | Supply the server password before registration. | `PASS server-password` |
+| `PING` | Request a matching PONG. | `PING client-token` |
+| `PONG` | Answer a server PING with the exact token. | `PONG server-token` |
+| `PRIVMSG` | Send a message to a user, channel, or virtual service. | `PRIVMSG bob :Hello`<br>`PRIVMSG #chat :Hello everyone` |
+| `QUIT` | Disconnect from the server. | `QUIT :Leaving` |
+| `RULES` | Show the server rules. | `RULES` |
+| `SILENCE` | List, add, or remove personal silence masks. | `SILENCE`<br>`SILENCE +*!*@noisy.example`<br>`SILENCE -*!*@noisy.example` |
+| `STATS` | List selectors or show uptime. | `STATS`<br>`STATS ?`<br>`STATS u` |
+| `TAGMSG` | Relay client-only IRCv3 tags. | `@+typing=active TAGMSG bob`<br>`@+react=thumbsup TAGMSG #chat` |
+| `TIME` | Show the server's local time. | `TIME` |
+| `TOPIC` | Query or change a channel topic. | `TOPIC #chat`<br>`TOPIC #chat :Welcome` |
+| `USER` | Supply username and real name during registration. | `USER alice 0 * :Alice Example` |
+| `USERHOST` | Show displayed hostnames for online nicknames. | `USERHOST alice bob` |
+| `VERSION` | Show the server version. | `VERSION` |
+| `WATCH` | Query or change a nickname watch list. | `WATCH`<br>`WATCH +alice +bob -carol` |
+| `WEBIRC` | Supply end-user identity from an authorized gateway before registration. | `WEBIRC password gateway.example client.example 203.0.113.25` |
+| `WHO` | Show visible users matching a channel or nickname, or perform a general query. | `WHO #chat`<br>`WHO alice`<br>`WHO 0` |
+| `WHOIS` | Show information about an online user. | `WHOIS alice` |
+| `WHOWAS` | Show recent information for a nickname no longer online. | `WHOWAS alice`<br>`WHOWAS alice 5` |
+
+### NickServ commands
+
+NickServ supports direct commands and `PRIVMSG NickServ :<command>`. Successful identification sets service-controlled mode `+r`.
+
+```text
+NICKSERV REGISTER account-password
+NICKSERV IDENTIFY account-password
+NICKSERV IDENTIFY alice account-password
+NICKSERV SET PASSWORD new-password
+NICKSERV SET EMAIL alice@example.net
+NICKSERV VERIFY emailed-token
+NICKSERV RESET alice
+NICKSERV RESET alice emailed-token new-password
+NICKSERV RECOVER alice
+NICKSERV RECOVER alice KILL
+NICKSERV GHOST alice
+NICKSERV HELP
+PRIVMSG NickServ :IDENTIFY account-password
+```
+
+### ChanServ commands
+
+Ordinary ChanServ functions use an authenticated account. `INFO` is public; `ACCESS` and `SET` require the registered channel's founder account.
+
+```text
+CHANSERV INFO #chat
+CHANSERV ACCESS #chat ADD alice OWNER
+CHANSERV ACCESS #chat ADD bob OP
+CHANSERV ACCESS #chat DEL bob
+CHANSERV ACCESS #chat LIST
+CHANSERV SET #chat MLOCK +nt
+CHANSERV SET #chat TOPIC :Welcome to #chat
+CHANSERV HELP
+PRIVMSG ChanServ :INFO #chat
+```
+
+Access roles are `OWNER`, `PROTECTED`, `OP`, `HALFOP`, and `VOICE`. They restore `+q/+o`, `+a/+o`, `+o`, `+h`, and `+v`, respectively, when the account joins.
+
+### MemoServ commands
+
+All MemoServ commands except `HELP` require an identified account. `DELETE` is an alias for `DEL`.
+
+```text
+MEMOSERV SEND bob :Please contact me when you return
 MEMOSERV LIST
 MEMOSERV SENT
-MEMOSERV READ <memo-id>
-MEMOSERV REPLY <memo-id> :<message>
-MEMOSERV FORWARD <memo-id> <account>
-MEMOSERV DEL <memo-id|ALL>
+MEMOSERV READ 12
+MEMOSERV REPLY 12 :Thanks, I saw this
+MEMOSERV FORWARD 12 carol
+MEMOSERV DEL 12
+MEMOSERV DEL ALL
 MEMOSERV STATUS
 MEMOSERV HELP
+PRIVMSG MemoServ :LIST
 ```
 
-MemoServ authority is based on the authenticated NickServ account, not IRC operator status. Ordinary operators do not gain access to other accounts' memo contents. `MSINFO` and `MSPURGE` are network-administrator-only. See `docs/MEMOSERV_GUIDE.md`.
+### MODE reference
 
-## Operator authentication
+User-mode examples:
 
 ```text
-OPER <operator-name> <password>
+MODE alice
+MODE alice +iRw
+MODE alice -p
 ```
 
-Successful login grants `+o` and loads permissions from the SQLite operator record. `helpop` grants `+h`; `get_host` applies the configured operator vhost to `display_host` and grants `+t`. Database operators cannot receive `+N`.
+Ordinary self-settable modes are `B` bot, `d` suppress ordinary channel messages except configured command-prefix traffic, `i` invisible, `p` hide channels from ordinary `WHOIS`, `R` accept messages only from identified users, `T` reject CTCP, `w` receive wallops, and `x` use the configured cloak. Mode `+x` is applied automatically at registration and may be cleared or reapplied. Modes `g`, `H`, `I`, `s`, and `W` are operator self-modes described in section 1. Other security, transport, service, and authentication modes cannot be self-granted.
 
-## Permission flags
-
-- `can_rehash` — use REHASH.
-- `can_die` — use DIE for graceful daemon shutdown.
-- `can_restart` — use RESTART.
-- `helpop` — receive `+h`.
-- `can_wallops` — send WALLOPS.
-- `can_kill` — use KILL.
-- `can_kline` — add KLINEs.
-- `can_unkline` — remove KLINEs.
-- `can_zline` — add/remove ZLINEs, including automatic DNSBL-generated ZLINEs.
-- `can_geoban` — add/list/remove persistent COUNTRY, REGION, ASN, and ORG GeoBAN policies.
-- `get_host` — receive the configured operator vhost and `+t`.
-- `can_override` — use SAJOIN, SAPART, SAMODE, SETHOST, SETIDENT, and SETNAME.
-
-`netadmin` is reserved for the bootstrap network administrator.
-
-## Operator-controlled moderation modes
-
-Operators may apply or remove the server moderation modes with:
+Channel-mode examples:
 
 ```text
-DEAF +<nick>
-DEAF -<nick>
-MUTE +<nick>
-MUTE -<nick>
+MODE #chat
+MODE #chat +nt
+MODE #chat +o bob
+MODE #chat +b *!*@bad.example
+MODE #chat b
+MODE #chat +j 3:30
+MODE #chat +kl secret-key 50
 ```
 
-`DEAF +nick` sets user mode `+D`; ordinary clients cannot self-set or self-remove it. A `+D` client cannot exchange direct PRIVMSG/NOTICE with ordinary users, while IRCops and network administrators remain exempt.
+Boolean channel modes are `A` administrator-only join, `c` reject color/control formatting, `i` invite-only, `K` disable KNOCK, `M` identified users only may speak, `m` moderated, `n` no outside messages, `O` operators-only join, `p` private, `R` identified users only may join, `S` strip color/control formatting, `s` secret, `t` topic lock, `T` prohibit channel notices, `V` prohibit invites, and `z` TLS-only. Mode `r` is the service-controlled registered-channel marker.
 
-`MUTE +nick` sets user mode `+M`; ordinary clients cannot self-set or self-remove it. `+M` blocks channel PRIVMSG/NOTICE only while the client is an ordinary member. Any channel privilege (`+v`, `+h`, `+o`, `+a`, or `+q`) makes the client immune in that channel, and IRCops/network administrators are globally immune. See `docs/MODERATION_GUIDE.md`.
+Membership modes are `q <nick>` owner, `a <nick>` protected, `o <nick>` operator, `h <nick>` halfop, and `v <nick>` voice. List modes are `b <mask>` ban, `e <mask>` ban exception, and `I <mask>` invite exception. Parameter modes are `j <joins:seconds>` join throttle, `k <key>` key, `l <count>` limit, `L <channel>` full-channel redirect, and `B <channel>` banned-client redirect.
 
-## Operator message and notice modes
+### IRCv3 use
 
-`+g` and `+s` are operator-only self-toggleable modes:
+ScratchIRCd advertises `account-notify`, `away-notify`, `batch`, `draft/chathistory`, `extended-join`, `labeled-response`, `message-tags`, `sasl=PLAIN`, and `server-time` through CAP 302. Request `sasl`, not `sasl=PLAIN`, and finish negotiation with `CAP END`.
 
 ```text
-MODE <nick> +g
-MODE <nick> +s
+CAP LS 302
+CAP REQ :batch draft/chathistory server-time
+AUTHENTICATE PLAIN
+AUTHENTICATE <base64-plain-payload>
+CAP END
+JOIN #chat
+CHATHISTORY LATEST #chat * 50
 ```
 
-`+g` enables receipt and sending of operator-message traffic:
+`CHATHISTORY` still requires current channel membership. Operator status alone does not bypass it.
 
-```text
-GLOBOPS :<message>
-LOCOPS :<message>
-```
+### Identity and idle reporting
 
-Sending either command requires both IRC operator status and `+g`. ScratchIRCd is intentionally single-server, so both are local-process broadcasts even though the command names remain distinct.
+Ordinary protocol output uses each client's displayed hostname. Operator `WHOIS` and `USERIP` additionally expose the real security identity. A vhost or cloak changes only the displayed hostname and does not alter ban enforcement against real identity.
 
-`+s` enables daemon-generated server notices. Current notices include meaningful security/administrative events such as KILL, KLINE, ZLINE, and GeoBAN changes.
-
-## Implemented operator commands
-
-```text
-DEAF +<nick>
-DEAF -<nick>
-DIE
-FLASH <#channel|nick[,nick...]|*> :<message>
-GEOBAN <COUNTRY|REGION|ASN|ORG> <value> <duration|0> [:reason]
-GEOBAN LIST
-GLOBOPS :<message>
-KILL <nickname> :<reason>
-KLINE <nickname>
-KLINE <user@host-mask> :<reason>
-KLINE -<user@host-mask>
-LOCOPS :<message>
-MUTE +<nick>
-MUTE -<nick>
-UNGEOBAN <COUNTRY|REGION|ASN|ORG> <value>
-ZLINE <nickname>
-ZLINE <ip-mask> :<reason>
-ZLINE -<ip-mask>
-WALLOPS :<message>
-REHASH
-RESTART
-SAJOIN <nick> <channel>[,<channel>...]
-SAPART <nick> <channel>[,<channel>...]
-SAMODE <nick> <modes>
-SAMODE <channel> <modes> [parameters...]
-SETHOST <nick> <newhost>
-SETIDENT <nick> <newident>
-SETNAME <nick> :<new real name>
-USERIP <nick1> [nick2 ...]
-WHOIS <nickname>
-```
-
-`DIE` requires `can_die`. It requests an orderly daemon shutdown through the normal event-loop teardown path; it does not call `exit()` from command dispatch. Remaining clients are disconnected during normal server destruction.
-
-`FLASH` is available to every authenticated IRC operator and network administrator. It sends a server-originated `RPL_FLASH` numeric (`343`) to every member of a channel, a comma-separated nickname list, or all registered clients with `*`.
-
-Explicit KLINE matches `user@real_host` and `user@real_ip`; explicit ZLINE matches only `real_ip`. Thus a WebIRC user's bans apply to the actual end user rather than the gateway. SETHOST changes only `display_host` and never changes real identity. USERIP and operator WHOIS reveal the real identity.
-
-`KLINE <nickname>` is a shorthand temporary ban. ScratchIRCd resolves the live target to `*@real_host`, falling back to `*@real_ip` when no verified hostname is available. `ZLINE <nickname>` resolves to the target's exact `real_ip`. Both shorthand forms use the configured `*_default_duration_seconds` and `*_default_reason` settings. Explicit mask commands remain permanent. Expired temporary records are ignored and automatically purged from `data/bans.db`.
-
-GeoBAN policies live in a separate `geo_bans` table inside `data/bans.db` and never change KLINE/ZLINE semantics. COUNTRY and REGION values are normalized uppercase, ASN accepts either numeric or `AS`-prefixed input, and ORG supports case-insensitive Tcl-style wildcard matching. See `docs/GEOBAN_GUIDE.md`.
-
-Configured DNS blacklists automatically create exact-IP ZLINE records in `data/bans.db`. An operator with `can_zline` can remove one with `ZLINE -<ip>`.
-
-REHASH reloads safely mutable runtime configuration, including WebIRC gateways, DNSBL definitions/timeouts, database paths, NickServ mail settings, history settings, MemoServ quota/retention settings, and nickname KLINE/ZLINE default duration/reason values. Listener/TLS changes require RESTART. SAJOIN/SAPART/SAMODE/SETHOST/SETIDENT/SETNAME require `can_override`.
-
-User SAMODE cannot manufacture provenance/security modes such as `+N`, `+o`, `+r`, `+S`, `+t`, `+V`, `+x`, or `+z`.
-
-## Network-administrator-only commands
-
-Ordinary operators cannot directly manage operator, NickServ, ChanServ, or MemoServ administrative state:
-
-```text
-OPERADD
-OPERDEL
-OPERSET
-OPERLIST
-NSINFO
-NSSET
-NSDROP
-CSINFO
-CSSET
-CSDROP
-MSINFO
-MSPURGE
-```
-
-## General commands available to operators
-
-```text
-ADMIN
-AUTHENTICATE
-AWAY
-CAP
-CHANSERV
-CHATHISTORY
-DEAF
-DIE
-FLASH
-GEOBAN
-GLOBOPS
-IDENTIFY
-INVITE
-ISON
-JOIN
-KICK
-KILL
-KLINE
-KNOCK
-LIST
-LOCOPS
-LUSERS
-MEMOSERV
-MODE
-MOTD
-MUTE
-NAMES
-NICK
-NICKSERV
-NOTICE
-OPER
-PART
-PASS
-PING
-PONG
-PRIVMSG
-QUIT
-REHASH
-RESTART
-RULES
-SAJOIN
-SAMODE
-SAPART
-SETHOST
-SETIDENT
-SETNAME
-SILENCE
-TOPIC
-UNGEOBAN
-USER
-USERHOST
-USERIP
-WALLOPS
-WATCH
-WHO
-WHOIS
-WHOWAS
-ZLINE
-```
-
-`WEBIRC` is implemented but is a pre-registration gateway command rather than an ordinary operator command.
-
-## Operator-related user modes
-
-- `+D` — private-message isolation, applied/removed only through DEAF by an IRCop or higher.
-- `+M` — ordinary-channel-member mute, applied/removed only through MUTE by an IRCop or higher.
-- `+o` — IRC operator.
-- `+N` — network administrator; bootstrap administrator only.
-- `+h` — HelpOp.
-- `+H` — hide IRCop status from regular users; IRCop-self-toggleable.
-- `+I` — hide operator idle time from regular users; IRCop-self-toggleable.
-- `+g` — receive/send GLOBOPS and LOCOPS; IRCop-self-toggleable.
-- `+r` — authenticated NickServ account; service-controlled.
-- `+s` — receive daemon-generated server notices; IRCop-self-toggleable.
-- `+w` — receive WALLOPS.
-- `+W` — receive WHOIS notifications; IRCop-self-toggleable.
-- `+t` — using an operator/NickServ vhost; changes `display_host` only.
-- `+V` — authenticated WebIRC end user.
-- `+x` — cloaked displayed hostname; changes `display_host` only.
-- `+z` — authenticated TLS transport.
+A client's reported `WHOIS` idle time resets only when one of its private or channel `PRIVMSG` messages is successfully delivered. No other command or activity resets the messaging-idle timer. Connection liveness is tracked separately, and only an exact matching `PONG` clears an outstanding server challenge.
