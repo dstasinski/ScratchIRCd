@@ -1,12 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - Genesis
-  pull_request:
-    branches:
-      - Genesis
+  workflow_dispatch:
 
 jobs:
   linux-cmake:
