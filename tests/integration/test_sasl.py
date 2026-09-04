@@ -46,7 +46,7 @@ def expect_sasl_rejection(port,clients,nick,payload,numeric="904"):
     client=IRCClient(port); clients.append(client)
     client.send("CAP LS 302"); client.expect(" CAP * LS :")
     client.send("CAP REQ :sasl"); client.expect(" CAP * ACK :sasl")
-    client.send(f"NICK {nick}"); client.send(f"USER {nick} 0 * :{nick}")
+    client.send(f"NICK {nick}"); client.send(f"USER sasltest 0 * :{nick}")
     client.send("AUTHENTICATE PLAIN"); client.expect("AUTHENTICATE +")
     client.send("AUTHENTICATE "+payload); client.expect(f" {numeric} {nick} ")
     # A rejected exchange must not authenticate the connection or prevent
