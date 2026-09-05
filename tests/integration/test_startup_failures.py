@@ -89,6 +89,17 @@ def main():
             ["TLS requires both tls_cert_file and tls_key_file", "Failed to start"],
         )
 
+        orphaned_chain = os.path.join(directory, "orphaned-chain.conf")
+        orphaned_chain_lines = base_config(directory, 1)
+        orphaned_chain_lines.append(
+            f"tls_chain_file = {directory}/intermediates.pem"
+        )
+        write_config(orphaned_chain, orphaned_chain_lines)
+        expect_startup_failure(
+            binary, orphaned_chain,
+            ["TLS requires both tls_cert_file and tls_key_file", "Failed to start"],
+        )
+
         invalid_tls = os.path.join(directory, "invalid-tls.conf")
         missing_cert = os.path.join(directory, "missing-cert.pem")
         invalid_tls_lines = base_config(directory, 1)

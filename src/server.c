@@ -19,6 +19,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <openssl/pem.h>
+
 #define SERVER_ACCEPT_BUDGET_PER_LISTENER 32U
 #define SERVER_DNS_RESULT_BUDGET 64U
 #define SERVER_DNSBL_RESULT_BUDGET 64U
@@ -212,8 +214,40 @@ static int make_listeners(Server *server) {
     return 0;
 }
 
+static int load_tls_chain_file(SSL_CTX *context, const char *path) {
+    BIO *input;
+    STACK_OF(X509_INFO) *objects;
+    int certificate_count = 0;
+    int index;
+    int result = -1;
+
+    if (context == NULL || path == NULL || *path == '\0') return -1;
+    input = BIO_new_file(path, "r");
+    if (input == NULL) return -1;
+    objects = PEM_X509_INFO_read_bio(input, NULL, NULL, NULL);
+    BIO_free(input);
+    if (objects == NULL) return -1;
+
+    for (index = 0; index < sk_X509_INFO_num(objects); ++index) {
+        X509_INFO *object = sk_X509_INFO_value(objects, index);
+        if (object == NULL || object->x509 == NULL) continue;
+        if (SSL_CTX_add1_chain_cert(context, object->x509) != 1) goto done;
+        ++certificate_count;
+    }
+    if (certificate_count > 0) result = 0;
+
+done:
+    sk_X509_INFO_pop_free(objects, X509_INFO_free);
+    return result;
+}
+
 static int init_tls(Server *server) {
-    if (server->config.tls_cert_file[0] == '\0' && server->config.tls_key_file[0] == '\0') return 0;
+    int separate_chain = server->config.tls_chain_file[0] != '\0';
+
+    if (server->config.tls_cert_file[0] == '\0' &&
+        server->config.tls_chain_file[0] == '\0' &&
+        server->config.tls_key_file[0] == '\0')
+        return 0;
     if (server->config.tls_cert_file[0] == '\0' || server->config.tls_key_file[0] == '\0') { fprintf(stderr, "TLS requires both tls_cert_file and tls_key_file\n"); return -1; }
     server->tls_ctx = SSL_CTX_new(TLS_server_method());
     if (server->tls_ctx == NULL) {
@@ -224,11 +258,27 @@ static int init_tls(Server *server) {
         fprintf(stderr, "Failed to require TLS 1.2 or newer\n");
         return -1;
     }
-    if (SSL_CTX_use_certificate_chain_file(server->tls_ctx,
-                                           server->config.tls_cert_file) != 1) {
-        fprintf(stderr, "Failed to load TLS certificate chain: %s\n",
-                server->config.tls_cert_file);
-        return -1;
+    if (separate_chain) {
+        if (SSL_CTX_use_certificate_file(server->tls_ctx,
+                                         server->config.tls_cert_file,
+                                         SSL_FILETYPE_PEM) != 1) {
+            fprintf(stderr, "Failed to load TLS certificate: %s\n",
+                    server->config.tls_cert_file);
+            return -1;
+        }
+        if (load_tls_chain_file(server->tls_ctx,
+                                server->config.tls_chain_file) != 0) {
+            fprintf(stderr, "Failed to load TLS certificate chain: %s\n",
+                    server->config.tls_chain_file);
+            return -1;
+        }
+    } else {
+        if (SSL_CTX_use_certificate_chain_file(server->tls_ctx,
+                                               server->config.tls_cert_file) != 1) {
+            fprintf(stderr, "Failed to load TLS certificate chain: %s\n",
+                    server->config.tls_cert_file);
+            return -1;
+        }
     }
     if (SSL_CTX_use_PrivateKey_file(server->tls_ctx,
                                     server->config.tls_key_file,

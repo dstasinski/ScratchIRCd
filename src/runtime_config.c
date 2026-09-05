@@ -231,6 +231,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("port", port);
     STRING_OPTION("tls_port", tls_port);
     STRING_OPTION("tls_cert_file", tls_cert_file);
+    STRING_OPTION("tls_chain_file", tls_chain_file);
     STRING_OPTION("tls_key_file", tls_key_file);
     STRING_OPTION("geoip_city_db", geoip_city_db);
     STRING_OPTION("geoip_asn_db", geoip_asn_db);

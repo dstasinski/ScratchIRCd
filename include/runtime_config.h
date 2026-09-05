@@ -28,6 +28,7 @@ typedef struct ServerConfig {
 
     char tls_port[IRCD_PORT_TEXT_MAX + 1U];
     char tls_cert_file[IRCD_CONFIG_PATH_MAX + 1U];
+    char tls_chain_file[IRCD_CONFIG_PATH_MAX + 1U];
     char tls_key_file[IRCD_CONFIG_PATH_MAX + 1U];
 
     int nospoof_enabled;

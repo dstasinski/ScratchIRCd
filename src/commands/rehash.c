@@ -20,6 +20,7 @@ static int restart_required(const ServerConfig *current,
         strcmp(updated->port, current->port) != 0 ||
         strcmp(updated->tls_port, current->tls_port) != 0 ||
         strcmp(updated->tls_cert_file, current->tls_cert_file) != 0 ||
+        strcmp(updated->tls_chain_file, current->tls_chain_file) != 0 ||
         strcmp(updated->tls_key_file, current->tls_key_file) != 0 ||
         strcmp(updated->geoip_city_db, current->geoip_city_db) != 0 ||
         strcmp(updated->geoip_asn_db, current->geoip_asn_db) != 0 ||

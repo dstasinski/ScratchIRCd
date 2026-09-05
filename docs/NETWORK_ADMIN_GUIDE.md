@@ -169,7 +169,28 @@ tls_cert_file = /etc/letsencrypt/live/irc.example.net/fullchain.pem
 tls_key_file = /etc/letsencrypt/live/irc.example.net/privkey.pem
 ```
 
-TLS is enabled only when both paths are present. The daemon requires TLS 1.2 or newer. The service account must be able to read the key without making it world-readable. Successful TLS clients receive `+z`.
+`tls_cert_file` may continue to contain the complete leaf-plus-intermediate
+chain. If the certificate provider supplies the leaf certificate and CA bundle
+as separate files, use:
+
+```text
+tls_port = 6697
+tls_cert_file = /usr/local/etc/certs/irc.crt
+tls_chain_file = /usr/local/etc/certs/ca.crt
+tls_key_file = /usr/local/etc/certs/irc.key
+```
+
+`tls_chain_file` must contain one or more PEM-encoded intermediate
+certificates in issuer order. Do not put the leaf certificate in this file,
+and normally do not include the root certificate. This setting supplies the
+chain ScratchIRCd sends to connecting clients; it is not a trust store for
+client certificates or linked servers.
+
+TLS is enabled only when both the certificate and key paths are present. The
+chain path is optional. The daemon requires TLS 1.2 or newer. The service
+account must be able to read the key without making it world-readable.
+Successful TLS clients receive `+z`. Changes to any TLS file setting require
+`RESTART`, not `REHASH`.
 
 Test the certificate and listener after startup:
 

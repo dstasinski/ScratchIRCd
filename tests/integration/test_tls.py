@@ -88,29 +88,84 @@ def register(client, nick):
     client.expect(f" 001 {nick} ")
 
 
+def run_openssl(*arguments):
+    subprocess.check_call(
+        ["openssl", *arguments],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_tls.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-tls-") as td:
-        cert = os.path.join(td, "cert.pem")
-        key = os.path.join(td, "key.pem")
+        root_cert = os.path.join(td, "root-cert.pem")
+        root_key = os.path.join(td, "root-key.pem")
+        chain = os.path.join(td, "intermediate-cert.pem")
+        chain_key = os.path.join(td, "intermediate-key.pem")
+        chain_request = os.path.join(td, "intermediate.csr")
+        chain_extensions = os.path.join(td, "intermediate.ext")
+        cert = os.path.join(td, "server-cert.pem")
+        key = os.path.join(td, "server-key.pem")
+        cert_request = os.path.join(td, "server.csr")
+        cert_extensions = os.path.join(td, "server.ext")
         plain_port = free_port()
         tls_port = free_port()
         conf = os.path.join(td, "ircd.conf")
 
-        subprocess.check_call([
-            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-            "-keyout", key, "-out", cert, "-days", "1",
-            "-subj", "/CN=localhost"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        run_openssl(
+            "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", root_key, "-out", root_cert, "-days", "1",
+            "-sha256", "-subj", "/CN=ScratchIRCd Test Root",
+            "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+        )
+        run_openssl(
+            "req", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", chain_key, "-out", chain_request,
+            "-subj", "/CN=ScratchIRCd Test Intermediate",
+        )
+        with open(chain_extensions, "w", encoding="utf-8") as handle:
+            handle.write(
+                "basicConstraints=critical,CA:TRUE,pathlen:0\n"
+                "keyUsage=critical,keyCertSign,cRLSign\n"
+                "subjectKeyIdentifier=hash\n"
+                "authorityKeyIdentifier=keyid,issuer\n"
+            )
+        run_openssl(
+            "x509", "-req", "-in", chain_request,
+            "-CA", root_cert, "-CAkey", root_key, "-CAcreateserial",
+            "-out", chain, "-days", "1", "-sha256",
+            "-extfile", chain_extensions,
+        )
+        run_openssl(
+            "req", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", key, "-out", cert_request,
+            "-subj", "/CN=localhost",
+        )
+        with open(cert_extensions, "w", encoding="utf-8") as handle:
+            handle.write(
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=serverAuth\n"
+                "subjectAltName=DNS:localhost\n"
+            )
+        run_openssl(
+            "x509", "-req", "-in", cert_request,
+            "-CA", chain, "-CAkey", chain_key, "-CAcreateserial",
+            "-out", cert, "-days", "1", "-sha256",
+            "-extfile", cert_extensions,
+        )
 
         with open(conf, "w", encoding="utf-8") as f:
             f.write("server_name = test.local\nnetwork_name = TestNet\n")
             f.write("bind_address = 127.0.0.1\n")
             f.write(f"port = {plain_port}\ntls_port = {tls_port}\n")
-            f.write(f"tls_cert_file = {cert}\ntls_key_file = {key}\n")
+            f.write(f"tls_cert_file = {cert}\ntls_chain_file = {chain}\n")
+            f.write(f"tls_key_file = {key}\n")
             f.write("max_clients = 32\ndns_timeout_seconds = 1\n")
             f.write("registration_timeout_seconds = 5\n")
             f.write(f"operators_db = {td}/operators.db\n")
@@ -143,9 +198,11 @@ def main():
             silent = None
             assert proc.poll() is None, "server exited after a TLS handshake timeout"
 
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
+            # Trust only the generated root. The handshake therefore proves
+            # that ScratchIRCd sent the separately configured intermediate.
+            context = ssl.create_default_context(
+                ssl.Purpose.SERVER_AUTH, cafile=root_cert
+            )
             raw = socket.create_connection(("127.0.0.1", tls_port), timeout=3.0)
             tls_client = IRCClient(context.wrap_socket(raw, server_hostname="localhost"))
             register(tls_client, "secure")

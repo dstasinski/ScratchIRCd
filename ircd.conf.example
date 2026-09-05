@@ -7,7 +7,11 @@ bind_address =
 port = 6667
 
 tls_port = 6697
+# A combined leaf-plus-intermediate full-chain PEM remains supported. When the
+# leaf certificate and CA bundle are separate, set tls_cert_file to the leaf
+# and tls_chain_file to the CA-provided intermediate bundle.
 tls_cert_file =
+tls_chain_file =
 tls_key_file =
 
 max_clients = 1024

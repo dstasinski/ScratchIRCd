@@ -59,6 +59,7 @@ int main(int argc, char **argv) {
     assert(config.argon2_window_seconds == IRCD_DEFAULT_ARGON2_WINDOW_SECONDS);
     assert(config.argon2_global_ops_per_minute == IRCD_DEFAULT_ARGON2_GLOBAL_OPS_PER_MINUTE);
     assert(config.argon2_global_burst_per_second == IRCD_DEFAULT_ARGON2_GLOBAL_BURST_PER_SECOND);
+    assert(config.tls_chain_file[0] == '\0');
 
     assert(fd >= 0);
     file = fdopen(fd, "w");
@@ -73,6 +74,7 @@ int main(int argc, char **argv) {
     assert(fputs("output_queue_max_bytes = 32768\n", file) >= 0);
     assert(fputs("cloak_prefix = dru\n", file) >= 0);
     assert(fputs("cloak_key = runtime-test-cloak-key-0123456789\n", file) >= 0);
+    assert(fputs("tls_chain_file = /etc/scratchircd/intermediates.pem\n", file) >= 0);
     assert(fputs("dnsbl_timeout_seconds = 9\n", file) >= 0);
     assert(fputs("dnsbl = Primary dnsbl.example.test\n", file) >= 0);
     assert(fputs("dnsbl = Secondary dnsbl2.example.test\n", file) >= 0);
@@ -118,6 +120,8 @@ int main(int argc, char **argv) {
     assert(config.output_queue_max_bytes == 32768U);
     assert(strcmp(config.cloak_prefix, "dru") == 0);
     assert(strcmp(config.cloak_key, "runtime-test-cloak-key-0123456789") == 0);
+    assert(strcmp(config.tls_chain_file,
+                  "/etc/scratchircd/intermediates.pem") == 0);
     assert(config.dnsbl_timeout_seconds == 9U);
     assert(config.dnsbl_count == 2U);
     assert(strcmp(config.dnsbls[0].name, "Primary") == 0);
