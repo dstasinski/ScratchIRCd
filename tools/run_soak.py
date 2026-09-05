@@ -478,7 +478,10 @@ def run_cycle(port, stable, cycle, counters, coverage):
             f"{target.nick}: tagged/server-time delivery was incomplete: {tagged_line!r}"
         )
     sender.send(f"PRIVMSG {target.nick} :private {cycle}")
-    sender.send(f"@label={token} PING :{token}")
+    # PING's handler adds the trailing-parameter colon to PONG. Supplying one
+    # here would make the echoed token `::soak-N` and break the exact wire
+    # assertion below.
+    sender.send(f"@label={token} PING {token}")
     sender.expect_sequence(
         [f"label={token}", f" PONG soak.local :{token}", " BATCH -"], 2.0
     )
