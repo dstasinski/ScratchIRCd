@@ -86,6 +86,11 @@ python3 tools/run_soak.py build/scratchircd \
   --report "soak-$(git rev-parse --short HEAD).json"
 ```
 
+The runner provisions disposable NickServ and ChanServ state, negotiates the
+Milestone 2 IRCv3 capabilities, and records nonzero coverage totals for the
+account, channel-service, history, naming-limit, and lifecycle paths. It expects
+`scratchircd-mkpasswd` beside the daemon binary.
+
 The report is a deployment artifact; do not commit it unless intentionally preserving release evidence.
 
 ## Install and initial run

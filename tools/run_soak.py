@@ -2,6 +2,7 @@
 """Run and record the ScratchIRCd small-client operational soak."""
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -20,6 +21,12 @@ MINIMUM_RELEASE_SOAK_SECONDS = 12 * 60 * 60
 IRC_NICK_MAX = 15
 IRC_USER_MAX = 10
 IRC_CHANNEL_NAME_MAX = 32
+MILESTONE2_CAPABILITIES = (
+    "account-notify away-notify batch draft/chathistory extended-join "
+    "labeled-response message-tags sasl server-time"
+)
+SOAK_ADMIN_PASSWORD = "scratchircd-milestone2-soak-admin"
+SOAK_ACCOUNT_PASSWORD = "scratchircd-milestone2-soak-account"
 
 
 class IRCClient:
@@ -34,10 +41,15 @@ class IRCClient:
         self.sock.sendall((line + "\r\n").encode("utf-8"))
 
     def _control_reply(self, line):
-        if line.startswith("PING :"):
-            self.send("PONG :" + line.split(":", 1)[1])
-        if (" PRIVMSG " + self.nick + " :\x01VERSION\x01") in line:
-            prefix = line.split(" ", 1)[0]
+        payload = line
+        prefix = ""
+        if payload.startswith("@") and " " in payload:
+            payload = payload.split(" ", 1)[1]
+        if payload.startswith(":") and " " in payload:
+            prefix, payload = payload.split(" ", 1)
+        if payload.startswith("PING :"):
+            self.send("PONG :" + payload.split(":", 1)[1])
+        if payload == f"PRIVMSG {self.nick} :\x01VERSION\x01":
             server_name = prefix[1:] if prefix.startswith(":") else "soak.local"
             self.send(f"NOTICE {server_name} :\x01VERSION ScratchIRCd-soak\x01")
 
@@ -74,6 +86,25 @@ class IRCClient:
             if self.closed:
                 break
         raise RuntimeError(f"{self.nick}: expected {needle!r}; got {seen!r}")
+
+    def expect_sequence(self, needles, timeout=5.0):
+        """Wait for ordered response fragments without dropping coalesced lines."""
+        deadline = time.monotonic() + timeout
+        seen = []
+        matched = 0
+        while time.monotonic() < deadline:
+            lines = self.read(min(0.1, deadline - time.monotonic()))
+            seen.extend(lines)
+            for line in lines:
+                if needles[matched] in line:
+                    matched += 1
+                    if matched == len(needles):
+                        return seen
+            if self.closed:
+                break
+        raise RuntimeError(
+            f"{self.nick}: expected sequence {needles!r}; got {seen!r}"
+        )
 
     def close(self, orderly=False):
         if orderly and not self.closed:
@@ -239,11 +270,14 @@ def wait_listen(port, process):
     raise RuntimeError("daemon did not begin listening within 10 seconds")
 
 
-def write_config(path, directory, port, max_clients):
+def write_config(path, directory, port, max_clients, admin_hash):
     motd = directory / "motd.txt"
     rules = directory / "rules.txt"
-    motd.write_text("ScratchIRCd Milestone 1 soak\n", encoding="utf-8")
-    rules.write_text("Exercise bounded lifecycle behavior.\n", encoding="utf-8")
+    motd.write_text("ScratchIRCd Milestone 2 soak\n", encoding="utf-8")
+    rules.write_text(
+        "Exercise account, channel-service, IRCv3, and lifecycle behavior.\n",
+        encoding="utf-8",
+    )
     lines = [
         "server_name = soak.local",
         "network_name = SoakNet",
@@ -261,6 +295,9 @@ def write_config(path, directory, port, max_clients):
         "nospoof_timeout_seconds = 5",
         "geoip_city_db =",
         "geoip_asn_db =",
+        "netadmin_name = root",
+        f"netadmin_password_hash = {admin_hash}",
+        "netadmin_hostmask = *!*@127.0.0.1",
         f"motd_file = {motd}",
         f"rules_file = {rules}",
     ]
@@ -271,13 +308,44 @@ def write_config(path, directory, port, max_clients):
     return text
 
 
-def register(port, nick, user=None, channel="#soak"):
+def make_password_hash(binary, password):
+    """Create an Argon2id hash with the helper built beside the daemon."""
+    helper = binary.with_name("scratchircd-mkpasswd")
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise RuntimeError(f"required password helper is unavailable: {helper}")
+    try:
+        result = subprocess.run(
+            [str(helper), password],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"password helper failed: {error}") from error
+    encoded = result.stdout.strip()
+    if result.returncode != 0 or not encoded.startswith("$argon2id$"):
+        raise RuntimeError(
+            f"password helper failed with status {result.returncode}: {encoded}"
+        )
+    return encoded
+
+
+def register(port, nick, user=None, channel="#soak", capabilities=None):
     client = IRCClient(port, nick)
     try:
         if user is None:
             user = nick[:IRC_USER_MAX]
+        if capabilities is not None:
+            client.send("CAP LS 302")
+            client.expect(" CAP * LS :")
+            client.send(f"CAP REQ :{capabilities}")
+            client.expect(f" ACK :{capabilities}")
         client.send(f"NICK {nick}")
         client.send(f"USER {user} 0 * :{nick} soak client")
+        if capabilities is not None:
+            client.send("CAP END")
         client.expect(f" 001 {nick} ", 8.0)
         # Registration follows the matching no-spoof PONG, but JOIN remains
         # restricted until the server's CTCP VERSION request is answered.
@@ -327,6 +395,50 @@ def validate_protocol_limits(port):
         overlong_user.close()
 
 
+def provision_milestone2(stable, coverage):
+    """Establish persistent services state and verify live account signaling."""
+    owner = stable[0]
+    observer = stable[1]
+
+    owner.send(f"NICKSERV REGISTER {SOAK_ACCOUNT_PASSWORD}")
+    owner.expect("Nickname registered and identified.", 15.0)
+    observer.expect(" ACCOUNT S000", 5.0)
+    coverage["nickserv_registrations"] += 1
+    coverage["account_notify_events"] += 1
+
+    observer.send("AUTHENTICATE PLAIN")
+    observer.expect(" AUTHENTICATE +")
+    plain = base64.b64encode(
+        f"\0S000\0{SOAK_ACCOUNT_PASSWORD}".encode("utf-8")
+    ).decode("ascii")
+    observer.send(f"AUTHENTICATE {plain}")
+    observer.expect(" 903 S001 ", 15.0)
+    owner.expect(" ACCOUNT S000", 5.0)
+    coverage["sasl_authentications"] += 1
+    coverage["account_notify_events"] += 1
+
+    owner.send(f"OPER root {SOAK_ADMIN_PASSWORD}")
+    owner.expect(" 381 S000 :You are now a Network Administrator", 15.0)
+    owner.send("CHANSERV REGISTER #soak :Milestone 2 operational soak")
+    owner.expect("Channel registered successfully.")
+    coverage["chanserv_registrations"] += 1
+
+    owner.send("CHANSERV SET #soak MLOCK +nt")
+    owner.expect("Persistent mode lock updated.")
+    owner.send("CHANSERV SET #soak TOPIC :Milestone 2 operational soak")
+    owner.expect("Persistent topic updated.")
+    owner.send("TOPIC #soak")
+    owner.expect(" 332 S000 #soak :Milestone 2 operational soak")
+    owner.send("MODE #soak")
+    mode_lines = owner.expect(" 324 S000 #soak ")
+    if not any(
+        all(mode in line.rsplit(" ", 1)[-1] for mode in ("n", "r", "t"))
+        for line in mode_lines
+        if " 324 S000 #soak " in line
+    ):
+        raise RuntimeError(f"S000: ChanServ MLOCK was not active: {mode_lines!r}")
+    coverage["chanserv_mode_locks"] += 1
+    coverage["chanserv_topics"] += 1
 def process_sample(pid, started):
     status_path = Path(f"/proc/{pid}/status")
     fd_path = Path(f"/proc/{pid}/fd")
@@ -351,20 +463,49 @@ def drain_clients(clients):
             raise RuntimeError(f"stable client {client.nick} was disconnected")
 
 
-def run_cycle(port, stable, cycle, counters):
+def run_cycle(port, stable, cycle, counters, coverage):
     sender = stable[cycle % len(stable)]
     target = stable[(cycle + 1) % len(stable)]
     token = f"soak-{cycle}"
-    sender.send(f"PRIVMSG #soak :channel {cycle}")
+    sender.send(f"@+soak-cycle={cycle} PRIVMSG #soak :channel {cycle}")
+    tagged = target.expect(f" PRIVMSG #soak :channel {cycle}", 2.0)
+    tagged_line = next(
+        (line for line in tagged if f" PRIVMSG #soak :channel {cycle}" in line),
+        "",
+    )
+    if f"+soak-cycle={cycle}" not in tagged_line or not tagged_line.startswith("@time="):
+        raise RuntimeError(
+            f"{target.nick}: tagged/server-time delivery was incomplete: {tagged_line!r}"
+        )
     sender.send(f"PRIVMSG {target.nick} :private {cycle}")
-    sender.send(f"PING :{token}")
-    sender.expect(token, 2.0)
+    sender.send(f"@label={token} PING :{token}")
+    sender.expect_sequence(
+        [f"label={token}", f" PONG soak.local :{token}", " BATCH -"], 2.0
+    )
     counters["channel_messages"] += 1
     counters["private_messages"] += 1
     counters["health_pings"] += 1
+    coverage["tagged_messages"] += 1
+    coverage["server_time_messages"] += 1
+    coverage["labeled_responses"] += 1
+
+    if cycle % 10 == 0:
+        history_client = stable[(cycle + 2) % len(stable)]
+        history_client.send("CHATHISTORY LATEST #soak * 1")
+        history_client.expect_sequence(
+            [" chathistory #soak", f" PRIVMSG #soak :channel {cycle}", " BATCH -"],
+            3.0,
+        )
+        coverage["history_requests"] += 1
 
     churn = register(port, f"C{cycle % 1000000:06d}")
     try:
+        target.expect(f" JOIN #soak * :C{cycle % 1000000:06d} soak client", 2.0)
+        coverage["extended_join_events"] += 1
+        churn.send(f"AWAY :soak cycle {cycle}")
+        churn.expect(f" 306 C{cycle % 1000000:06d} ")
+        target.expect(f" AWAY :soak cycle {cycle}", 2.0)
+        coverage["away_notify_events"] += 1
         churn.send(f"PRIVMSG #soak :churn {cycle}")
         churn.send("PART #soak :cycle complete")
         churn.read(0.05)
@@ -417,7 +558,7 @@ def main():
     build = build_metadata(binary)
     repository_state = git_metadata(repository)
     report = {
-        "schema": "scratchircd-milestone1-soak-v2",
+        "schema": "scratchircd-milestone2-soak-v1",
         "started_at": utc_now(),
         "requested_duration_seconds": duration,
         "stable_clients": args.clients,
@@ -453,6 +594,20 @@ def main():
             "channel_name": IRC_CHANNEL_NAME_MAX,
             "validated": False,
         },
+        "milestone2_coverage": {
+            "nickserv_registrations": 0,
+            "sasl_authentications": 0,
+            "account_notify_events": 0,
+            "chanserv_registrations": 0,
+            "chanserv_mode_locks": 0,
+            "chanserv_topics": 0,
+            "away_notify_events": 0,
+            "extended_join_events": 0,
+            "tagged_messages": 0,
+            "labeled_responses": 0,
+            "server_time_messages": 0,
+            "history_requests": 0,
+        },
         "samples": [],
         "failures": [],
         "passed": False,
@@ -486,8 +641,14 @@ def main():
         config = directory / "ircd.conf"
         log_path = directory / "scratchircd.log"
         port = free_port()
-        report["configuration"] = write_config(config, directory, port, args.clients + 16)
         try:
+            admin_hash = make_password_hash(binary, SOAK_ADMIN_PASSWORD)
+            configuration_text = write_config(
+                config, directory, port, args.clients + 16, admin_hash
+            )
+            report["configuration"] = configuration_text.replace(
+                admin_hash, "<redacted>"
+            )
             with open(log_path, "w", encoding="utf-8") as log_handle:
                 process = subprocess.Popen([str(binary), str(config)], stdout=log_handle,
                                            stderr=subprocess.STDOUT, text=True)
@@ -495,7 +656,15 @@ def main():
                 validate_protocol_limits(port)
                 report["protocol_limits"]["validated"] = True
                 for index in range(args.clients):
-                    stable.append(register(port, f"S{index:03d}"))
+                    stable.append(
+                        register(
+                            port,
+                            f"S{index:03d}",
+                            capabilities=MILESTONE2_CAPABILITIES,
+                        )
+                    )
+                drain_clients(stable)
+                provision_milestone2(stable, report["milestone2_coverage"])
                 drain_clients(stable)
                 time.sleep(0.2)
                 report["samples"].append(process_sample(process.pid, started))
@@ -507,7 +676,13 @@ def main():
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         raise RuntimeError(f"daemon exited unexpectedly with {process.returncode}")
-                    run_cycle(port, stable, cycle, report["traffic"])
+                    run_cycle(
+                        port,
+                        stable,
+                        cycle,
+                        report["traffic"],
+                        report["milestone2_coverage"],
+                    )
                     cycle += 1
                     now = time.monotonic()
                     if now >= next_sample:
@@ -571,6 +746,13 @@ def main():
         report["failures"].append(f"daemon shutdown exit status was {shutdown_exit_status}")
     if report["traffic"]["churn_connections"] == 0:
         report["failures"].append("no churn cycle completed")
+    missing_coverage = [
+        name for name, count in report["milestone2_coverage"].items() if count == 0
+    ]
+    if missing_coverage:
+        report["failures"].append(
+            "Milestone 2 coverage did not complete: " + ", ".join(missing_coverage)
+        )
     report["passed"] = not report["failures"]
     report["release_qualified"] = args.release_candidate and report["passed"]
     emit_report(report, args.report)

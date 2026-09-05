@@ -1,4 +1,4 @@
-# Milestone 1 Release Checklist
+# Milestone 2 Release Checklist
 
 Use this checklist on the exact `Genesis` commit that will be tagged. A passing
 CI run is necessary, but does not replace the local operational soak.
@@ -58,15 +58,22 @@ python3 tools/run_soak.py build-release/scratchircd \
 ```
 
 The runner alternates clean and abrupt transient disconnects while stable
-clients exchange channel and private messages. It also exercises the default
-no-spoof PING and CTCP VERSION exchange, client PING/PONG, channel membership,
-and graceful process shutdown. By default it permits at most 32 MiB of RSS
-growth and 16 additional file descriptors above the post-registration
-baseline. Tighten those limits when the deployment baseline is known; do not
-raise them merely to make a failed run pass.
+IRCv3 clients exchange channel and private messages. Its preflight validates
+the configured nickname, username, and channel-name limits. It then exercises
+NickServ registration, SASL PLAIN, account-notify, ChanServ registration,
+persistent MLOCK and topic policy, away-notify, extended-join, message-tags,
+labeled-response, server-time, and persistent CHATHISTORY. The Milestone 1
+no-spoof, CTCP VERSION, PING/PONG, channel-membership, churn, and graceful
+shutdown paths remain active.
+
+By default the runner permits at most 32 MiB of RSS growth and 16 additional
+file descriptors above the post-provisioning baseline. Tighten those limits
+when the deployment baseline is known; do not raise them merely to make a
+failed run pass.
 
 The command must exit zero and the JSON record must contain both
-`"passed": true` and `"release_qualified": true`. Release-candidate mode fails
+`"passed": true`, `"release_qualified": true`, and a nonzero value for every
+entry in `milestone2_coverage`. Release-candidate mode fails
 before starting the daemon when the requested duration is under 12 hours, the
 checkout is dirty, the build is not `Release`, or warnings-as-errors was not
 enabled. Investigate every daemon exit, stable-client disconnect, protocol
@@ -86,9 +93,10 @@ Archive together:
 - the intended installation prefix and restart procedure.
 
 The soak record captures the binary SHA-256, linked libraries, compiler,
-CMake, OpenSSL, generated test configuration, traffic totals, resource samples,
-and shutdown result. Compare its `git_commit` with the candidate commit and its
-binary digest with the binary being packaged.
+CMake, OpenSSL, generated test configuration, traffic totals, Milestone 2
+coverage totals, resource samples, and shutdown result. Compare its
+`git_commit` with the candidate commit and its binary digest with the binary
+being packaged.
 
 ## 6. Tag only after every gate passes
 

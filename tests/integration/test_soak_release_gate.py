@@ -40,7 +40,7 @@ def main():
         assert result.returncode != 0, result.stdout
         assert report_path.is_file(), result.stdout
         report = json.loads(report_path.read_text(encoding="utf-8"))
-        assert report["schema"] == "scratchircd-milestone1-soak-v2"
+        assert report["schema"] == "scratchircd-milestone2-soak-v1"
         assert report["protocol_limits"] == {
             "nick": 15,
             "user": 10,
@@ -59,6 +59,7 @@ def main():
             for failure in report["failures"]
         ), report["failures"]
         assert report["traffic"]["churn_connections"] == 0
+        assert all(count == 0 for count in report["milestone2_coverage"].values())
         assert report["samples"] == []
 
 
