@@ -160,12 +160,15 @@ def main():
             assert any("Carol:4" in line for line in access), access
             assert any("Bob:3" in line for line in access), access
             alice.send("CHANSERV SET #persist MLOCK +nt")
-            alice.expect("Persistent mode lock updated.")
+            mlock_result = alice.expect("Persistent mode lock updated.")
+            assert any(" MODE #persist +nt" in line for line in mlock_result), mlock_result
 
             safe_topic = "T" * 378
             unsafe_topic = "U" * 379
             alice.send(f"CHANSERV SET #persist TOPIC :{safe_topic}")
-            alice.expect("Persistent topic updated.")
+            topic_result = alice.expect("Persistent topic updated.")
+            assert any(" ChanServ!service@test.local TOPIC #persist :" in line
+                       for line in topic_result), topic_result
             alice.send("TOPIC #persist")
             alice.expect(f" 332 Alice #persist :{safe_topic}")
             alice.send(f"CHANSERV SET #persist TOPIC :{unsafe_topic}")

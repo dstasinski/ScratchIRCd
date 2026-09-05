@@ -109,6 +109,63 @@ static ChannelModeSet persistent_mode_bit(char letter) {
     }
 }
 
+static ChannelModeSet persistent_mode_mask(void) {
+    static const char letters[] = "AciKMmnOpRStTVz";
+    ChannelModeSet mask = 0U;
+    size_t i;
+
+    for (i = 0U; letters[i] != '\0'; ++i)
+        mask |= persistent_mode_bit(letters[i]);
+    return mask;
+}
+
+static void broadcast_service_mode_change(Server *server, Channel *channel,
+                                           ChannelModeSet before,
+                                           ChannelModeSet after) {
+    static const char letters[] = "AciKMmnOpRStTVz";
+    char modes[64] = "";
+    size_t used = 0U;
+    char sign = '\0';
+    size_t i;
+
+    if (server == NULL || channel == NULL) return;
+    before &= persistent_mode_mask();
+    after &= persistent_mode_mask();
+    for (i = 0U; letters[i] != '\0'; ++i) {
+        ChannelModeSet bit = persistent_mode_bit(letters[i]);
+        int before_set = (before & bit) != 0U;
+        int after_set = (after & bit) != 0U;
+        char desired_sign;
+        if (before_set == after_set) continue;
+        desired_sign = after_set ? '+' : '-';
+        if (desired_sign != sign) {
+            if (used + 2U >= sizeof(modes)) return;
+            modes[used++] = desired_sign;
+            sign = desired_sign;
+        }
+        if (used + 1U >= sizeof(modes)) return;
+        modes[used++] = letters[i];
+    }
+    if (used == 0U) return;
+    modes[used] = '\0';
+    {
+        char message[IRCD_MESSAGE_BUFFER_SIZE];
+        (void)snprintf(message, sizeof(message),
+                       ":ChanServ!service@%s MODE %s %s\r\n",
+                       server->config.server_name, channel->name, modes);
+        channel_broadcast(channel, NULL, message);
+    }
+}
+
+static void broadcast_service_topic_change(Server *server, Channel *channel) {
+    char message[IRCD_MESSAGE_BUFFER_SIZE];
+    if (server == NULL || channel == NULL) return;
+    (void)snprintf(message, sizeof(message),
+                   ":ChanServ!service@%s TOPIC %s :%s\r\n",
+                   server->config.server_name, channel->name, channel->topic);
+    channel_broadcast(channel, NULL, message);
+}
+
 static int parse_mode_lock(const char *text, ChannelModeSet *modes) {
     ChannelModeSet result = 0U;
     char sign = '+';
@@ -481,11 +538,22 @@ static void command_set(Server *server, Client *client, char *params) {
     while(*value==' ')++value;
     if (strcasecmp(field,"MLOCK")==0) {
         ChannelModeSet lock;
+        Channel *channel;
+        ChannelModeSet before = 0U;
         if (parse_mode_lock(value,&lock)!=0 || chanserv_db_set_mode_lock(&db,name,(uint64_t)lock)!=0) {
             chanserv_db_close(&db); cs_notice(server,client,"Invalid persistent mode lock. Only boolean channel modes are supported."); return;
         }
         chanserv_db_close(&db);
-        { Channel *channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_refresh_channel(server,channel); }
+        channel = hash_get(&server->channels_by_name,name);
+        if (channel != NULL) {
+            before = channel->modes;
+            channel->chanserv_policy_loaded = 1;
+            channel->chanserv_policy_valid = 1;
+            channel->chanserv_mode_lock = lock;
+            channel->modes = (channel->modes & ~persistent_mode_mask()) | lock;
+            channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
+            broadcast_service_mode_change(server, channel, before, channel->modes);
+        }
         cs_notice(server,client,"Persistent mode lock updated."); return;
     }
     if (strcasecmp(field,"TOPIC")==0) {
@@ -494,7 +562,13 @@ static void command_set(Server *server, Client *client, char *params) {
         if(strlen(value)>irc_topic_limit(server)){chanserv_db_close(&db);cs_notice(server,client,"Topic is too long for this server's advertised TOPICLEN.");return;}
         (void)snprintf(setter,sizeof(setter),"%s!%s@%s",client->nick,client->user,client->display_host);
         if(chanserv_db_set_topic(&db,name,value,setter,now)!=0){chanserv_db_close(&db);cs_notice(server,client,"Failed to store persistent topic.");return;}
-        chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,name); if(channel!=NULL)chanserv_refresh_channel(server,channel);
+        chanserv_db_close(&db); channel=hash_get(&server->channels_by_name,name);
+        if(channel!=NULL) {
+            (void)snprintf(channel->topic,sizeof(channel->topic),"%s",value);
+            (void)snprintf(channel->topic_setter,sizeof(channel->topic_setter),"%s",setter);
+            channel->topic_time=(time_t)now;
+            broadcast_service_topic_change(server, channel);
+        }
         cs_notice(server,client,"Persistent topic updated."); return;
     }
     chanserv_db_close(&db); cs_notice(server,client,"Unknown SET field. Use MLOCK or TOPIC.");

@@ -180,7 +180,8 @@ def main():
             assert_parameter_modes(alice, "Alice")
 
             alice.send("CHANSERV SET #persist MLOCK +nt")
-            alice.expect("Persistent mode lock updated.")
+            mlock_result = alice.expect("Persistent mode lock updated.")
+            assert any(" MODE #persist +nt" in line for line in mlock_result), mlock_result
             assert_parameter_modes(alice, "Alice")
 
             alice.send("CHANSERV SET #persist MLOCK +k secret")
