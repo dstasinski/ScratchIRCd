@@ -117,7 +117,10 @@ def main():
             alice.expect(" 482 Alice #policy ")
             guest.send("NAMES #policy")
             names = guest.expect(" 366 Guest #policy ")
-            assert any("+Guest" in line for line in names if " 353 Guest " in line), names
+            name_line = next(line for line in names if " 353 Guest " in line)
+            guest_token = next(token for token in name_line.rsplit(" :", 1)[1].split()
+                               if token.lstrip("~&@%+") == "Guest")
+            assert guest_token == "+Guest", names
 
             alice.send("CHANSERV INFO #policy")
             info = alice.expect("secureops=ON")
