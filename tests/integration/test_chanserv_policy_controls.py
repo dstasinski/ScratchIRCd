@@ -29,6 +29,12 @@ def write_config(path, td, port, admin_hash):
         f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
 
+def member_token(lines, nick):
+    name_line = next(line for line in lines if f" 353 {nick} " in line)
+    return next(token for token in name_line.rsplit(" :", 1)[1].split()
+                if token.lstrip("~&@%+") == nick)
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_chanserv_policy_controls.py scratchircd")
@@ -104,7 +110,9 @@ def main():
             guest = IRCClient(port)
             register(guest, "Guest")
             guest.send("JOIN #policy")
-            guest.expect(":ChanServ!service@test.local NOTICE Guest :Welcome to #policy")
+            join_lines = guest.expect(" 366 Guest #policy ")
+            assert any(":ChanServ!service@test.local NOTICE Guest :Welcome to #policy" in line
+                       for line in join_lines), join_lines
 
             # SecureOps audits existing manual +q/+a/+o/+h grants when it is
             # enabled, rejects later unauthorized grants, and leaves +v alone.
@@ -116,10 +124,7 @@ def main():
             alice.expect(" MODE #policy +v Guest")
             guest.send("NAMES #policy")
             names = guest.expect(" 366 Guest #policy ")
-            name_line = next(line for line in names if " 353 Guest " in line)
-            guest_token = next(token for token in name_line.rsplit(" :", 1)[1].split()
-                               if token.lstrip("~&@%+") == "Guest")
-            assert guest_token == "@Guest", names
+            assert member_token(names, "Guest") == "@Guest", names
 
             alice.send("CHANSERV SET #policy SECUREOPS ON")
             secureops = alice.expect("SecureOps enabled.")
@@ -128,10 +133,7 @@ def main():
             alice.expect(" 482 Alice #policy ")
             guest.send("NAMES #policy")
             names = guest.expect(" 366 Guest #policy ")
-            name_line = next(line for line in names if " 353 Guest " in line)
-            guest_token = next(token for token in name_line.rsplit(" :", 1)[1].split()
-                               if token.lstrip("~&@%+") == "Guest")
-            assert guest_token == "+Guest", names
+            assert member_token(names, "Guest") == "+Guest", names
 
             alice.send("CHANSERV INFO #policy")
             info = alice.expect("secureops=ON")
