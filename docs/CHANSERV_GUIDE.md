@@ -13,7 +13,13 @@ CHANSERV REGISTER #channel :optional description
 PRIVMSG ChanServ :REGISTER #channel :optional description
 ```
 
-A successful registration records the issuing network administrator's authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`. The channel's current parameter modes and `+b/+e/+I` lists are also captured as the initial persistent runtime state.
+A successful registration records the issuing network administrator's authenticated NickServ account as founder and gives the live channel service-controlled mode `+r`. Current channel members receive a ChanServ-sourced registration-mode broadcast:
+
+```text
+:ChanServ!service@server MODE #channel +r
+```
+
+The channel's current parameter modes and `+b/+e/+I` lists are also captured as the initial persistent runtime state.
 
 To create a registration for another account, register the channel and then transfer founder ownership with the network-administrator command:
 
@@ -151,7 +157,11 @@ CHANSERV SET #channel SUCCESSOR GraceAccount
 CHANSERV SET #channel SUCCESSOR NONE
 ```
 
-If a founder account is deleted with `NSDROP` or disabled with `NSSET <account> ENABLED 0`, every enabled channel founded by that account is reconciled immediately. When the channel has a valid enabled successor, the successor becomes the new founder, the successor field is cleared, the live channel cache is refreshed, and member privileges are reconciled. When there is no valid successor, the channel registration is disabled rather than deleted.
+If a founder account is deleted with `NSDROP` or disabled with `NSSET <account> ENABLED 0`, every enabled channel founded by that account is reconciled immediately. When the channel has a valid enabled successor, the successor becomes the new founder, the successor field is cleared, the live channel cache is refreshed, and member privileges are reconciled. When there is no valid successor, the channel registration is disabled rather than deleted, the live channel loses service-controlled `+r`, and current members receive a ChanServ-sourced registration-mode broadcast:
+
+```text
+:ChanServ!service@server MODE #channel -r
+```
 
 A temporary `NSSET <account> ENABLED 0` keeps that account's non-founder ChanServ access and successor references intact so an administrator can restore the account later. A permanent `NSDROP <account>` removes that account from ChanServ access lists and clears any successor references to it. This prevents re-registering the same account name from unexpectedly recovering old channel privileges or inheritance rights.
 
@@ -177,7 +187,13 @@ PRIVMSG ChanServ :DROP #channel
 
 Both forms use the same network-administrator deletion policy as `CSDROP`, so a network administrator may remove a registration even after founder ownership has been transferred to another account.
 
-The live channel loses service-controlled `+r`. Persistent access rows and companion runtime/list rows are tied to the registration with SQLite foreign keys and are removed when the registration is deleted. The live channel may continue to exist normally while clients remain in it.
+The live channel loses service-controlled `+r`, and current members receive a ChanServ-sourced registration-mode broadcast:
+
+```text
+:ChanServ!service@server MODE #channel -r
+```
+
+Persistent access rows and companion runtime/list rows are tied to the registration with SQLite foreign keys and are removed when the registration is deleted. The live channel may continue to exist normally while clients remain in it.
 
 ## Persistence and founder privileges
 
@@ -207,7 +223,9 @@ CSSET #channel ENABLED <0|1>
 CSDROP #channel
 ```
 
-`CSSET ... FOUNDER` requires an existing enabled NickServ account.
+`CSSET ... FOUNDER` requires an existing enabled NickServ account. If the new founder was the stored successor, the successor field is cleared so a channel cannot persist with the same account as both founder and successor.
+
+`CSSET ... ENABLED 0` disables the registration without deleting it, removes live service-controlled `+r`, and broadcasts `MODE #channel -r` to current members. `CSSET ... ENABLED 1` restores live service-controlled `+r` for an occupied channel and broadcasts `MODE #channel +r`.
 
 A typical delegated-channel workflow is:
 
@@ -223,4 +241,4 @@ The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, TOPICLOCK, Se
 
 ## Current scope
 
-ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Founder account removal promotes a valid successor or disables the affected registration. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
+ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Founder account removal promotes a valid successor or disables the affected registration. Registration, deletion, disable, and enable actions visibly reconcile service-controlled `+r` on live channels. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
