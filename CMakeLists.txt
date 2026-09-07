@@ -254,6 +254,8 @@ add_test(NAME chanserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT
 set_tests_properties(chanserv_integration PROPERTIES TIMEOUT 60)
 add_test(NAME chanserv_policy_controls_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_chanserv_policy_controls.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(chanserv_policy_controls_integration PROPERTIES TIMEOUT 60)
+add_test(NAME chanserv_founder_transfer_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_chanserv_founder_transfer.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(chanserv_founder_transfer_integration PROPERTIES TIMEOUT 60)
 add_test(NAME chanserv_persistence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_chanserv_persistence.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(chanserv_persistence_integration PROPERTIES TIMEOUT 60)
 add_test(NAME memoserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv.py $<TARGET_FILE:scratchircd>)
