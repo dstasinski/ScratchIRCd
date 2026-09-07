@@ -167,7 +167,7 @@ def main():
             unsafe_topic = "U" * 379
             alice.send(f"CHANSERV SET #persist TOPIC :{safe_topic}")
             topic_result = alice.expect("Persistent topic updated.")
-            assert any(" ChanServ!service@test.local TOPIC #persist :" in line
+            assert any(":ChanServ!service@test.local TOPIC #persist :" in line
                        for line in topic_result), topic_result
             alice.send("TOPIC #persist")
             alice.expect(f" 332 Alice #persist :{safe_topic}")
