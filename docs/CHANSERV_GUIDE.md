@@ -30,7 +30,7 @@ CHANSERV INFO #channel
 PRIVMSG ChanServ :INFO #channel
 ```
 
-INFO reports the registered channel name, founder account, description, stored mode-lock value, and registration time.
+INFO reports the registered channel name, founder account, description, stored mode-lock value, TOPICLOCK state, SecureOps state, successor account, greeting text, and registration time.
 
 ## Account access lists
 
@@ -133,7 +133,7 @@ CHANSERV SET #channel TOPICLOCK ON
 CHANSERV SET #channel TOPICLOCK OFF
 ```
 
-`TOPICLOCK ON` applies live `+t`; ordinary members then need channel privilege to change the topic.
+`TOPICLOCK ON` applies live `+t`; ordinary members then need channel privilege to change the topic. TOPICLOCK is stored as part of the persistent boolean mode lock and survives restart.
 
 ## SecureOps, successor, and greeting
 
@@ -144,19 +144,21 @@ CHANSERV SET #channel SECUREOPS ON
 CHANSERV SET #channel SECUREOPS OFF
 ```
 
-The founder may record an existing NickServ account as successor, or clear it. Succession itself is a separate lifecycle policy.
+The founder may record an existing NickServ account as successor, or clear it. The successor must be an enabled account other than the founder. Succession itself is a separate lifecycle policy.
 
 ```text
 CHANSERV SET #channel SUCCESSOR GraceAccount
 CHANSERV SET #channel SUCCESSOR NONE
 ```
 
-A greeting is sent by ChanServ to each client after a successful join:
+A greeting is sent by ChanServ to each client after a successful join. The greeting is a notice from ChanServ and does not make ChanServ join the channel.
 
 ```text
 CHANSERV SET #channel GREETING :Welcome to the main channel.
 CHANSERV SET #channel GREETING NONE
 ```
+
+SecureOps, successor, and greeting settings are stored in SQLite and survive daemon restart.
 
 ## Dropping a registration
 
@@ -175,7 +177,7 @@ The live channel loses service-controlled `+r`. Persistent access rows and compa
 
 ## Persistence and founder privileges
 
-Channel registrations, access lists, MLOCK state, topic data, parameter modes, and `+b/+e/+I` lists survive daemon restart in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores the complete persistent policy before normal JOIN restrictions are evaluated.
+Channel registrations, access lists, MLOCK/TOPICLOCK state, topic data, SecureOps, successor, greeting, parameter modes, and `+b/+e/+I` lists survive daemon restart in SQLite even when the in-memory channel becomes empty and is reclaimed. When the channel is later recreated by JOIN, ScratchIRCd restores the complete persistent policy before normal JOIN restrictions are evaluated.
 
 This means a stored key or ban is effective on the first JOIN after restart, rather than being applied only after someone has already entered the channel.
 
@@ -213,8 +215,8 @@ CHANSERV REGISTER #channel :description
 CSSET #channel FOUNDER <owner-account>
 ```
 
-The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, and normal founder policy. Creating or dropping the registration remains reserved to network administrators.
+The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, TOPICLOCK, SecureOps, successor, greeting, and normal founder policy. Creating or dropping the registration remains reserved to network administrators.
 
 ## Current scope
 
-ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK state, topic state, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
+ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
