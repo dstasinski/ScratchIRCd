@@ -113,6 +113,7 @@ CommandResult command_csinfo(Server *server, Client *client, char *params) {
 
 CommandResult command_csset(Server *server, Client *client, char *params) {
     ChanServDb db = {0};
+    const char *failure_detail = NULL;
     char *name;
     char *field;
     char *value;
@@ -150,6 +151,8 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
                 if (nickserv_db_open(&nsdb, server->config.nickserv_db) == 0) {
                     if (nickserv_db_get(&nsdb, record.founder, &founder) == 1 && founder.enabled)
                         rc = chanserv_db_set_enabled(&db, record.name, 1);
+                    else
+                        failure_detail = "Cannot enable registration until its founder account exists and is enabled.";
                     nickserv_db_close(&nsdb);
                 }
             }
@@ -178,7 +181,8 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
                           "CSSET by %s: channel=%s field=%s value=%s",
                           client->nick, name, field, value);
     }
-    notice(server, client, rc == 0 ? "ChanServ channel updated." : "CSSET failed.");
+    notice(server, client, rc == 0 ? "ChanServ channel updated." :
+                           failure_detail != NULL ? failure_detail : "CSSET failed.");
     return COMMAND_KEEP_CLIENT;
 }
 
