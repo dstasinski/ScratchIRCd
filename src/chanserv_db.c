@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define CHANSERV_DB_SCHEMA_VERSION 1
+#define CHANSERV_DB_SCHEMA_VERSION 2
 
 static uint64_t pchannels_generation = 1U;
 
@@ -116,6 +116,15 @@ static int ensure_channel_columns(sqlite3 *db) {
     if (!column_exists(db, "topic_time") &&
         exec_sql(db, "ALTER TABLE channels ADD COLUMN topic_time INTEGER NOT NULL DEFAULT 0") != 0)
         return -1;
+    if (!column_exists(db, "secure_ops") &&
+        exec_sql(db, "ALTER TABLE channels ADD COLUMN secure_ops INTEGER NOT NULL DEFAULT 0") != 0)
+        return -1;
+    if (!column_exists(db, "successor") &&
+        exec_sql(db, "ALTER TABLE channels ADD COLUMN successor TEXT NOT NULL DEFAULT ''") != 0)
+        return -1;
+    if (!column_exists(db, "greeting") &&
+        exec_sql(db, "ALTER TABLE channels ADD COLUMN greeting TEXT NOT NULL DEFAULT ''") != 0)
+        return -1;
     return 0;
 }
 
@@ -177,7 +186,7 @@ static int ensure_schema_version(sqlite3 *db) {
     if (version == CHANSERV_DB_SCHEMA_VERSION) return 0;
     if (ensure_channel_columns(db) != 0 || ensure_access_schema(db) != 0)
         return -1;
-    return exec_sql(db, "PRAGMA user_version=1;");
+    return exec_sql(db, "PRAGMA user_version=2;");
 }
 
 int chanserv_db_open(ChanServDb *db, const char *path) {
@@ -191,6 +200,9 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
         "topic TEXT NOT NULL DEFAULT '',"
         "topic_setter TEXT NOT NULL DEFAULT '',"
         "topic_time INTEGER NOT NULL DEFAULT 0,"
+        "secure_ops INTEGER NOT NULL DEFAULT 0,"
+        "successor TEXT NOT NULL DEFAULT '',"
+        "greeting TEXT NOT NULL DEFAULT '',"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
         ");"
@@ -231,7 +243,7 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
     if (db == NULL || db->db == NULL || !channel_arg_fits(name) || record == NULL) return -1;
     memset(record, 0, sizeof(*record));
     if (sqlite3_prepare_v2(db->db,
-        "SELECT name,founder,description,enabled,mode_lock,topic,topic_setter,topic_time,created_at,updated_at FROM channels WHERE name=?1",
+        "SELECT name,founder,description,enabled,mode_lock,topic,topic_setter,topic_time,secure_ops,successor,greeting,created_at,updated_at FROM channels WHERE name=?1",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
@@ -248,8 +260,15 @@ int chanserv_db_get(ChanServDb *db, const char *name, ChanServChannel *record) {
         record->enabled = sqlite3_column_int(stmt, 3);
         record->mode_lock = (uint64_t)sqlite3_column_int64(stmt, 4);
         record->topic_time = sqlite3_column_int64(stmt, 7);
-        record->created_at = sqlite3_column_int64(stmt, 8);
-        record->updated_at = sqlite3_column_int64(stmt, 9);
+        record->secure_ops = sqlite3_column_int(stmt, 8);
+        if (copy_text_column(stmt, 9, record->successor, sizeof(record->successor)) != 0 ||
+            copy_text_column(stmt, 10, record->greeting, sizeof(record->greeting)) != 0) {
+            sqlite3_finalize(stmt);
+            memset(record, 0, sizeof(*record));
+            return -1;
+        }
+        record->created_at = sqlite3_column_int64(stmt, 11);
+        record->updated_at = sqlite3_column_int64(stmt, 12);
         sqlite3_finalize(stmt);
         return 1;
     }
@@ -328,6 +347,25 @@ int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
     sqlite3_bind_text(stmt,1,topic,-1,SQLITE_TRANSIENT); sqlite3_bind_text(stmt,2,setter,-1,SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt,3,(sqlite3_int64)topic_time); sqlite3_bind_text(stmt,4,name,-1,SQLITE_TRANSIENT);
     rc=sqlite3_step(stmt); sqlite3_finalize(stmt); return rc==SQLITE_DONE && sqlite3_changes(db->db)>0 ? 0 : -1;
+}
+
+int chanserv_db_set_secure_ops(ChanServDb *db, const char *name, int enabled) {
+    sqlite3_stmt *stmt = NULL; int rc;
+    if (db == NULL || db->db == NULL || !channel_arg_fits(name)) return -1;
+    if (sqlite3_prepare_v2(db->db, "UPDATE channels SET secure_ops=?1,updated_at=unixepoch() WHERE name=?2", -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, enabled ? 1 : 0); sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt); sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db->db) > 0 ? 0 : -1;
+}
+
+int chanserv_db_set_successor(ChanServDb *db, const char *name, const char *successor) {
+    if (successor == NULL || (*successor != '\0' && !account_arg_fits(successor))) return -1;
+    return update_text(db, name, "successor", successor);
+}
+
+int chanserv_db_set_greeting(ChanServDb *db, const char *name, const char *greeting) {
+    if (!text_arg_fits(greeting, IRC_CHANNEL_TOPIC_MAX, 1)) return -1;
+    return update_text(db, name, "greeting", greeting);
 }
 
 int chanserv_db_delete(ChanServDb *db, const char *name) {

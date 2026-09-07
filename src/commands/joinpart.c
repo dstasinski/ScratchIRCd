@@ -160,6 +160,8 @@ static void join_one(Server *server, Client *client, const char *name,
     if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
         service_privileges != 0U)
         (void)channel_set_service_privileges(channel, client, service_privileges);
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+        chanserv_sync_channel_privileges(server, channel);
 
     ircv3_broadcast_join(channel, client);
     ircv3_away_notify_join(channel, client);
@@ -177,6 +179,10 @@ static void join_one(Server *server, Client *client, const char *name,
                      channel->name, channel->topic_setter,
                      (unsigned long)channel->topic_time);
     }
+    if (channel->chanserv_greeting[0] != '\0')
+        client_sendf(client, ":ChanServ!service@%s NOTICE %s :%s",
+                     server->config.server_name, client->nick,
+                     channel->chanserv_greeting);
     command_send_names(server, channel, client);
 }
 

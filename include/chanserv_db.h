@@ -16,6 +16,9 @@ typedef struct ChanServChannel {
     char topic[IRC_CHANNEL_TOPIC_MAX + 1U];
     char topic_setter[IRC_CHANNEL_TOPIC_SETTER_MAX + 1U];
     long long topic_time;
+    int secure_ops;
+    char successor[IRC_NICK_MAX + 1U];
+    char greeting[IRC_CHANNEL_TOPIC_MAX + 1U];
     long long created_at;
     long long updated_at;
 } ChanServChannel;
@@ -62,6 +65,9 @@ int chanserv_db_set_enabled(ChanServDb *db, const char *name, int enabled);
 int chanserv_db_set_mode_lock(ChanServDb *db, const char *name, uint64_t mode_lock);
 int chanserv_db_set_topic(ChanServDb *db, const char *name, const char *topic,
                           const char *setter, long long topic_time);
+int chanserv_db_set_secure_ops(ChanServDb *db, const char *name, int enabled);
+int chanserv_db_set_successor(ChanServDb *db, const char *name, const char *successor);
+int chanserv_db_set_greeting(ChanServDb *db, const char *name, const char *greeting);
 int chanserv_db_list_enabled(ChanServDb *db, char *buffer, size_t size);
 uint64_t chanserv_db_pchannels_generation(void);
 

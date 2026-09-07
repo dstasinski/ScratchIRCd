@@ -159,6 +159,15 @@ int channel_remove_privileges(Channel *channel, Client *client,
     return 0;
 }
 
+int channel_remove_manual_privileges(Channel *channel, Client *client,
+                                     ChannelPrivilegeSet privileges) {
+    ChannelMember *member = channel_find_member(channel, client);
+    if (member == NULL) return -1;
+    member->manual_privileges &= ~privileges;
+    member->privileges = member->manual_privileges | member->service_privileges;
+    return 0;
+}
+
 int channel_set_service_privileges(Channel *channel, Client *client,
                                    ChannelPrivilegeSet privileges) {
     ChannelMember *member = channel_find_member(channel, client);

@@ -120,6 +120,44 @@ CHANSERV SET #channel TOPIC :Persistent channel topic
 
 ChanServ stores the topic text, setter identity, and timestamp in SQLite. When the channel is recreated after becoming empty or after a daemon restart, the topic is restored before JOIN completes so normal topic numerics show the saved value.
 
+The same setting updates the live topic immediately and broadcasts a ChanServ-sourced `TOPIC` event to current members:
+
+```text
+CHANSERV SET #channel TOPIC Welcome to #channel
+```
+
+Topic locking can be enabled or disabled without manually using `MODE`:
+
+```text
+CHANSERV SET #channel TOPICLOCK ON
+CHANSERV SET #channel TOPICLOCK OFF
+```
+
+`TOPICLOCK ON` applies live `+t`; ordinary members then need channel privilege to change the topic.
+
+## SecureOps, successor, and greeting
+
+SecureOps audits and reconciles protected channel status (`+q`, `+a`, `+o`, and `+h`) against ChanServ access whenever it is enabled, after joins, and after account login or logout. Unauthorized grants are rejected with numeric `482`. Voice (`+v`) remains ordinary channel state and is not restricted by SecureOps.
+
+```text
+CHANSERV SET #channel SECUREOPS ON
+CHANSERV SET #channel SECUREOPS OFF
+```
+
+The founder may record an existing NickServ account as successor, or clear it. Succession itself is a separate lifecycle policy.
+
+```text
+CHANSERV SET #channel SUCCESSOR GraceAccount
+CHANSERV SET #channel SUCCESSOR NONE
+```
+
+A greeting is sent by ChanServ to each client after a successful join:
+
+```text
+CHANSERV SET #channel GREETING :Welcome to the main channel.
+CHANSERV SET #channel GREETING NONE
+```
+
 ## Dropping a registration
 
 Removing a persistent channel registration is also a **network-administrator-only** action. Founder status alone is not sufficient.

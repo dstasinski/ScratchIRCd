@@ -14,6 +14,7 @@
 
 #include "commands.h"
 #include "channel_policy.h"
+#include "chanserv.h"
 #include "config.h"
 #include "modes.h"
 #include "numerics.h"
@@ -114,6 +115,21 @@ static ChannelPrivilegeSet channel_privilege_bit(char letter) {
         case 'v': return CHANNEL_PRIV_VOICE;
         default:  return 0U;
     }
+}
+
+static int secureops_allows(Server *server, const Channel *channel,
+                            const Client *subject, ChannelPrivilegeSet privilege) {
+    ChannelPrivilegeSet eligible;
+    unsigned int rank;
+    if (server == NULL || channel == NULL || subject == NULL ||
+        !channel->chanserv_secure_ops) return 1;
+    eligible = chanserv_client_privileges(server, subject, channel->name);
+    rank = channel_privilege_rank(eligible);
+    if (privilege == CHANNEL_PRIV_OWNER) return rank >= 5U;
+    if (privilege == CHANNEL_PRIV_PROTECTED) return rank >= 4U;
+    if (privilege == CHANNEL_PRIV_OPERATOR) return rank >= 3U;
+    if (privilege == CHANNEL_PRIV_HALFOP) return rank >= 2U;
+    return 1;
 }
 
 static ChannelMember *actor_membership(const Channel *channel, const Client *actor) {
@@ -368,6 +384,11 @@ static CommandResult mode_channel(Server *server, Client *client,
                 client_sendf(client, ERR_USERNOTINCHANNEL,
                              server->config.server_name, client->nick,
                              subject->nick, channel->name);
+                continue;
+            }
+            if (sign == '+' && !secureops_allows(server, channel, subject, privilege_bit)) {
+                client_sendf(client, ":%s 482 %s %s :SecureOps prevented granting protected status to an ineligible account",
+                             server->config.server_name, client->nick, channel->name);
                 continue;
             }
             if (letter == 'a' && !may_manage_protected(channel, client)) {

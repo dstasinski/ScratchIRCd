@@ -69,6 +69,9 @@ typedef struct Channel {
     int chanserv_policy_valid;
     char chanserv_founder[IRC_NICK_MAX + 1U];
     ChannelModeSet chanserv_mode_lock;
+    int chanserv_secure_ops;
+    char chanserv_successor[IRC_NICK_MAX + 1U];
+    char chanserv_greeting[IRC_CHANNEL_TOPIC_MAX + 1U];
 
     ChannelMaskEntry *ban_list;
     ChannelMaskEntry *exception_list;
@@ -93,6 +96,8 @@ int channel_add_privileges(Channel *channel, Client *client,
                            ChannelPrivilegeSet privileges);
 int channel_remove_privileges(Channel *channel, Client *client,
                               ChannelPrivilegeSet privileges);
+int channel_remove_manual_privileges(Channel *channel, Client *client,
+                                     ChannelPrivilegeSet privileges);
 int channel_set_service_privileges(Channel *channel, Client *client,
                                    ChannelPrivilegeSet privileges);
 void channel_forget_service_privileges(Channel *channel);

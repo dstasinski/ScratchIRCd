@@ -72,6 +72,9 @@ static void clear_cached_policy(Channel *channel) {
     channel->chanserv_policy_valid = 0;
     channel->chanserv_founder[0] = '\0';
     channel->chanserv_mode_lock = 0U;
+    channel->chanserv_secure_ops = 0;
+    channel->chanserv_successor[0] = '\0';
+    channel->chanserv_greeting[0] = '\0';
     channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_REGISTERED);
 }
 
@@ -85,6 +88,11 @@ static void cache_policy(Channel *channel, const ChanServChannel *record) {
     (void)snprintf(channel->chanserv_founder, sizeof(channel->chanserv_founder),
                    "%s", record->founder);
     channel->chanserv_mode_lock = (ChannelModeSet)record->mode_lock;
+    channel->chanserv_secure_ops = record->secure_ops != 0;
+    (void)snprintf(channel->chanserv_successor, sizeof(channel->chanserv_successor),
+                   "%s", record->successor);
+    (void)snprintf(channel->chanserv_greeting, sizeof(channel->chanserv_greeting),
+                   "%s", record->greeting);
 }
 
 static ChannelModeSet persistent_mode_bit(char letter) {
@@ -369,7 +377,7 @@ static void broadcast_privilege_change(Server *server, Channel *channel,
 }
 
 static void sync_member_privileges(Server *server, Channel *channel,
-                                   Client *client) {
+                                    Client *client) {
     ChannelMember *member;
     ChannelPrivilegeSet before;
     ChannelPrivilegeSet after;
@@ -382,6 +390,20 @@ static void sync_member_privileges(Server *server, Channel *channel,
     desired = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)
                   ? chanserv_client_privileges(server, client, channel->name)
                   : 0U;
+    if (channel->chanserv_secure_ops) {
+        ChannelPrivilegeSet protected_bits = CHANNEL_PRIV_OWNER |
+                                              CHANNEL_PRIV_PROTECTED |
+                                              CHANNEL_PRIV_OPERATOR |
+                                              CHANNEL_PRIV_HALFOP;
+        unsigned int rank = channel_privilege_rank(desired);
+        ChannelPrivilegeSet eligible = rank >= 5U ? protected_bits
+                                      : rank >= 4U ? (CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_HALFOP)
+                                      : rank >= 3U ? (CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_HALFOP)
+                                      : rank >= 2U ? CHANNEL_PRIV_HALFOP : 0U;
+        ChannelPrivilegeSet unauthorized = (member->manual_privileges & protected_bits) & ~eligible;
+        if (unauthorized != 0U)
+            (void)channel_remove_manual_privileges(channel, client, unauthorized);
+    }
     if (channel_set_service_privileges(channel, client, desired) != 0) return;
     after = member->privileges;
     broadcast_privilege_change(server, channel, client, before & ~after, '-');
@@ -463,8 +485,11 @@ static void command_info(Server *server, Client *client, char *params) {
         chanserv_db_close(&db); cs_notice(server,client,"Channel is not registered."); return;
     }
     chanserv_db_close(&db);
-    (void)snprintf(line,sizeof(line),"Channel %s founder=%s description=%s mlock=0x%llx created=%lld",
-        record.name,record.founder,record.description[0]?record.description:"-",(unsigned long long)record.mode_lock,record.created_at);
+    (void)snprintf(line,sizeof(line),"Channel %s founder=%s description=%s mlock=0x%llx topiclock=%s secureops=%s successor=%s greeting=%s created=%lld",
+        record.name,record.founder,record.description[0]?record.description:"-",(unsigned long long)record.mode_lock,
+        (record.mode_lock & CHANNEL_MODE_TOPIC_LOCK) != 0U ? "ON" : "OFF",
+        record.secure_ops ? "ON" : "OFF", record.successor[0] != '\0' ? record.successor : "NONE",
+        record.greeting[0] != '\0' ? record.greeting : "NONE", record.created_at);
     cs_notice(server,client,line);
 }
 
@@ -534,9 +559,9 @@ static void command_access(Server *server, Client *client, char *params) {
 static void command_set(Server *server, Client *client, char *params) {
     ChanServDb db={0}; ChanServChannel record; char *name=params!=NULL?strtok(params," "):NULL; char *field=strtok(NULL," "); char *value=strtok(NULL,"");
     if (!load_founder_channel(server,client,name,&db,&record)) return;
-    if (field==NULL || value==NULL) { chanserv_db_close(&db); cs_notice(server,client,"Syntax: SET <#channel> MLOCK <modes> | TOPIC :<text>"); return; }
+    if (field==NULL || value==NULL) { chanserv_db_close(&db); cs_notice(server,client,"Syntax: SET <#channel> MLOCK <modes> | TOPIC :<text> | TOPICLOCK ON|OFF | SECUREOPS ON|OFF | SUCCESSOR <account|NONE> | GREETING :<text|NONE>"); return; }
     while(*value==' ')++value;
-    if (strcasecmp(field,"MLOCK")==0) {
+        if (strcasecmp(field,"MLOCK")==0) {
         ChannelModeSet lock;
         Channel *channel;
         ChannelModeSet before = 0U;
@@ -555,6 +580,76 @@ static void command_set(Server *server, Client *client, char *params) {
             broadcast_service_mode_change(server, channel, before, channel->modes);
         }
         cs_notice(server,client,"Persistent mode lock updated."); return;
+    }
+    if (strcasecmp(field,"TOPICLOCK")==0) {
+        ChannelModeSet lock = record.mode_lock;
+        Channel *channel;
+        if (strcasecmp(value, "ON") == 0) lock |= CHANNEL_MODE_TOPIC_LOCK;
+        else if (strcasecmp(value, "OFF") == 0) lock &= ~CHANNEL_MODE_TOPIC_LOCK;
+        else { chanserv_db_close(&db); cs_notice(server,client,"TOPICLOCK must be ON or OFF."); return; }
+        if (chanserv_db_set_mode_lock(&db, name, (uint64_t)lock) != 0) {
+            chanserv_db_close(&db); cs_notice(server,client,"Failed to update topic locking."); return;
+        }
+        chanserv_db_close(&db);
+        channel = hash_get(&server->channels_by_name, name);
+        if (channel != NULL) {
+            ChannelModeSet before = channel->modes;
+            channel->chanserv_mode_lock = lock;
+            channel->modes = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED)
+                           ? channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED)
+                           : channel->modes;
+            if (lock & CHANNEL_MODE_TOPIC_LOCK) channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_TOPIC_LOCK);
+            else channel->modes = channel_mode_remove(channel->modes, CHANNEL_MODE_TOPIC_LOCK);
+            broadcast_service_mode_change(server, channel, before, channel->modes);
+        }
+        cs_notice(server,client,"Topic locking updated."); return;
+    }
+    if (strcasecmp(field,"SECUREOPS")==0) {
+        Channel *channel;
+        int enabled;
+        if (strcasecmp(value, "ON") == 0) enabled = 1;
+        else if (strcasecmp(value, "OFF") == 0) enabled = 0;
+        else { chanserv_db_close(&db); cs_notice(server,client,"SECUREOPS must be ON or OFF."); return; }
+        if (chanserv_db_set_secure_ops(&db, name, enabled) != 0) {
+            chanserv_db_close(&db); cs_notice(server,client,"Failed to update SecureOps."); return;
+        }
+        chanserv_db_close(&db);
+        channel = hash_get(&server->channels_by_name, name);
+        if (channel != NULL) {
+            channel->chanserv_secure_ops = enabled;
+            chanserv_sync_channel_privileges(server, channel);
+        }
+        cs_notice(server,client,enabled ? "SecureOps enabled." : "SecureOps disabled."); return;
+    }
+    if (strcasecmp(field,"SUCCESSOR")==0) {
+        NickServDb nsdb = {0}; NickServAccount account;
+        const char *successor = value;
+        if (strcasecmp(value, "NONE") == 0) successor = "";
+        else if (nickserv_db_open(&nsdb, server->config.nickserv_db) != 0 ||
+                 nickserv_db_get(&nsdb, value, &account) != 1 || !account.enabled ||
+                 strcasecmp(account.name, record.founder) == 0) {
+            nickserv_db_close(&nsdb); chanserv_db_close(&db);
+            cs_notice(server,client,"SUCCESSOR must name an existing account other than the founder, or NONE."); return;
+        }
+        nickserv_db_close(&nsdb);
+        if (chanserv_db_set_successor(&db, name, successor) != 0) {
+            chanserv_db_close(&db); cs_notice(server,client,"Failed to update successor."); return;
+        }
+        chanserv_db_close(&db);
+        { Channel *channel = hash_get(&server->channels_by_name, name); if (channel != NULL) (void)snprintf(channel->chanserv_successor, sizeof(channel->chanserv_successor), "%s", successor); }
+        cs_notice(server,client,"Successor updated."); return;
+    }
+    if (strcasecmp(field,"GREETING")==0) {
+        Channel *channel;
+        if (*value == ':') ++value;
+        if (strcasecmp(value, "NONE") == 0) value = "";
+        if (strlen(value) > irc_topic_limit(server) || chanserv_db_set_greeting(&db, name, value) != 0) {
+            chanserv_db_close(&db); cs_notice(server,client,"Greeting is too long or invalid."); return;
+        }
+        chanserv_db_close(&db);
+        channel = hash_get(&server->channels_by_name, name);
+        if (channel != NULL) (void)snprintf(channel->chanserv_greeting, sizeof(channel->chanserv_greeting), "%s", value);
+        cs_notice(server,client,"Greeting updated."); return;
     }
     if (strcasecmp(field,"TOPIC")==0) {
         char setter[IRC_CHANNEL_TOPIC_SETTER_MAX+1U]; long long now=(long long)time(NULL); Channel *channel;
@@ -584,6 +679,6 @@ void chanserv_handle_message(Server *server, Client *client, char *text) {
     else if(strcasecmp(command,"ACCESS")==0)command_access(server,client,params);
     else if(strcasecmp(command,"SET")==0)command_set(server,client,params);
     else if(strcasecmp(command,"HELP")==0)
-        cs_notice(server,client,"Commands: REGISTER, INFO, DROP, ACCESS, SET, HELP");
+        cs_notice(server,client,"Commands: REGISTER, INFO, DROP, ACCESS, SET, HELP; SET fields: MLOCK, TOPIC, TOPICLOCK, SECUREOPS, SUCCESSOR, GREETING");
     else cs_notice(server,client,"Unknown ChanServ command. Use CHANSERV HELP.");
 }
