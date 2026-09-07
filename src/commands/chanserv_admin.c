@@ -71,9 +71,14 @@ CommandResult command_csinfo(Server *server, Client *client, char *params) {
     }
     chanserv_db_close(&db);
     (void)snprintf(line, sizeof(line),
-                   "CHANSERV %s founder=%s enabled=%d description=%s created=%lld updated=%lld",
+                   "CHANSERV %s founder=%s enabled=%d description=%s mlock=0x%llx topiclock=%s secureops=%s successor=%s greeting=%s created=%lld updated=%lld",
                    record.name, record.founder, record.enabled,
                    record.description[0] != '\0' ? record.description : "-",
+                   (unsigned long long)record.mode_lock,
+                   (record.mode_lock & CHANNEL_MODE_TOPIC_LOCK) != 0U ? "ON" : "OFF",
+                   record.secure_ops ? "ON" : "OFF",
+                   record.successor[0] != '\0' ? record.successor : "NONE",
+                   record.greeting[0] != '\0' ? record.greeting : "NONE",
                    record.created_at, record.updated_at);
     notice(server, client, line);
     return COMMAND_KEEP_CLIENT;
