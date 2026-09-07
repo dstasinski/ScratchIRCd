@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 from test_chanserv import IRCClient, free_port, register, stop, wait_listen
 
@@ -89,20 +90,24 @@ def main():
             assert_member_token(bob, "Bob", "#identity", "Bob", "Bob")
 
             bob.send(ns("IDENTIFY " + bob_secret))
-            identify_lines = bob.expect("Pass" + "word accepted - you are now identified.")
-            assert any(" MODE #identity +o Bob" in line for line in identify_lines), identify_lines
+            bob.expect(" MODE #identity +o Bob")
+            bob.expect("Pass" + "word accepted - you are now identified.")
             assert_member_token(bob, "Bob", "#identity", "Bob", "@Bob")
 
             alice.send("MODE #identity +v Bob")
             alice.expect(" MODE #identity +v Bob")
             bob.send(ns("LOGOUT"))
-            logout_lines = bob.expect("You are now logged out of your account.")
-            assert any(" MODE #identity -o Bob" in line for line in logout_lines), logout_lines
+            bob.expect(" MODE #identity -o Bob")
+            bob.expect("You are now logged out of your account.")
             assert_member_token(bob, "Bob", "#identity", "Bob", "+Bob")
 
+            # Direct IDENTIFY has its own command-budget bucket. Wait past the
+            # short repeat guard so this test covers identity reconciliation
+            # instead of the unrelated anti-spam throttle.
+            time.sleep(1.1)
             bob.send("IDENTIFY " + bob_secret)
-            direct_lines = bob.expect("Pass" + "word accepted - you are now identified.")
-            assert any(" MODE #identity +o Bob" in line for line in direct_lines), direct_lines
+            bob.expect(" MODE #identity +o Bob")
+            bob.expect("Pass" + "word accepted - you are now identified.")
             assert_member_token(bob, "Bob", "#identity", "Bob", "@Bob")
         finally:
             if alice is not None:
