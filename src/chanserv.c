@@ -666,7 +666,7 @@ static void command_set(Server *server, Client *client, char *params) {
         }
         cs_notice(server,client,"Persistent topic updated."); return;
     }
-    chanserv_db_close(&db); cs_notice(server,client,"Unknown SET field. Use MLOCK or TOPIC.");
+    chanserv_db_close(&db); cs_notice(server,client,"Unknown SET field. Use MLOCK, TOPIC, TOPICLOCK, SECUREOPS, SUCCESSOR, or GREETING.");
 }
 
 void chanserv_handle_message(Server *server, Client *client, char *text) {
