@@ -27,6 +27,10 @@ typedef struct ChanServFounderWorkItem {
     char successor[IRC_NICK_MAX + 1U];
 } ChanServFounderWorkItem;
 
+typedef struct ChanServReferenceWorkItem {
+    char channel[IRC_CHANNEL_NAME_MAX + 1U];
+} ChanServReferenceWorkItem;
+
 static int require_netadmin(Server *server, Client *client) {
     if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
         client_sendf(client, ERR_NOPRIVILEGES,
@@ -218,6 +222,64 @@ static int collect_founded_channels(ChanServDb *db, const char *founder,
     return 0;
 }
 
+static int collect_account_reference_channels(ChanServDb *db, const char *account,
+                                              ChanServReferenceWorkItem **items,
+                                              size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    ChanServReferenceWorkItem *list = NULL;
+    size_t used = 0U;
+    size_t capacity = 0U;
+    int rc;
+
+    if (db == NULL || db->db == NULL || !valid_account_name(account) ||
+        items == NULL || count == NULL)
+        return -1;
+    *items = NULL;
+    *count = 0U;
+
+    if (sqlite3_prepare_v2(db->db,
+        "SELECT name FROM channels WHERE successor=?1 "
+        "UNION SELECT channel FROM access WHERE account=?1",
+        -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(stmt, 1, account, -1, SQLITE_TRANSIENT);
+
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        ChanServReferenceWorkItem item;
+        if (copy_sqlite_text(stmt, 0, item.channel, sizeof(item.channel)) != 0) {
+            sqlite3_finalize(stmt);
+            free(list);
+            return -1;
+        }
+        if (used == capacity) {
+            size_t next_capacity = capacity == 0U ? 8U : capacity * 2U;
+            ChanServReferenceWorkItem *grown;
+            if (next_capacity < capacity) {
+                sqlite3_finalize(stmt);
+                free(list);
+                return -1;
+            }
+            grown = realloc(list, next_capacity * sizeof(*list));
+            if (grown == NULL) {
+                sqlite3_finalize(stmt);
+                free(list);
+                return -1;
+            }
+            list = grown;
+            capacity = next_capacity;
+        }
+        list[used++] = item;
+    }
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        free(list);
+        return -1;
+    }
+    *items = list;
+    *count = used;
+    return 0;
+}
+
 static void refresh_chanserv_channel(Server *server, const char *name) {
     Channel *channel;
     if (server == NULL || name == NULL) return;
@@ -263,6 +325,52 @@ static void handle_chanserv_founder_account_removed(Server *server,
 
     free(items);
     chanserv_db_close(&db);
+}
+
+static void remove_chanserv_account_references(Server *server,
+                                               const char *account_name) {
+    ChanServDb db = {0};
+    ChanServReferenceWorkItem *items = NULL;
+    sqlite3_stmt *stmt = NULL;
+    size_t count = 0U;
+    size_t i;
+    int ok = 1;
+
+    if (server == NULL || !valid_account_name(account_name)) return;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
+    if (collect_account_reference_channels(&db, account_name, &items, &count) != 0) {
+        chanserv_db_close(&db);
+        return;
+    }
+
+    if (sqlite3_prepare_v2(db.db,
+        "UPDATE channels SET successor='',updated_at=unixepoch() WHERE successor=?1",
+        -1, &stmt, NULL) != SQLITE_OK)
+        ok = 0;
+    if (ok) {
+        sqlite3_bind_text(stmt, 1, account_name, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) ok = 0;
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+    if (ok && sqlite3_prepare_v2(db.db,
+        "DELETE FROM access WHERE account=?1",
+        -1, &stmt, NULL) != SQLITE_OK)
+        ok = 0;
+    if (ok) {
+        sqlite3_bind_text(stmt, 1, account_name, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) ok = 0;
+    }
+    if (stmt != NULL) sqlite3_finalize(stmt);
+    chanserv_db_close(&db);
+
+    if (!ok) {
+        free(items);
+        return;
+    }
+    for (i = 0U; i < count; ++i)
+        refresh_chanserv_channel(server, items[i].channel);
+    free(items);
 }
 
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
@@ -391,6 +499,7 @@ CommandResult command_nsdrop(Server *server, Client *client, char *params) {
     nickserv_db_close(&db);
     clear_live_account(server, canonical_name);
     handle_chanserv_founder_account_removed(server, canonical_name);
+    remove_chanserv_account_references(server, canonical_name);
     notice(server, client, "NickServ account deleted.");
     snotice_broadcast(server, SNOTICE_SERVICES,
                       "NSDROP by %s: account=%s", client->nick, canonical_name);
