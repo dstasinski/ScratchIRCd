@@ -52,6 +52,33 @@ static void notice(Server *server, Client *client, const char *text) {
     }
 }
 
+static void broadcast_registration_mode(Server *server, Channel *channel, int adding) {
+    char message[IRCD_MESSAGE_BUFFER_SIZE];
+    if (server == NULL || channel == NULL) return;
+    (void)snprintf(message, sizeof(message),
+                   ":ChanServ!service@%s MODE %s %cr\r\n",
+                   server->config.server_name, channel->name,
+                   adding ? '+' : '-');
+    channel_broadcast(channel, NULL, message);
+}
+
+static void refresh_and_broadcast_registration(Server *server, const char *name) {
+    Channel *channel;
+    int had_registered;
+    int has_registered;
+
+    if (server == NULL || name == NULL) return;
+    channel = hash_get(&server->channels_by_name, name);
+    if (channel == NULL) return;
+    had_registered = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED);
+    chanserv_refresh_channel(server, channel);
+    has_registered = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED);
+    if (had_registered != has_registered)
+        broadcast_registration_mode(server, channel, has_registered);
+    if (has_registered)
+        chanserv_sync_channel_privileges(server, channel);
+}
+
 CommandResult command_csinfo(Server *server, Client *client, char *params) {
     ChanServDb db = {0};
     ChanServChannel record;
@@ -133,12 +160,7 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
     }
     chanserv_db_close(&db);
     if (rc == 0) {
-        Channel *channel = hash_get(&server->channels_by_name, name);
-        if (channel != NULL) {
-            chanserv_refresh_channel(server, channel);
-            if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
-                chanserv_sync_channel_privileges(server, channel);
-        }
+        refresh_and_broadcast_registration(server, name);
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "CSSET by %s: channel=%s field=%s value=%s",
                           client->nick, name, field, value);
@@ -164,9 +186,7 @@ CommandResult command_csdrop(Server *server, Client *client, char *params) {
     rc = chanserv_db_delete(&db, name);
     chanserv_db_close(&db);
     if (rc == 0) {
-        Channel *channel = hash_get(&server->channels_by_name, name);
-        if (channel != NULL)
-            chanserv_refresh_channel(server, channel);
+        refresh_and_broadcast_registration(server, name);
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "CSDROP by %s: channel=%s", client->nick, name);
     }
