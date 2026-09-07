@@ -396,8 +396,13 @@ static CommandResult mode_channel(Server *server, Client *client,
                              server->config.server_name, client->nick, channel->name);
                 continue;
             }
-            if (sign == '+') (void)channel_add_privileges(channel, subject, privilege_bit);
-            else (void)channel_remove_privileges(channel, subject, privilege_bit);
+            if (sign == '+') {
+                (void)channel_add_privileges(channel, subject, privilege_bit);
+            } else if (letter == 'v') {
+                (void)channel_remove_manual_privileges(channel, subject, privilege_bit);
+            } else {
+                (void)channel_remove_privileges(channel, subject, privilege_bit);
+            }
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), subject->nick);
             continue;
@@ -475,27 +480,46 @@ static CommandResult mode_channel(Server *server, Client *client,
             continue;
         }
 
-        if (letter == 'L' || letter == 'B') {
-            char *field = letter == 'L' ? channel->limit_redirect : channel->ban_redirect;
-            size_t field_size = letter == 'L' ? sizeof(channel->limit_redirect)
-                                               : sizeof(channel->ban_redirect);
+        if (letter == 'L') {
             if (sign == '+') {
-                if (param == NULL || strchr(IRC_CHANNEL_PREFIXES, param[0]) == NULL) {
+                if (param == NULL || !channel_name_valid(param)) {
                     client_sendf(client, ERR_NEEDMOREPARAMS,
                                  server->config.server_name, client->nick, "MODE");
                     continue;
                 }
                 ++argi;
-                (void)snprintf(field, field_size, "%s", param);
+                (void)snprintf(channel->limit_redirect, sizeof(channel->limit_redirect), "%s", param);
                 append_param(changed_params, sizeof(changed_params), param);
-            } else field[0] = '\0';
+            } else {
+                channel->limit_redirect[0] = '\0';
+                if (param != NULL) { ++argi; append_param(changed_params, sizeof(changed_params), param); }
+            }
+            append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
+            continue;
+        }
+
+        if (letter == 'B') {
+            if (sign == '+') {
+                if (param == NULL || !channel_name_valid(param)) {
+                    client_sendf(client, ERR_NEEDMOREPARAMS,
+                                 server->config.server_name, client->nick, "MODE");
+                    continue;
+                }
+                ++argi;
+                (void)snprintf(channel->ban_redirect, sizeof(channel->ban_redirect), "%s", param);
+                append_param(changed_params, sizeof(changed_params), param);
+            } else {
+                channel->ban_redirect[0] = '\0';
+                if (param != NULL) { ++argi; append_param(changed_params, sizeof(changed_params), param); }
+            }
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             continue;
         }
 
         if (letter == 'b' || letter == 'e' || letter == 'I') {
-            ChannelMaskEntry **list;
-            int list_rc;
+            ChannelMaskEntry **list = letter == 'b' ? &channel->ban_list
+                                    : letter == 'e' ? &channel->exception_list
+                                                    : &channel->invite_exception_list;
             if (param == NULL) continue;
             ++argi;
             if (letter == 'b' && sign == '+' &&
@@ -505,46 +529,30 @@ static CommandResult mode_channel(Server *server, Client *client,
                              server->config.server_name, client->nick, channel->name);
                 continue;
             }
-            list = letter == 'b' ? &channel->ban_list
-                 : letter == 'e' ? &channel->exception_list
-                                 : &channel->invite_exception_list;
             if (sign == '+') {
-                list_rc = channel_mask_add_authorized(
-                    list, param,
-                    letter == 'b' && may_manage_protected(channel, client));
-                if (list_rc == -2) {
-                    client_sendf(client, ERR_BANLISTFULL,
-                                 server->config.server_name, client->nick,
-                                 channel->name, param);
-                    continue;
-                }
-                if (list_rc != 0) continue;
+                int protected_authorized = letter == 'b' && may_manage_protected(channel, client);
+                (void)channel_mask_add_authorized(list, param, protected_authorized);
             } else {
-                list_rc = channel_mask_remove(list, param);
-                if (list_rc <= 0) continue;
+                (void)channel_mask_remove(list, param);
             }
             append_mode(changed, sizeof(changed), &used, &last_sign, sign, letter);
             append_param(changed_params, sizeof(changed_params), param);
             continue;
         }
 
-        client_sendf(client, ERR_UNKNOWNMODE, server->config.server_name,
-                     client->nick, letter);
+        client_sendf(client, ERR_UNKNOWNMODE,
+                     server->config.server_name, client->nick, letter);
     }
 
     if (changed[0] != '\0') {
-        /* dispatch.c rejects any channel MODE whose fully prefixed wire form
-         * cannot fit IRC's 510-byte content limit before state mutation. The
-         * changed set here is only a subset of that request. This larger
-         * internal buffer lets the compiler model the formatter without
-         * introducing a second truncation policy at this late stage. */
-        char message[IRCD_MESSAGE_BUFFER_SIZE * 2U];
+        char message[IRCD_MESSAGE_BUFFER_SIZE];
         (void)snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s%s%s\r\n",
                        client->nick, client->user, client->display_host,
                        channel->name, changed,
                        changed_params[0] != '\0' ? " " : "",
                        changed_params);
         channel_broadcast(channel, NULL, message);
+        chanserv_persist_channel(server, channel);
     }
     return COMMAND_KEEP_CLIENT;
 }
@@ -552,29 +560,24 @@ static CommandResult mode_channel(Server *server, Client *client,
 CommandResult command_mode(Server *server, Client *client, char *params) {
     char *target;
     char *mode_string;
-    char *argv[IRC_MODE_MAX_PARAMS];
+    char *argv[IRC_MAX_MODE_PARAMS];
     size_t argc = 0U;
-    char *token;
+    char *arg;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (params == NULL) {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
-                     client->nick, "MODE");
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, "MODE");
         return COMMAND_KEEP_CLIENT;
     }
 
     target = strtok(params, " ");
     mode_string = strtok(NULL, " ");
-    while (argc < IRC_MODE_MAX_PARAMS && (token = strtok(NULL, " ")) != NULL)
-        argv[argc++] = token;
+    while ((arg = strtok(NULL, " ")) != NULL && argc < IRC_MAX_MODE_PARAMS)
+        argv[argc++] = arg;
 
-    if (target == NULL || *target == '\0') {
-        client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
-                     client->nick, "MODE");
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL)
+    if (target == NULL) return COMMAND_KEEP_CLIENT;
+    if (target[0] == '#' || target[0] == '&')
         return mode_channel(server, client, target, mode_string, argv, argc);
     return mode_user(server, client, target, mode_string);
 }
