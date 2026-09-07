@@ -85,11 +85,16 @@ def main():
             alice.expect("Persistent mode lock updated.")
             alice.send("CHANSERV SET #transfer GREETING :Welcome after transfer")
             alice.expect("Greeting updated.")
+            alice.send("CHANSERV SET #transfer SUCCESSOR Bob")
+            alice.expect("Successor updated.")
+            alice.send("CHANSERV INFO #transfer")
+            alice.expect("successor=Bob")
 
             # Transfer founder through the network-administrator command. The
             # live cache must refresh immediately: Bob gains founder authority,
-            # and Alice loses ordinary founder-command authority despite still
-            # being a network administrator.
+            # Alice loses ordinary founder-command authority despite still
+            # being a network administrator, and the successor field is cleared
+            # because the successor has become the founder.
             alice.send("CSSET #transfer FOUNDER Bob")
             alice.expect("ChanServ channel updated.")
             alice.send("CSINFO #transfer")
@@ -134,8 +139,8 @@ def main():
             assert "n" in restored_modes and "t" in restored_modes and "r" in restored_modes, modes
             founder.send("CHANSERV INFO #transfer")
             info = founder.expect("founder=Bob")
-            assert any("topiclock=ON" in line and "greeting=Bob is founder now" in line
-                       for line in info), info
+            assert any("topiclock=ON" in line and "successor=NONE" in line and
+                       "greeting=Bob is founder now" in line for line in info), info
 
             old_founder = IRCClient(port)
             register(old_founder, "OldFounder")
