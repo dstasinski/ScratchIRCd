@@ -159,6 +159,7 @@ def main():
             assert any(" MODE #inherit +qo Bob Bob" in line or
                        " MODE #inherit +oq Bob Bob" in line
                        for line in drop_lines), drop_lines
+            assert any(" MODE #orphan -r" in line for line in drop_lines), drop_lines
 
             bob.send("CHANSERV INFO #inherit")
             inherit_info = bob.expect("founder=Bob")
