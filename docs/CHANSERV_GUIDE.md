@@ -153,6 +153,8 @@ CHANSERV SET #channel SUCCESSOR NONE
 
 If a founder account is deleted with `NSDROP` or disabled with `NSSET <account> ENABLED 0`, every enabled channel founded by that account is reconciled immediately. When the channel has a valid enabled successor, the successor becomes the new founder, the successor field is cleared, the live channel cache is refreshed, and member privileges are reconciled. When there is no valid successor, the channel registration is disabled rather than deleted.
 
+A temporary `NSSET <account> ENABLED 0` keeps that account's non-founder ChanServ access and successor references intact so an administrator can restore the account later. A permanent `NSDROP <account>` removes that account from ChanServ access lists and clears any successor references to it. This prevents re-registering the same account name from unexpectedly recovering old channel privileges or inheritance rights.
+
 A greeting is sent by ChanServ to each client after a successful join. The greeting is a notice from ChanServ and does not make ChanServ join the channel.
 
 ```text
