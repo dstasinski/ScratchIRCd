@@ -178,7 +178,7 @@ def main():
             bob.send("OPER root " + root_secret)
             bob.expect(" 381 Bob :You are now a Network Administrator")
             bob.send("CSSET #orphan ENABLED 1")
-            bob.expect("CSSET failed.")
+            bob.expect("Cannot enable registration until its founder account exists and is enabled.")
             bob.send("CSINFO #orphan")
             orphan_info = bob.expect("enabled=0")
             assert any("founder=Alice" in line for line in orphan_info), orphan_info
