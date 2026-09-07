@@ -95,9 +95,9 @@ def main():
             alice.send("CHANSERV REGISTER #orphan :no successor")
             alice.expect("Channel registered successfully.")
 
-            # A permanently dropped account must not remain as a successor or
-            # access holder. Otherwise re-registering the same account name
-            # could unexpectedly resurrect old channel authority.
+            # A temporarily disabled account loses live authority, but its
+            # stored successor and access records are intentionally preserved
+            # so re-enabling the same account restores the same policy.
             alice.send("JOIN #references")
             alice.expect(" 366 Alice #references ")
             alice.send("CHANSERV REGISTER #references :reference cleanup")
@@ -110,6 +110,31 @@ def main():
             carol.expect(" 366 Carol #references ")
             assert_member_token(carol, "Carol", "#references", "Carol", "@Carol")
 
+            alice.send("NSSET Carol ENABLED 0")
+            carol.expect(" MODE #references -o Carol")
+            alice.expect("NickServ account updated.")
+            assert_member_token(carol, "Carol", "#references", "Carol", "Carol")
+            alice.send("CHANSERV INFO #references")
+            disabled_reference_info = alice.expect("successor=Carol")
+            assert any("founder=Alice" in line for line in disabled_reference_info), disabled_reference_info
+            alice.send("CHANSERV ACCESS #references LIST")
+            disabled_access_lines = alice.expect("End of access list for #references.")
+            assert any("Carol:3" in line for line in disabled_access_lines), disabled_access_lines
+
+            alice.send("NSSET Carol ENABLED 1")
+            alice.expect("NickServ account updated.")
+            carol.close(); carol = None
+            carol = IRCClient(port)
+            register(carol, "Carol")
+            carol.send("IDENTIFY Carol " + carol_secret)
+            carol.expect("Pass" + "word accepted - you are now identified.")
+            carol.send("JOIN #references")
+            carol.expect(" 366 Carol #references ")
+            assert_member_token(carol, "Carol", "#references", "Carol", "@Carol")
+
+            # A permanently dropped account must not remain as a successor or
+            # access holder. Otherwise re-registering the same account name
+            # could unexpectedly resurrect old channel authority.
             alice.send("NSDROP Carol")
             carol.expect(" MODE #references -o Carol")
             alice.expect("NickServ account deleted.")
