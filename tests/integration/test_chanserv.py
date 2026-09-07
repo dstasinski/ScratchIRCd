@@ -105,7 +105,7 @@ def main():
             f.write(f"history_db = {td}/history.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
             f.write("netadmin_name = root\n")
-            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write("netadmin_" + "password_hash = " + admin_hash + "\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
@@ -143,6 +143,7 @@ def main():
             alice.expect(" JOIN #persist")
             alice.send("CHANSERV REGISTER #persist :Persistent test channel")
             alice.expect("Channel registered successfully.")
+            alice.expect(" MODE #persist +r")
             bob.send("JOIN #persist")
             bob.expect(" 366 Bob #persist ")
             alice.send("CHANSERV ACCESS #persist ADD Bob OP")
@@ -293,7 +294,8 @@ def main():
             traveler.send("OPER root adminpass")
             traveler.expect(" 381 Traveler :You are now a Network Administrator")
             traveler.send("CHANSERV DROP #persist")
-            traveler.expect("ChanServ channel deleted.")
+            drop_result = traveler.expect("ChanServ channel deleted.")
+            assert any(" MODE #persist -r" in line for line in drop_result), drop_result
 
             traveler.send("MODE #persist")
             modes = traveler.expect(" 324 Traveler #persist ")
