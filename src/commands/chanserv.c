@@ -23,6 +23,25 @@ static int chanserv_registration_exists(Server *server, const char *name) {
     return found;
 }
 
+static void broadcast_registration_mode(Server *server, const char *channel_name,
+                                        int adding) {
+    Channel *channel;
+    char message[IRCD_MESSAGE_BUFFER_SIZE];
+
+    if (server == NULL || channel_name == NULL) return;
+    channel = hash_get(&server->channels_by_name, channel_name);
+    if (channel == NULL) return;
+    if (adding && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+        return;
+    if (!adding && channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+        return;
+    (void)snprintf(message, sizeof(message),
+                   ":ChanServ!service@%s MODE %s %cr\r\n",
+                   server->config.server_name, channel->name,
+                   adding ? '+' : '-');
+    channel_broadcast(channel, NULL, message);
+}
+
 CommandResult command_chanserv(Server *server, Client *client, char *params) {
     char copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *service_command;
@@ -75,6 +94,7 @@ CommandResult command_chanserv(Server *server, Client *client, char *params) {
     if (track_registration) {
         existed_after = chanserv_registration_exists(server, channel_name);
         if (!existed_before && existed_after && is_register) {
+            broadcast_registration_mode(server, channel_name, 1);
             snotice_broadcast(server, SNOTICE_REGISTRATIONS,
                               "ChanServ registration: channel=%s founder=%s",
                               channel_name,
