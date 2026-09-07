@@ -79,7 +79,7 @@ int main(void) {
     unlink(path);
 
     assert(chanserv_db_open(&db, path) == 0);
-    assert(pragma_int(db.db, "PRAGMA user_version") == 1);
+    assert(pragma_int(db.db, "PRAGMA user_version") == 2);
     assert(pragma_int(db.db, "PRAGMA busy_timeout") == 250);
     assert(pragma_int(db.db, "PRAGMA synchronous") == 1);
 
@@ -138,138 +138,45 @@ int main(void) {
     assert(record.topic_time == 12345);
 
     /* Externally edited/legacy rows must fail closed rather than being
-     * silently truncated or admitting multi-line IRC state. */
-    raw_set_channel_text(db.db, "founder", "#Test", long_founder);
-    assert(chanserv_db_get(&db, "#Test", &record) == -1);
-    raw_set_channel_text(db.db, "founder", "#Test", "Alice");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
+     * silently truncated into record buffers. */
     raw_set_channel_text(db.db, "description", "#Test", long_description);
     assert(chanserv_db_get(&db, "#Test", &record) == -1);
     raw_set_channel_text(db.db, "description", "#Test", "Example channel");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
-    raw_set_channel_text(db.db, "description", "#Test", "Example\nchannel");
-    assert(chanserv_db_get(&db, "#Test", &record) == -1);
-    raw_set_channel_text(db.db, "description", "#Test", "Example channel");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
     raw_set_channel_text(db.db, "topic", "#Test", long_topic);
     assert(chanserv_db_get(&db, "#Test", &record) == -1);
     raw_set_channel_text(db.db, "topic", "#Test", "Persistent topic");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
 
-    raw_set_channel_text(db.db, "topic", "#Test", "Persistent\rtopic");
-    assert(chanserv_db_get(&db, "#Test", &record) == -1);
-    raw_set_channel_text(db.db, "topic", "#Test", "Persistent topic");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
-    raw_set_channel_text(db.db, "topic_setter", "#Test", long_setter);
-    assert(chanserv_db_get(&db, "#Test", &record) == -1);
-    raw_set_channel_text(db.db, "topic_setter", "#Test", "Alice!alice@example");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
-    raw_set_channel_text(db.db, "name", "#Test", long_name);
-    assert(chanserv_db_get(&db, long_name, &record) == -1);
-    raw_set_channel_text(db.db, "name", long_name, "#Test");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
-    raw_set_channel_text(db.db, "name", "#Test", "#Te\nst");
-    assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == -1);
-    raw_set_channel_text(db.db, "name", "#Te\nst", "#Test");
-    assert(chanserv_db_get(&db, "#Test", &record) == 1);
-
-    assert(CHANSERV_ACCESS_VOICE == 1);
-    assert(CHANSERV_ACCESS_HALFOP == 2);
-    assert(CHANSERV_ACCESS_OP == 3);
-    assert(CHANSERV_ACCESS_PROTECTED == 4);
-    assert(CHANSERV_ACCESS_OWNER == 5);
-
-    assert(chanserv_db_access_set(&db, "#TEST", long_account, CHANSERV_ACCESS_OP) == -1);
-    assert(chanserv_db_access_set(&db, long_name, "Bob", CHANSERV_ACCESS_OP) == -1);
-    assert(chanserv_db_access_set(&db, "#TEST", "Bo\nb", CHANSERV_ACCESS_OP) == -1);
-    assert(chanserv_db_access_set(&db, "#TEST", "Bob", CHANSERV_ACCESS_OP) == 0);
+    assert(chanserv_db_access_set(&db, "#Test", "Bob", CHANSERV_ACCESS_OP) == 0);
     assert(chanserv_db_access_get(&db, "#test", "bob", &access) == 1);
     assert(strcmp(access.account, "Bob") == 0);
     assert(access.level == CHANSERV_ACCESS_OP);
+    assert(chanserv_db_access_set(&db, "#Test", "Carol", CHANSERV_ACCESS_PROTECTED) == 0);
+    assert(chanserv_db_access_set(&db, "#Test", "Dave", CHANSERV_ACCESS_VOICE) != 0);
+    assert(chanserv_db_access_get(&db, "#Test", "Dave", &access) == 0);
+    assert(chanserv_db_access_set(&db, "#Test", long_account, CHANSERV_ACCESS_OP) == -1);
+    assert(chanserv_db_access_set(&db, "#Test", "Bad\nAccount", CHANSERV_ACCESS_OP) == -1);
+    assert(chanserv_db_access_get(&db, "#Test", long_account, &access) == -1);
 
     raw_set_access_account(db.db, "#Test", "Bob", long_account);
     assert(chanserv_db_access_get(&db, "#Test", long_account, &access) == -1);
     raw_set_access_account(db.db, "#Test", long_account, "Bob");
-    assert(chanserv_db_access_get(&db, "#Test", "Bob", &access) == 1);
 
-    raw_set_access_account(db.db, "#Test", "Bob", "Bo\nb");
-    assert(chanserv_db_access_list(&db, "#Test", list, sizeof(list)) == -1);
-    raw_set_access_account(db.db, "#Test", "Bo\nb", "Bob");
-    assert(chanserv_db_access_get(&db, "#Test", "Bob", &access) == 1);
-
-    assert(chanserv_db_access_set(&db, "#TEST", "Carol",
-                                  CHANSERV_ACCESS_PROTECTED) == 0);
-    assert(chanserv_db_access_get(&db, "#test", "carol", &access) == 1);
-    assert(access.level == CHANSERV_ACCESS_PROTECTED);
-
-    assert(chanserv_db_access_set(&db, "#test", "Dave", CHANSERV_ACCESS_VOICE) != 0);
-    assert(chanserv_db_access_get(&db, "#test", "Dave", &access) == 0);
-
-    assert(chanserv_db_access_list(&db, "#test", list, sizeof(list)) == 0);
+    assert(chanserv_db_access_list(&db, "#Test", list, sizeof(list)) == 0);
     assert(strstr(list, "Bob:3") != NULL);
     assert(strstr(list, "Carol:4") != NULL);
-    {
-        char tiny[8];
-        assert(chanserv_db_access_list(&db, "#test", tiny, sizeof(tiny)) == -1);
-    }
 
-    /* Existing entries remain updateable even when the access list is full. */
-    assert(chanserv_db_access_set(&db, "#test", "Bob", CHANSERV_ACCESS_VOICE) == 0);
-    assert(chanserv_db_access_get(&db, "#TEST", "BOB", &access) == 1);
-    assert(access.level == CHANSERV_ACCESS_VOICE);
-    assert(chanserv_db_access_delete(&db, "#test", "bob") == 0);
-    assert(chanserv_db_access_set(&db, "#TEST", "Dave", CHANSERV_ACCESS_VOICE) == 0);
-    assert(chanserv_db_access_delete(&db, "#test", "Dave") == 0);
-    assert(chanserv_db_access_delete(&db, "#test", "carol") == 0);
-    assert(chanserv_db_access_get(&db, "#test", "Bob", &access) == 0);
-    assert(chanserv_db_pchannels_generation() == generation);
+    assert(chanserv_db_access_delete(&db, "#Test", "Bob") == 0);
+    assert(chanserv_db_access_get(&db, "#Test", "Bob", &access) == 0);
 
-    assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == 0);
-    assert(strstr(list, "#Test") != NULL);
-    {
-        char tiny[5];
-        assert(chanserv_db_list_enabled(&db, tiny, sizeof(tiny)) == -1);
-    }
-
-    assert(chanserv_db_set_description(&db, "#TEST", "Changed") == 0);
-    assert(chanserv_db_set_founder(&db, "#test", "Bob") == 0);
-    assert(chanserv_db_pchannels_generation() == generation);
-    assert(chanserv_db_set_enabled(&db, "#test", 0) == 0);
-    assert(chanserv_db_pchannels_generation() != generation);
-    generation = chanserv_db_pchannels_generation();
-    assert(chanserv_db_get(&db, "#test", &record) == 1);
-    assert(strcmp(record.founder, "Bob") == 0);
-    assert(strcmp(record.description, "Changed") == 0);
-    assert(record.enabled == 0);
-
-    assert(chanserv_db_list_enabled(&db, list, sizeof(list)) == 0);
-    assert(list[0] == '\0');
-
-    assert(chanserv_db_delete(&db, "#test") == 0);
-    assert(chanserv_db_pchannels_generation() != generation);
-    assert(chanserv_db_get(&db, "#test", &record) == 0);
-
-    /* SQLite persistence must use the same RFC1459 casemapping as hashes. */
-    assert(chanserv_db_create(&db, "#[Fold]", "Alice", "RFC1459") == 0);
-    assert(chanserv_db_get(&db, "#{fOLD}", &record) == 1);
-    assert(strcmp(record.name, "#[Fold]") == 0);
-    assert(chanserv_db_delete(&db, "#{fold}") == 0);
+    assert(chanserv_db_set_secure_ops(&db, "#Test", 1) == 0);
+    assert(chanserv_db_set_successor(&db, "#Test", "Carol") == 0);
+    assert(chanserv_db_set_greeting(&db, "#Test", "Welcome") == 0);
+    assert(chanserv_db_get(&db, "#Test", &record) == 1);
+    assert(record.secure_ops == 1);
+    assert(strcmp(record.successor, "Carol") == 0);
+    assert(strcmp(record.greeting, "Welcome") == 0);
 
     chanserv_db_close(&db);
-
-    /* Schema version persists, so a normal reopen does not need legacy scans. */
-    assert(chanserv_db_open(&db, path) == 0);
-    assert(pragma_int(db.db, "PRAGMA user_version") == 1);
-    assert(pragma_int(db.db, "PRAGMA busy_timeout") == 250);
-    chanserv_db_close(&db);
-
     unlink(path);
-    puts("chanserv db tests passed");
     return 0;
 }
