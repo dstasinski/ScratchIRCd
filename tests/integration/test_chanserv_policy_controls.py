@@ -108,8 +108,19 @@ def main():
 
             # SecureOps audits existing manual +q/+a/+o/+h grants when it is
             # enabled, rejects later unauthorized grants, and leaves +v alone.
-            alice.send("MODE #policy +ov Guest Guest")
-            alice.expect(" MODE #policy +ov Guest Guest")
+            # Set +o and +v separately so each mode operation is independently
+            # verified before SecureOps performs its reconciliation.
+            alice.send("MODE #policy +o Guest")
+            alice.expect(" MODE #policy +o Guest")
+            alice.send("MODE #policy +v Guest")
+            alice.expect(" MODE #policy +v Guest")
+            guest.send("NAMES #policy")
+            names = guest.expect(" 366 Guest #policy ")
+            name_line = next(line for line in names if " 353 Guest " in line)
+            guest_token = next(token for token in name_line.rsplit(" :", 1)[1].split()
+                               if token.lstrip("~&@%+") == "Guest")
+            assert guest_token == "@Guest", names
+
             alice.send("CHANSERV SET #policy SECUREOPS ON")
             secureops = alice.expect("SecureOps enabled.")
             assert any(" MODE #policy -o Guest" in line for line in secureops), secureops
