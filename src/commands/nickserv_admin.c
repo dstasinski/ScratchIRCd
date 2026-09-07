@@ -4,18 +4,28 @@
  */
 
 #include "commands.h"
+#include "chanserv.h"
+#include "chanserv_db.h"
+#include "ircv3.h"
 #include "message_policy.h"
 #include "modes.h"
 #include "nickserv_db.h"
 #include "numerics.h"
+#include "usermode_policy.h"
 
 #include <argon2.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/random.h>
 #include <sys/types.h>
+
+typedef struct ChanServFounderWorkItem {
+    char channel[IRC_CHANNEL_NAME_MAX + 1U];
+    char successor[IRC_NICK_MAX + 1U];
+} ChanServFounderWorkItem;
 
 static int require_netadmin(Server *server, Client *client) {
     if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
@@ -90,6 +100,171 @@ static int valid_email(const char *email) {
     return dot != NULL && dot != at + 1 && dot[1] != '\0';
 }
 
+static int valid_account_name(const char *account) {
+    size_t length;
+    if (account == NULL) return 0;
+    length = strlen(account);
+    return length > 0U && length <= IRC_NICK_MAX && strpbrk(account, " \t\r\n") == NULL;
+}
+
+static int live_account_matches(const Client *client, const char *account) {
+    return client != NULL && valid_account_name(account) &&
+           client->account_name[0] != '\0' &&
+           strcasecmp(client->account_name, account) == 0;
+}
+
+static void clear_live_account(Server *server, const char *account) {
+    size_t i;
+    if (server == NULL || !valid_account_name(account)) return;
+    for (i = 0U; i < server->client_count; ++i) {
+        Client *live = server->clients[i];
+        if (!live_account_matches(live, account)) continue;
+        live->account_name[0] = '\0';
+        live->modes = client_mode_remove(live->modes, CLIENT_MODE_REGISTERED);
+        live->sasl_state = CLIENT_SASL_NONE;
+        if (live->account_vhost_active) {
+            live->account_vhost_active = 0;
+            live->modes = client_mode_remove(live->modes, CLIENT_MODE_VHOST);
+            usermode_apply_cloak(server, live);
+        }
+        ircv3_account_notify(live);
+        chanserv_sync_client_privileges(server, live);
+    }
+}
+
+static int nickserv_account_enabled(Server *server, const char *account_name) {
+    NickServDb db = {0};
+    NickServAccount account;
+    int found;
+    if (server == NULL || !valid_account_name(account_name)) return 0;
+    if (nickserv_db_open(&db, server->config.nickserv_db) != 0) return 0;
+    found = nickserv_db_get(&db, account_name, &account);
+    nickserv_db_close(&db);
+    return found == 1 && account.enabled;
+}
+
+static int copy_sqlite_text(sqlite3_stmt *stmt, int column,
+                            char *destination, size_t destination_size) {
+    const unsigned char *raw;
+    int bytes;
+    if (stmt == NULL || destination == NULL || destination_size == 0U) return -1;
+    raw = sqlite3_column_text(stmt, column);
+    bytes = sqlite3_column_bytes(stmt, column);
+    if (raw == NULL || bytes < 0 || (size_t)bytes >= destination_size ||
+        memchr(raw, '\0', (size_t)bytes) != NULL ||
+        memchr(raw, '\r', (size_t)bytes) != NULL ||
+        memchr(raw, '\n', (size_t)bytes) != NULL)
+        return -1;
+    memcpy(destination, raw, (size_t)bytes);
+    destination[bytes] = '\0';
+    return 0;
+}
+
+static int collect_founded_channels(ChanServDb *db, const char *founder,
+                                    ChanServFounderWorkItem **items,
+                                    size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    ChanServFounderWorkItem *list = NULL;
+    size_t used = 0U;
+    size_t capacity = 0U;
+    int rc;
+
+    if (db == NULL || db->db == NULL || !valid_account_name(founder) ||
+        items == NULL || count == NULL)
+        return -1;
+    *items = NULL;
+    *count = 0U;
+
+    if (sqlite3_prepare_v2(db->db,
+        "SELECT name,successor FROM channels WHERE enabled=1 AND founder=?1",
+        -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(stmt, 1, founder, -1, SQLITE_TRANSIENT);
+
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        ChanServFounderWorkItem item;
+        if (copy_sqlite_text(stmt, 0, item.channel, sizeof(item.channel)) != 0 ||
+            copy_sqlite_text(stmt, 1, item.successor, sizeof(item.successor)) != 0) {
+            sqlite3_finalize(stmt);
+            free(list);
+            return -1;
+        }
+        if (used == capacity) {
+            size_t next_capacity = capacity == 0U ? 8U : capacity * 2U;
+            ChanServFounderWorkItem *grown;
+            if (next_capacity < capacity) {
+                sqlite3_finalize(stmt);
+                free(list);
+                return -1;
+            }
+            grown = realloc(list, next_capacity * sizeof(*list));
+            if (grown == NULL) {
+                sqlite3_finalize(stmt);
+                free(list);
+                return -1;
+            }
+            list = grown;
+            capacity = next_capacity;
+        }
+        list[used++] = item;
+    }
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        free(list);
+        return -1;
+    }
+    *items = list;
+    *count = used;
+    return 0;
+}
+
+static void refresh_chanserv_channel(Server *server, const char *name) {
+    Channel *channel;
+    if (server == NULL || name == NULL) return;
+    channel = hash_get(&server->channels_by_name, name);
+    if (channel == NULL) return;
+    chanserv_refresh_channel(server, channel);
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+        chanserv_sync_channel_privileges(server, channel);
+}
+
+static void handle_chanserv_founder_account_removed(Server *server,
+                                                    const char *account_name) {
+    ChanServDb db = {0};
+    ChanServFounderWorkItem *items = NULL;
+    size_t count = 0U;
+    size_t i;
+
+    if (server == NULL || !valid_account_name(account_name)) return;
+    if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
+    if (collect_founded_channels(&db, account_name, &items, &count) != 0) {
+        chanserv_db_close(&db);
+        return;
+    }
+
+    for (i = 0U; i < count; ++i) {
+        ChanServFounderWorkItem *item = &items[i];
+        if (nickserv_account_enabled(server, item->successor) &&
+            strcasecmp(item->successor, account_name) != 0) {
+            if (chanserv_db_set_founder(&db, item->channel, item->successor) == 0 &&
+                chanserv_db_set_successor(&db, item->channel, "") == 0) {
+                snotice_broadcast(server, SNOTICE_SERVICES,
+                                  "ChanServ successor promoted: channel=%s old_founder=%s new_founder=%s",
+                                  item->channel, account_name, item->successor);
+                refresh_chanserv_channel(server, item->channel);
+            }
+        } else if (chanserv_db_set_enabled(&db, item->channel, 0) == 0) {
+            snotice_broadcast(server, SNOTICE_SERVICES,
+                              "ChanServ registration disabled: channel=%s orphaned_founder=%s",
+                              item->channel, account_name);
+            refresh_chanserv_channel(server, item->channel);
+        }
+    }
+
+    free(items);
+    chanserv_db_close(&db);
+}
+
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     NickServDb db = {0};
     NickServAccount account;
@@ -126,9 +301,11 @@ CommandResult command_nsinfo(Server *server, Client *client, char *params) {
 
 CommandResult command_nsset(Server *server, Client *client, char *params) {
     NickServDb db = {0};
+    char canonical_name[IRC_NICK_MAX + 1U] = "";
     char *name;
     char *field;
     char *value;
+    int disabling = 0;
     int rc = -1;
 
     if (command_require_registered(client) || require_netadmin(server, client))
@@ -164,24 +341,36 @@ CommandResult command_nsset(Server *server, Client *client, char *params) {
         if (valid_email(email))
             rc = nickserv_db_admin_set_email(&db, name, email, email[0] != '\0');
     } else if (strcasecmp(field, "ENABLED") == 0) {
-        if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
-            rc = nickserv_db_set_enabled(&db, name, value[0] == '1');
+        NickServAccount account;
+        if ((strcmp(value, "0") == 0 || strcmp(value, "1") == 0) &&
+            nickserv_db_get(&db, name, &account) == 1) {
+            (void)snprintf(canonical_name, sizeof(canonical_name), "%s", account.name);
+            disabling = account.enabled && value[0] == '0';
+            rc = nickserv_db_set_enabled(&db, account.name, value[0] == '1');
+        }
     }
     nickserv_db_close(&db);
     notice(server, client, rc == 0 ? "NickServ account updated." : "NSSET failed.");
     if (rc == 0) {
+        const char *account_name = canonical_name[0] != '\0' ? canonical_name : name;
         const char *detail = strcasecmp(field, "PASSWORD") == 0 ? "PASSWORD changed" :
                              strcasecmp(field, "EMAIL") == 0 ? "EMAIL changed" : value;
+        if (disabling) {
+            clear_live_account(server, account_name);
+            handle_chanserv_founder_account_removed(server, account_name);
+        }
         snotice_broadcast(server, SNOTICE_SERVICES,
                           "NSSET by %s: account=%s field=%s value=%s",
-                          client->nick, name, field, detail);
+                          client->nick, account_name, field, detail);
     }
     return COMMAND_KEEP_CLIENT;
 }
 
 CommandResult command_nsdrop(Server *server, Client *client, char *params) {
     NickServDb db = {0};
+    NickServAccount account;
     char *name;
+    char canonical_name[IRC_NICK_MAX + 1U];
 
     if (command_require_registered(client) || require_netadmin(server, client))
         return COMMAND_KEEP_CLIENT;
@@ -192,14 +381,18 @@ CommandResult command_nsdrop(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (nickserv_db_open(&db, server->config.nickserv_db) != 0 ||
-        nickserv_db_delete(&db, name) != 0) {
+        nickserv_db_get(&db, name, &account) != 1 ||
+        nickserv_db_delete(&db, account.name) != 0) {
         nickserv_db_close(&db);
         notice(server, client, "NSDROP failed.");
         return COMMAND_KEEP_CLIENT;
     }
+    (void)snprintf(canonical_name, sizeof(canonical_name), "%s", account.name);
     nickserv_db_close(&db);
+    clear_live_account(server, canonical_name);
+    handle_chanserv_founder_account_removed(server, canonical_name);
     notice(server, client, "NickServ account deleted.");
     snotice_broadcast(server, SNOTICE_SERVICES,
-                      "NSDROP by %s: account=%s", client->nick, name);
+                      "NSDROP by %s: account=%s", client->nick, canonical_name);
     return COMMAND_KEEP_CLIENT;
 }
