@@ -70,6 +70,16 @@ static void notice(Server *server, Client *client, const char *text) {
     }
 }
 
+static void broadcast_registration_mode(Server *server, Channel *channel, int adding) {
+    char message[IRCD_MESSAGE_BUFFER_SIZE];
+    if (server == NULL || channel == NULL) return;
+    (void)snprintf(message, sizeof(message),
+                   ":ChanServ!service@%s MODE %s %cr\r\n",
+                   server->config.server_name, channel->name,
+                   adding ? '+' : '-');
+    channel_broadcast(channel, NULL, message);
+}
+
 static int hash_password(const char *password, char *encoded, size_t encoded_size) {
     uint8_t salt[IRCD_ARGON2_SALT_BYTES];
     size_t offset = 0U;
@@ -282,11 +292,18 @@ static int collect_account_reference_channels(ChanServDb *db, const char *accoun
 
 static void refresh_chanserv_channel(Server *server, const char *name) {
     Channel *channel;
+    int had_registered;
+    int has_registered;
+
     if (server == NULL || name == NULL) return;
     channel = hash_get(&server->channels_by_name, name);
     if (channel == NULL) return;
+    had_registered = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED);
     chanserv_refresh_channel(server, channel);
-    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+    has_registered = channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED);
+    if (had_registered != has_registered)
+        broadcast_registration_mode(server, channel, has_registered);
+    if (has_registered)
         chanserv_sync_channel_privileges(server, channel);
 }
 
