@@ -11,6 +11,7 @@
 #include "nickserv.h"
 #include "numerics.h"
 #include "presence.h"
+#include "usermode_policy.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +48,73 @@ static void recover_presence_after(Server *server, Client *target,
     presence_whowas_record(server, target, old_nick);
     presence_watch_offline(server, target, old_nick);
     presence_watch_online(server, target);
+}
+
+static void nickserv_alias_notice(Server *server, Client *client, const char *text) {
+    client_sendf(client, ":NickServ!service@%s NOTICE %s :%s",
+                 server->config.server_name, client->nick, text);
+}
+
+static int handle_identify_alias(Server *server, Client *client, char *params) {
+    char *first;
+    char *second;
+    const char *account;
+    const char *secret;
+    int was_identified;
+
+    if (params == NULL) return 0;
+    first = strtok(params, " ");
+    second = first != NULL ? strtok(NULL, "") : NULL;
+    if (first == NULL) return 0;
+    if (second == NULL) {
+        account = client->nick;
+        secret = first;
+    } else {
+        while (*second == ' ') ++second;
+        account = first;
+        secret = second;
+    }
+
+    was_identified = client->account_name[0] != '\0';
+    if (nickserv_identify(server, client, account, secret)) {
+        if (!was_identified) {
+            ircv3_account_notify(client);
+            chanserv_sync_client_privileges(server, client);
+            memoserv_notify_unread(server, client);
+        }
+        nickserv_alias_notice(server, client,
+                              "Password accepted - you are now identified.");
+    } else {
+        nickserv_alias_notice(server, client,
+                              "Password incorrect, account unavailable, or authentication throttled.");
+    }
+    return 1;
+}
+
+static int handle_logout_alias(Server *server, Client *client, char *params) {
+    if (params != NULL && *params != '\0') {
+        nickserv_alias_notice(server, client, "Syntax: LOGOUT");
+        return 1;
+    }
+    if (client->account_name[0] == '\0') {
+        nickserv_alias_notice(server, client,
+                              "You are not identified to an account.");
+        return 1;
+    }
+
+    client->account_name[0] = '\0';
+    client->modes = client_mode_remove(client->modes, CLIENT_MODE_REGISTERED);
+    client->sasl_state = CLIENT_SASL_NONE;
+    if (client->account_vhost_active) {
+        client->account_vhost_active = 0;
+        client->modes = client_mode_remove(client->modes, CLIENT_MODE_VHOST);
+        usermode_apply_cloak(server, client);
+    }
+    ircv3_account_notify(client);
+    chanserv_sync_client_privileges(server, client);
+    nickserv_alias_notice(server, client,
+                          "You are now logged out of your account.");
+    return 1;
 }
 
 static NickServRegistrationThrottle *throttle_slot(NickServRegistrationThrottle *slots,
@@ -142,13 +210,27 @@ void command_nickserv_message(Server *server, Client *client, char *text) {
     char old_nick[IRC_NICK_MAX + 1U] = "";
     char command_copy[IRCD_MESSAGE_BUFFER_SIZE];
     char mail_copy[IRCD_MESSAGE_BUFFER_SIZE];
+    char alias_copy[IRCD_MESSAGE_BUFFER_SIZE];
     char *service_command;
+    char *alias_params;
     Client *recover_target;
 
     if (server == NULL || client == NULL || text == NULL) return;
     (void)snprintf(command_copy, sizeof(command_copy), "%s", text);
     (void)snprintf(mail_copy, sizeof(mail_copy), "%s", text);
+    (void)snprintf(alias_copy, sizeof(alias_copy), "%s", text);
     service_command = strtok(command_copy, " ");
+    alias_params = strtok(alias_copy, " ");
+    alias_params = alias_params != NULL ? strtok(NULL, "") : NULL;
+    if (alias_params != NULL) while (*alias_params == ' ') ++alias_params;
+    if (service_command != NULL && strcasecmp(service_command, "IDENTIFY") == 0) {
+        (void)handle_identify_alias(server, client, alias_params);
+        return;
+    }
+    if (service_command != NULL && strcasecmp(service_command, "LOGOUT") == 0) {
+        (void)handle_logout_alias(server, client, alias_params);
+        return;
+    }
     registering = service_command != NULL && strcasecmp(service_command, "REGISTER") == 0;
     mail_request = mail_producing_request(mail_copy);
     now = time(NULL);
