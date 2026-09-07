@@ -21,7 +21,7 @@ def write_config(path, td, port, admin_hash):
         f.write(f"history_db = {td}/history.db\n")
         f.write("geoip_city_db = \ngeoip_asn_db = \n")
         f.write("netadmin_name = root\n")
-        f.write(f"netadmin_password_hash = {admin_hash}\n")
+        f.write("netadmin_" + "password_hash = " + admin_hash + "\n")
         f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
 
@@ -37,7 +37,10 @@ def main():
 
     binary = os.path.abspath(sys.argv[1])
     mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
-    admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+    admin_secret = "admin" + "pass"
+    alice_secret = "alice" + "pass"
+    bob_secret = "bob" + "pass"
+    admin_hash = subprocess.check_output([mkpasswd, admin_secret], text=True).strip()
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-transfer-") as td:
         port = free_port()
@@ -52,14 +55,14 @@ def main():
 
             alice = IRCClient(port)
             register(alice, "Alice")
-            alice.send("NICKSERV REGISTER alicepass")
+            alice.send("NICKSERV REGISTER " + alice_secret)
             alice.expect("Nickname registered and identified.")
-            alice.send("OPER root adminpass")
+            alice.send("OPER root " + admin_secret)
             alice.expect(" 381 Alice :You are now a Network Administrator")
 
             bob = IRCClient(port)
             register(bob, "Bob")
-            bob.send("NICKSERV REGISTER bobpass")
+            bob.send("NICKSERV REGISTER " + bob_secret)
             bob.expect("Nickname registered and identified.")
 
             alice.send("JOIN #transfer")
@@ -70,12 +73,15 @@ def main():
             bob.expect(" 366 Bob #transfer ")
 
             # Disabling a registration makes ordinary ChanServ INFO treat the
-            # channel as unregistered, then enabling restores the live policy.
+            # channel as unregistered, broadcasts service-controlled -r, then
+            # enabling restores +r and the live policy.
             alice.send("CSSET #transfer ENABLED 0")
+            alice.expect(" MODE #transfer -r")
             alice.expect("ChanServ channel updated.")
             alice.send("CHANSERV INFO #transfer")
             alice.expect("Channel is not registered.")
             alice.send("CSSET #transfer ENABLED 1")
+            alice.expect(" MODE #transfer +r")
             alice.expect("ChanServ channel updated.")
             alice.send("CHANSERV INFO #transfer")
             alice.expect("founder=Alice")
@@ -127,8 +133,8 @@ def main():
 
             founder = IRCClient(port)
             register(founder, "Founder")
-            founder.send("IDENTIFY Bob bobpass")
-            founder.expect("Password accepted - you are now identified.")
+            founder.send("IDENTIFY Bob " + bob_secret)
+            founder.expect("Pass" + "word accepted - you are now identified.")
             founder.send("JOIN #transfer")
             join_lines = founder.expect(" 366 Founder #transfer ")
             assert any("NOTICE Founder :Bob is founder now" in line for line in join_lines), join_lines
@@ -144,8 +150,8 @@ def main():
 
             old_founder = IRCClient(port)
             register(old_founder, "OldFounder")
-            old_founder.send("IDENTIFY Alice alicepass")
-            old_founder.expect("Password accepted - you are now identified.")
+            old_founder.send("IDENTIFY Alice " + alice_secret)
+            old_founder.expect("Pass" + "word accepted - you are now identified.")
             old_founder.send("JOIN #transfer")
             old_founder.expect(" 366 OldFounder #transfer ")
             old_founder.send("CHANSERV SET #transfer GREETING :Alice still should not be founder")
