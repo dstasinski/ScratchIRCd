@@ -545,13 +545,27 @@ static CommandResult mode_channel(Server *server, Client *client,
     }
 
     if (changed[0] != '\0') {
-        char message[IRCD_MESSAGE_BUFFER_SIZE];
-        (void)snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s%s%s\r\n",
-                       client->nick, client->user, client->display_host,
-                       channel->name, changed,
-                       changed_params[0] != '\0' ? " " : "",
-                       changed_params);
-        channel_broadcast(channel, NULL, message);
+        char message[IRC_WIRE_LINE_MAX + 1U];
+        int prefix_len = snprintf(message, sizeof(message), ":%s!%s@%s MODE %s %s",
+                                  client->nick, client->user, client->display_host,
+                                  channel->name, changed);
+        if (prefix_len > 0 && (size_t)prefix_len <= IRC_LINE_CONTENT_MAX) {
+            size_t length = (size_t)prefix_len;
+            if (changed_params[0] != '\0') {
+                size_t params_len = strlen(changed_params);
+                if (length + 1U + params_len <= IRC_LINE_CONTENT_MAX) {
+                    message[length++] = ' ';
+                    memcpy(message + length, changed_params, params_len);
+                    length += params_len;
+                }
+            }
+            if (length + 2U < sizeof(message)) {
+                message[length++] = '\r';
+                message[length++] = '\n';
+                message[length] = '\0';
+                channel_broadcast(channel, NULL, message);
+            }
+        }
         chanserv_persist_channel(server, channel);
     }
     return COMMAND_KEEP_CLIENT;
