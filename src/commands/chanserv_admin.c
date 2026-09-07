@@ -117,9 +117,17 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
     } else if (strcasecmp(field, "FOUNDER") == 0) {
         NickServDb nsdb = {0};
         NickServAccount account;
+        ChanServChannel record;
         if (nickserv_db_open(&nsdb, server->config.nickserv_db) == 0) {
-            if (nickserv_db_get(&nsdb, value, &account) == 1 && account.enabled)
-                rc = chanserv_db_set_founder(&db, name, account.name);
+            if (nickserv_db_get(&nsdb, value, &account) == 1 && account.enabled &&
+                chanserv_db_get(&db, name, &record) == 1 &&
+                chanserv_db_set_founder(&db, name, account.name) == 0) {
+                rc = 0;
+                if (record.successor[0] != '\0' &&
+                    strcasecmp(record.successor, account.name) == 0) {
+                    rc = chanserv_db_set_successor(&db, name, "");
+                }
+            }
             nickserv_db_close(&nsdb);
         }
     }
