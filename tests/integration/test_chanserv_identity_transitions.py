@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 
 from test_chanserv import IRCClient, free_port, register, stop, wait_listen
 
@@ -60,7 +59,7 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        alice = bob = None
+        alice = bob = bob_direct = None
         try:
             wait_listen(port, proc)
 
@@ -101,19 +100,26 @@ def main():
             bob.expect("You are now logged out of your account.")
             assert_member_token(bob, "Bob", "#identity", "Bob", "+Bob")
 
-            # Direct IDENTIFY has its own command-budget bucket. Wait past the
-            # short repeat guard so this test covers identity reconciliation
-            # instead of the unrelated anti-spam throttle.
-            time.sleep(1.1)
-            bob.send("IDENTIFY " + bob_secret)
-            bob.expect(" MODE #identity +o Bob")
-            bob.expect("Pass" + "word accepted - you are now identified.")
-            assert_member_token(bob, "Bob", "#identity", "Bob", "@Bob")
+            # Exercise the direct IDENTIFY alias from a fresh connection so the
+            # regression remains independent of the repeat-command throttle.
+            bob.close()
+            bob = None
+            bob_direct = IRCClient(port)
+            register(bob_direct, "Bob")
+            bob_direct.send("JOIN #identity")
+            bob_direct.expect(" 366 Bob #identity ")
+            assert_member_token(bob_direct, "Bob", "#identity", "Bob", "Bob")
+            bob_direct.send("IDENTIFY " + bob_secret)
+            bob_direct.expect(" MODE #identity +o Bob")
+            bob_direct.expect("Pass" + "word accepted - you are now identified.")
+            assert_member_token(bob_direct, "Bob", "#identity", "Bob", "@Bob")
         finally:
             if alice is not None:
                 alice.close()
             if bob is not None:
                 bob.close()
+            if bob_direct is not None:
+                bob_direct.close()
             stop(proc)
 
 
