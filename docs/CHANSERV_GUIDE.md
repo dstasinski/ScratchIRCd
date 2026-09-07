@@ -144,12 +144,14 @@ CHANSERV SET #channel SECUREOPS ON
 CHANSERV SET #channel SECUREOPS OFF
 ```
 
-The founder may record an existing NickServ account as successor, or clear it. The successor must be an enabled account other than the founder. Succession itself is a separate lifecycle policy.
+The founder may record an existing NickServ account as successor, or clear it. The successor must be an enabled account other than the founder.
 
 ```text
 CHANSERV SET #channel SUCCESSOR GraceAccount
 CHANSERV SET #channel SUCCESSOR NONE
 ```
+
+If a founder account is deleted with `NSDROP` or disabled with `NSSET <account> ENABLED 0`, every enabled channel founded by that account is reconciled immediately. When the channel has a valid enabled successor, the successor becomes the new founder, the successor field is cleared, the live channel cache is refreshed, and member privileges are reconciled. When there is no valid successor, the channel registration is disabled rather than deleted.
 
 A greeting is sent by ChanServ to each client after a successful join. The greeting is a notice from ChanServ and does not make ChanServ join the channel.
 
@@ -219,4 +221,4 @@ The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, TOPICLOCK, Se
 
 ## Current scope
 
-ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
+ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Founder account removal promotes a valid successor or disables the affected registration. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
