@@ -139,8 +139,21 @@ CommandResult command_csset(Server *server, Client *client, char *params) {
         if (strlen(value) <= IRCD_CHANSERV_DESCRIPTION_MAX)
             rc = chanserv_db_set_description(&db, name, value);
     } else if (strcasecmp(field, "ENABLED") == 0) {
-        if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0)
-            rc = chanserv_db_set_enabled(&db, name, value[0] == '1');
+        if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0) {
+            ChanServChannel record;
+            int enable = value[0] == '1';
+            if (!enable) {
+                rc = chanserv_db_set_enabled(&db, name, 0);
+            } else if (chanserv_db_get(&db, name, &record) == 1) {
+                NickServDb nsdb = {0};
+                NickServAccount founder;
+                if (nickserv_db_open(&nsdb, server->config.nickserv_db) == 0) {
+                    if (nickserv_db_get(&nsdb, record.founder, &founder) == 1 && founder.enabled)
+                        rc = chanserv_db_set_enabled(&db, record.name, 1);
+                    nickserv_db_close(&nsdb);
+                }
+            }
+        }
     } else if (strcasecmp(field, "FOUNDER") == 0) {
         NickServDb nsdb = {0};
         NickServAccount account;
