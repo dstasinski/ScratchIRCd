@@ -335,6 +335,7 @@ static void remove_chanserv_account_references(Server *server,
     size_t count = 0U;
     size_t i;
     int ok = 1;
+    int transaction_started = 0;
 
     if (server == NULL || !valid_account_name(account_name)) return;
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return;
@@ -343,16 +344,24 @@ static void remove_chanserv_account_references(Server *server,
         return;
     }
 
-    if (sqlite3_prepare_v2(db.db,
+    if (sqlite3_exec(db.db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK)
+        ok = 0;
+    else
+        transaction_started = 1;
+
+    if (ok && sqlite3_prepare_v2(db.db,
         "UPDATE channels SET successor='',updated_at=unixepoch() WHERE successor=?1",
         -1, &stmt, NULL) != SQLITE_OK)
         ok = 0;
     if (ok) {
         sqlite3_bind_text(stmt, 1, account_name, -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) != SQLITE_DONE) ok = 0;
+    }
+    if (stmt != NULL) {
         sqlite3_finalize(stmt);
         stmt = NULL;
     }
+
     if (ok && sqlite3_prepare_v2(db.db,
         "DELETE FROM access WHERE account=?1",
         -1, &stmt, NULL) != SQLITE_OK)
@@ -361,7 +370,21 @@ static void remove_chanserv_account_references(Server *server,
         sqlite3_bind_text(stmt, 1, account_name, -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) != SQLITE_DONE) ok = 0;
     }
-    if (stmt != NULL) sqlite3_finalize(stmt);
+    if (stmt != NULL) {
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+
+    if (transaction_started) {
+        if (ok) {
+            if (sqlite3_exec(db.db, "COMMIT", NULL, NULL, NULL) != SQLITE_OK) {
+                ok = 0;
+                (void)sqlite3_exec(db.db, "ROLLBACK", NULL, NULL, NULL);
+            }
+        } else {
+            (void)sqlite3_exec(db.db, "ROLLBACK", NULL, NULL, NULL);
+        }
+    }
     chanserv_db_close(&db);
 
     if (!ok) {
