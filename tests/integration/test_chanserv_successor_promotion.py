@@ -50,6 +50,7 @@ def main():
     root_secret = "r" * 9
     alice_secret = "a" * 9
     bob_secret = "b" * 9
+    carol_secret = "c" * 9
     oper_hash = subprocess.check_output([mkpasswd, root_secret], text=True).strip()
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-chanserv-successor-") as td:
@@ -59,7 +60,7 @@ def main():
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
-        alice = bob = None
+        alice = bob = carol = None
         try:
             wait_listen(port, proc)
 
@@ -75,6 +76,11 @@ def main():
             bob.send(ns("REGISTER " + bob_secret))
             bob.expect("Nickname registered and identified.")
 
+            carol = IRCClient(port)
+            register(carol, "Carol")
+            carol.send(ns("REGISTER " + carol_secret))
+            carol.expect("Nickname registered and identified.")
+
             alice.send("JOIN #inherit")
             alice.expect(" 366 Alice #inherit ")
             alice.send("CHANSERV REGISTER #inherit :successor promotion")
@@ -88,6 +94,40 @@ def main():
             alice.expect(" 366 Alice #orphan ")
             alice.send("CHANSERV REGISTER #orphan :no successor")
             alice.expect("Channel registered successfully.")
+
+            # A permanently dropped account must not remain as a successor or
+            # access holder. Otherwise re-registering the same account name
+            # could unexpectedly resurrect old channel authority.
+            alice.send("JOIN #references")
+            alice.expect(" 366 Alice #references ")
+            alice.send("CHANSERV REGISTER #references :reference cleanup")
+            alice.expect("Channel registered successfully.")
+            alice.send("CHANSERV SET #references SUCCESSOR Carol")
+            alice.expect("Successor updated.")
+            alice.send("CHANSERV ACCESS #references ADD Carol OP")
+            alice.expect("Access set: Carol OP")
+            carol.send("JOIN #references")
+            carol.expect(" 366 Carol #references ")
+            assert_member_token(carol, "Carol", "#references", "Carol", "@Carol")
+
+            alice.send("NSDROP Carol")
+            carol.expect(" MODE #references -o Carol")
+            alice.expect("NickServ account deleted.")
+            alice.send("CHANSERV INFO #references")
+            reference_info = alice.expect("successor=NONE")
+            assert any("founder=Alice" in line for line in reference_info), reference_info
+            alice.send("CHANSERV ACCESS #references LIST")
+            access_lines = alice.expect("End of access list for #references.")
+            assert not any("Carol:" in line for line in access_lines), access_lines
+
+            carol.close(); carol = None
+            carol = IRCClient(port)
+            register(carol, "Carol")
+            carol.send(ns("REGISTER " + carol_secret))
+            carol.expect("Nickname registered and identified.")
+            carol.send("JOIN #references")
+            carol.expect(" 366 Carol #references ")
+            assert_member_token(carol, "Carol", "#references", "Carol", "Carol")
 
             alice.send("NSDROP Alice")
             drop_lines = alice.expect("NickServ account deleted.")
@@ -113,6 +153,8 @@ def main():
                 alice.close()
             if bob is not None:
                 bob.close()
+            if carol is not None:
+                carol.close()
             stop(proc)
 
 
