@@ -174,6 +174,23 @@ def main():
             alice.send("CSINFO #orphan")
             orphan_info = alice.expect("enabled=0")
             assert any("founder=Alice" in line for line in orphan_info), orphan_info
+
+            bob.send("OPER root " + root_secret)
+            bob.expect(" 381 Bob :You are now a Network Administrator")
+            bob.send("CSSET #orphan ENABLED 1")
+            bob.expect("CSSET failed.")
+            bob.send("CSINFO #orphan")
+            orphan_info = bob.expect("enabled=0")
+            assert any("founder=Alice" in line for line in orphan_info), orphan_info
+
+            bob.send("CSSET #orphan FOUNDER Bob")
+            bob.expect("ChanServ channel updated.")
+            bob.send("CSSET #orphan ENABLED 1")
+            bob.expect("ChanServ channel updated.")
+            alice.expect(" MODE #orphan +r")
+            bob.send("CSINFO #orphan")
+            orphan_info = bob.expect("enabled=1")
+            assert any("founder=Bob" in line for line in orphan_info), orphan_info
         finally:
             if alice is not None:
                 alice.close()
