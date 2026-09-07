@@ -163,6 +163,8 @@ If a founder account is deleted with `NSDROP` or disabled with `NSSET <account> 
 :ChanServ!service@server MODE #channel -r
 ```
 
+A disabled registration whose stored founder account no longer exists, or is still disabled, cannot be re-enabled directly. A network administrator must first assign an existing enabled founder with `CSSET #channel FOUNDER <NickServ-account>`, then run `CSSET #channel ENABLED 1`.
+
 A temporary `NSSET <account> ENABLED 0` keeps that account's non-founder ChanServ access and successor references intact so an administrator can restore the account later. A permanent `NSDROP <account>` removes that account from ChanServ access lists and clears any successor references to it. This prevents re-registering the same account name from unexpectedly recovering old channel privileges or inheritance rights.
 
 A greeting is sent by ChanServ to each client after a successful join. The greeting is a notice from ChanServ and does not make ChanServ join the channel.
@@ -225,7 +227,7 @@ CSDROP #channel
 
 `CSSET ... FOUNDER` requires an existing enabled NickServ account. If the new founder was the stored successor, the successor field is cleared so a channel cannot persist with the same account as both founder and successor.
 
-`CSSET ... ENABLED 0` disables the registration without deleting it, removes live service-controlled `+r`, and broadcasts `MODE #channel -r` to current members. `CSSET ... ENABLED 1` restores live service-controlled `+r` for an occupied channel and broadcasts `MODE #channel +r`.
+`CSSET ... ENABLED 0` disables the registration without deleting it, removes live service-controlled `+r`, and broadcasts `MODE #channel -r` to current members. `CSSET ... ENABLED 1` requires the stored founder to be an existing enabled NickServ account; on success, it restores live service-controlled `+r` for an occupied channel and broadcasts `MODE #channel +r`.
 
 A typical delegated-channel workflow is:
 
@@ -241,4 +243,4 @@ The assigned founder then manages ACCESS, MLOCK, persistent TOPIC, TOPICLOCK, Se
 
 ## Current scope
 
-ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Founder account removal promotes a valid successor or disables the affected registration. Registration, deletion, disable, and enable actions visibly reconcile service-controlled `+r` on live channels. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
+ScratchIRCd persists registration metadata, founder identity, account access roles including PROTECTED, actively enforced boolean MLOCK/TOPICLOCK state, topic state, SecureOps, successor, greeting, parameter modes `+k/+l/+j/+L/+B`, and `+b/+e/+I` lists. Founder account removal promotes a valid successor or disables the affected registration. Registration, deletion, disable, and enable actions visibly reconcile service-controlled `+r` on live channels. Disabled registrations cannot be re-enabled unless their stored founder account still exists and is enabled. Future ChanServ work can add richer founder/operator delegation, additional service policy controls, and finer-grained history/channel settings without changing this persistence foundation.
