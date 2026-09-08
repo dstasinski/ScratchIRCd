@@ -7,14 +7,14 @@
 # runs a focused sanitizer pass, and runs the operational soak smoke/release
 # gates. It does not install ScratchIRCd or modify live service state.
 
-set -u -o pipefail
+set -euo pipefail
 
 ROOT=${SCRATCHIRCD_SOURCE_DIR:-$(pwd)}
 OUT=${SCRATCHIRCD_RELEASE_EVIDENCE_DIR:-"$ROOT/release-evidence/milestone-2"}
 JOBS=${SCRATCHIRCD_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')}
 SANITIZER_CTEST_REGEX=${SCRATCHIRCD_SANITIZER_CTEST_REGEX:-'^(chanserv_restore_fail_closed_integration|chanserv_database|chanserv_persistence|chanserv_integration|chanserv_policy_controls_integration|chanserv_founder_transfer_integration|chanserv_identity_transitions_integration|chanserv_successor_promotion_integration|chanserv_persistence_integration|nickserv_integration|sasl_integration|ircv3_cap_integration|history_integration|operator_actions_integration)$'}
 
-mkdir -p "$OUT" || exit 1
+mkdir -p "$OUT"
 
 log() {
     printf '\n== %s ==\n' "$*"
@@ -44,7 +44,7 @@ capture_text() {
     } > "$OUT/$file"
 }
 
-cd "$ROOT" || exit 1
+cd "$ROOT"
 : > "$OUT/summary.log"
 
 log "Milestone 2 release evidence"
@@ -81,7 +81,7 @@ fi
 
 run_logged sanitizer-config cmake -S . -B build-m2-sanitize -DCMAKE_BUILD_TYPE=Debug -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=ON
 run_logged sanitizer-build cmake --build build-m2-sanitize --target scratchircd scratchircd-mkpasswd -j"$JOBS"
-run_logged sanitizer-ctest ctest --test-dir build-m2-sanitize -R "$SANITIZER_CTEST_REGEX" --output-on-failure
+run_logged sanitizer-ctest env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build-m2-sanitize -R "$SANITIZER_CTEST_REGEX" --output-on-failure
 
 run_logged soak-smoke python3 tools/run_soak.py ./build-m2-gcc/scratchircd --duration-seconds 30 --clients 6 --cycle-delay-seconds 0.1 --sample-interval-seconds 5
 run_logged soak-release-gate python3 tests/integration/test_soak_release_gate.py tools/run_soak.py ./build-m2-gcc/scratchircd
