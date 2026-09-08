@@ -30,8 +30,37 @@ def write_config(path, td, port, oper_hash):
         f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
 
+def irc_fold(text):
+    folded = []
+    for ch in text:
+        if "A" <= ch <= "Z":
+            folded.append(chr(ord(ch) + ord("a") - ord("A")))
+        elif ch == "{":
+            folded.append("[")
+        elif ch == "}":
+            folded.append("]")
+        elif ch == "|":
+            folded.append("\\")
+        elif ch == "~":
+            folded.append("^")
+        else:
+            folded.append(ch)
+    return "".join(folded)
+
+
+def irc_nocase(left, right):
+    left_folded = irc_fold(left)
+    right_folded = irc_fold(right)
+    if left_folded < right_folded:
+        return -1
+    if left_folded > right_folded:
+        return 1
+    return 0
+
+
 def corrupt_persisted_mask(chanserv_db):
     db = sqlite3.connect(chanserv_db)
+    db.create_collation("IRCNOCASE", irc_nocase)
     try:
         db.execute(
             "INSERT INTO channel_masks(channel,type,mask,protected_authorized) "
