@@ -39,6 +39,7 @@ static void join_one(Server *server, Client *client, const char *name,
     int owner_account;
     int protected_account;
     int banned;
+    int created_channel = 0;
 
     if (!channel_name_valid(name)) {
         send_no_such_channel_query(server, client, name);
@@ -62,7 +63,10 @@ static void join_one(Server *server, Client *client, const char *name,
                           server->config.max_channels);
         return;
     }
-    if (channel == NULL) channel = server_get_or_create_channel(server, name);
+    if (channel == NULL) {
+        channel = server_get_or_create_channel(server, name);
+        created_channel = channel != NULL;
+    }
     if (channel == NULL || channel_has_client(channel, client)) return;
 
     chanserv_restore_channel(server, channel);
@@ -71,6 +75,7 @@ static void join_one(Server *server, Client *client, const char *name,
         client_sendf(client,
                      ":%s NOTICE %s :Cannot join %s: persistent channel state could not be restored.",
                      server->config.server_name, client->nick, channel->name);
+        if (created_channel) server_remove_channel_if_empty(server, channel);
         return;
     }
     service_privileges = chanserv_client_privileges(server, client, channel->name);
