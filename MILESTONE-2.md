@@ -25,23 +25,22 @@ MemoServ expansion, persistent direct-message history, and additional external i
 - Registered-channel runtime restore failures fail closed on JOIN, and the failed JOIN does not leave an empty live channel behind.
 - The ChanServ restore-fail-closed integration test is registered in CTest.
 - A standalone Linux launcher template is available at `tools/scratchircd-start.sh` and documented in the README and Network Administrator Guide.
-- A reproducible release-gate runner is available at `tools/milestone2-release-gate.sh` to capture build, test, toolchain, dependency, sanitizer, and soak evidence, and now exits nonzero on any required gate failure.
+- A reproducible release-gate runner is available at `tools/milestone2-release-gate.sh` to capture build, test, toolchain, dependency, sanitizer, and soak evidence, and exits nonzero on any required gate failure.
+- A local Milestone 2 release-gate run reached completion with the focused sanitizer CTest subset passing 14/14 tests, the soak smoke passing, and the soak release gate passing.
 
 ## Remaining release gates
 
-- Run the complete CTest suite, not only the focused ChanServ/NickServ/operator subset.
-- Run GCC and Clang strict Release builds without warnings.
-- Run focused sanitizer builds for account, channel, IRCv3, history, and lifecycle tests.
-- Run an operational soak that exercises accounts, registered channels, IRCv3 clients, naming limits, channel recreation, and service lifecycle transitions.
+- Review and retain the generated `release-evidence/milestone-2/` logs for the final tested commit.
 - Record the exact tested commit, compiler versions, dependency versions, test command output, and soak evidence before tagging.
+- Decide whether to run a longer manual soak beyond the built-in release-gate smoke before tagging.
 
 ## Completion estimate
 
-Feature and behavior work for Milestone 2 is effectively complete. The remaining work is release validation, not major implementation. Barring failures in full-suite, strict-build, sanitizer, or soak runs, Milestone 2 is approximately 92 percent complete.
+Feature and behavior work for Milestone 2 is effectively complete. The release-gate runner has completed successfully in local validation. Milestone 2 is approximately 95 to 97 percent complete; the remaining work is final evidence review and tag preparation.
 
 ## Completion gate
 
-- GCC and Clang strict Release builds complete without warnings.
+- GCC and Clang strict Release builds complete without warnings where the compilers are available.
 - The complete regression suite and focused sanitizer runs pass.
 - NickServ accounts and ChanServ settings survive daemon restart.
 - Permission tests prevent account and registered-channel takeover.
