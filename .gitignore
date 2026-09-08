@@ -2,6 +2,12 @@ build/
 build-*/
 ircd.conf
 
+# Release/test evidence generated locally by milestone gate and soak runs.
+release-evidence/
+soak-*.json
+__pycache__/
+*.py[cod]
+
 # Runtime databases and downloaded MaxMind datasets live under data/. Keep the
 # directory local while preventing live/purchased data artifacts from being
 # committed.
