@@ -127,7 +127,7 @@ ELINE *@198.51.100.44 B 30m :DNSBL false positive investigation
 ELINE *@203.0.113.77 G 1d :GeoBAN false positive investigation
 ```
 
-### Removal and listing
+### Removal, listing, and STATS
 
 Add removal and listing forms:
 
@@ -137,6 +137,14 @@ ELINE LIST
 ELINE LIST <bantype>
 ```
 
+Also add an operator `STATS` selector for E-LINE inspection:
+
+```text
+STATS e
+```
+
+`STATS e` should list active, unexpired E-LINE exceptions in a compact operator-readable form. It should include enough information for audit work, including mask, bantype, setter, creation time, expiration time, and reason, while preserving the existing `STATS` safety model.
+
 Removal should delete all stored exception rows for the mask unless a later design deliberately adds type-specific removal syntax.
 
 `ELINE LIST <bantype>` should filter by one of `k`, `z`, `m`, `B`, or `G`.
@@ -145,6 +153,7 @@ Removal should delete all stored exception rows for the mask unless a later desi
 
 - Adding E-LINEs requires an explicit operator permission, preferably `can_eline`.
 - Removing E-LINEs should require the same permission unless a separate `can_uneline` permission is added deliberately.
+- Listing E-LINEs through `ELINE LIST` or `STATS e` should require operator status. A stricter design may require `can_eline`, but ordinary users must not be able to inspect E-LINEs.
 - The bootstrap network administrator receives the permission through the existing all-permissions model.
 - E-LINE changes should produce ban/server-notice category output so operators can audit exception changes.
 
@@ -229,6 +238,8 @@ Add focused integration tests for:
 - Invalid CIDR masks are rejected.
 - `ELINE -<mask>` removes the exception and restores normal enforcement.
 - `ELINE LIST G` filters GeoBAN exemptions.
+- `STATS e` lists active E-LINE exceptions for operators.
+- Ordinary users cannot inspect E-LINEs through `STATS e`.
 - `STATS`, operator guide, and server notices show enough information for operators to audit exceptions without exposing sensitive data unnecessarily.
 
 ## Out of scope
@@ -247,7 +258,7 @@ Add focused integration tests for:
 3. Define MemoServ account lifecycle behavior and add lifecycle tests.
 4. Add bans database schema migration for the `exceptions` table.
 5. Add E-LINE database APIs and unit tests.
-6. Add `/ELINE` parser, permissions, server notices, list, and remove forms.
+6. Add `/ELINE` parser, permissions, server notices, list, remove forms, and `STATS e` inspection.
 7. Wire `k`, `z`, `m`, `B`, and `G` evaluation into the correct enforcement points.
 8. Add focused integration coverage for E-LINE behavior.
 9. Update `docs/OPERATOR_GUIDE.md`, `docs/NETWORK_ADMIN_GUIDE.md`, `docs/RELEASE_CHECKLIST.md`, and any relevant config examples.
@@ -260,7 +271,7 @@ Milestone 3 is complete when:
 - MemoServ has complete user and administrator documentation.
 - MemoServ account disable/drop behavior is defined, implemented, and tested.
 - MemoServ persistence and migration behavior is covered by tests.
-- E-LINEs are persisted in the bans database and support add, list, remove, expiry, and selected bantypes.
+- E-LINEs are persisted in the bans database and support add, list, remove, expiry, selected bantypes, and `STATS e` inspection.
 - KLINE, ZLINE, max-per-IP, DNSBL, and GeoBAN enforcement correctly honor E-LINEs only for their selected bantypes.
 - E-LINEs do not bypass unrelated security or channel policy controls.
 - The complete regression suite, focused E-LINE tests, focused MemoServ lifecycle tests, sanitizer tests, and a release soak pass before tagging.
