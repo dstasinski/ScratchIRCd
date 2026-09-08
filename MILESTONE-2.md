@@ -24,8 +24,8 @@ MemoServ expansion, persistent direct-message history, and additional external i
 - Channel recreation audit completed. Recreated registered channels restore ChanServ registration, policy, topic, runtime parameter modes, and masks before JOIN admission succeeds.
 - Registered-channel runtime restore failures fail closed on JOIN, and the failed JOIN does not leave an empty live channel behind.
 - The ChanServ restore-fail-closed integration test is registered in CTest.
-- A standalone Linux launcher template is available at `tools/scratchircd-start.sh`.
-- A reproducible release-gate runner is available at `tools/milestone2-release-gate.sh` to capture build, test, toolchain, dependency, sanitizer, and soak evidence.
+- A standalone Linux launcher template is available at `tools/scratchircd-start.sh` and documented in the README and Network Administrator Guide.
+- A reproducible release-gate runner is available at `tools/milestone2-release-gate.sh` to capture build, test, toolchain, dependency, sanitizer, and soak evidence, and now exits nonzero on any required gate failure.
 
 ## Remaining release gates
 
@@ -37,7 +37,7 @@ MemoServ expansion, persistent direct-message history, and additional external i
 
 ## Completion estimate
 
-Feature and behavior work for Milestone 2 is effectively complete. The remaining work is release validation, not major implementation. Barring failures in full-suite, strict-build, sanitizer, or soak runs, Milestone 2 is approximately 90 to 92 percent complete.
+Feature and behavior work for Milestone 2 is effectively complete. The remaining work is release validation, not major implementation. Barring failures in full-suite, strict-build, sanitizer, or soak runs, Milestone 2 is approximately 92 percent complete.
 
 ## Completion gate
 
