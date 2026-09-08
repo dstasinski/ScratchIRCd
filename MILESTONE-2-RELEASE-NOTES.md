@@ -4,9 +4,18 @@ ScratchIRCd Milestone 2 qualifies the account, channel-service, and modern IRC-c
 
 ## Release status
 
-Status: release-candidate draft.
+Status: release-ready.
 
-The Milestone 2 feature and behavior work is complete. A local release-gate run has been reported as successful, including the focused sanitizer CTest subset, soak smoke, and soak release gate. Before creating the final tag, retain the generated `release-evidence/milestone-2/` directory and record the exact tested commit from that evidence output.
+The Milestone 2 feature and behavior work is complete. A local release-gate run has been reported as successful, including the focused sanitizer CTest subset, soak smoke, and soak release gate. A longer 12-hour release-candidate soak also passed against commit `fe6b21d`.
+
+Long-soak summary:
+
+```text
+soak evidence: /home/daniel/Projects/ScratchIRCd/soak-fe6b21d.json
+soak passed: elapsed=43203.567s churn=35005 rss_growth=2224KiB fd_growth=3
+```
+
+Before creating the final tag, retain the generated `release-evidence/milestone-2/` directory and the `soak-fe6b21d.json` report outside the Git checkout as release evidence.
 
 ## Major additions and behavior qualified
 
@@ -37,6 +46,7 @@ Milestone 2 substantially hardens ChanServ while preserving the architectural ru
 - `tools/scratchircd-start.sh` provides a standalone Linux/Bash launcher template for deployments that are not using systemd. It supports `start`, `stop`, `restart`, and `status`, keeps state under a private state directory, and avoids Git, builds, installation, downloads, and root privileges.
 - The README includes brief launcher guidance, while the Network Administrator Guide contains the detailed standalone-launcher procedure and cautions about not combining it with systemd, another supervisor, or the update-and-restart script.
 - `tools/milestone2-release-gate.sh` captures release evidence for GCC strict Release builds, Clang strict Release builds when available, full CTest runs, focused sanitizer tests, toolchain/dependency versions, soak smoke, and soak release-gate validation.
+- `.gitignore` excludes generated release evidence, soak reports, and Python bytecode/cache files so release-candidate soaks can enforce a clean checkout.
 
 ## Validation evidence to preserve before tagging
 
@@ -44,6 +54,7 @@ Before the final Milestone 2 tag, save or copy the relevant contents of:
 
 ```sh
 release-evidence/milestone-2/
+soak-fe6b21d.json
 ```
 
 At minimum, preserve:
@@ -62,15 +73,16 @@ sanitizer-build.log
 sanitizer-ctest.log
 soak-smoke.log
 soak-release-gate.log
+soak-fe6b21d.json
 ```
 
-The final tag should identify the exact tested commit from `environment.txt`, along with compiler versions, dependency versions, CTest output, sanitizer output, and soak evidence.
+The final tag should identify the exact tested commit, compiler versions, dependency versions, CTest output, sanitizer output, and soak evidence.
 
 ## Final pre-tag checklist
 
-- Confirm the final `Genesis` checkout matches the commit recorded in `release-evidence/milestone-2/environment.txt`.
+- Confirm the final `Genesis` checkout matches the intended tested commit.
 - Confirm `summary.log` reports successful exits for the required build, test, sanitizer, and soak gates.
-- Optionally run one longer manual soak if desired before tagging.
+- Preserve `soak-fe6b21d.json` as the 12-hour soak record.
 - Review README, Network Administrator Guide, Client Guide, Operator Guide, NickServ Guide, ChanServ Guide, IRCv3 Guide, and storage/security documentation for obvious stale references.
 - Create the Milestone 2 tag only after the evidence and release notes are accepted.
 
