@@ -23,10 +23,10 @@ MemoServ expansion, persistent direct-message history, and additional external i
 - Founder lifecycle handling promotes valid successors, disables orphaned registrations, prevents invalid re-enable, and preserves or removes account references according to NickServ disable/drop semantics.
 - Channel recreation audit completed. Recreated registered channels restore ChanServ registration, policy, topic, runtime parameter modes, and masks before JOIN admission succeeds.
 - Registered-channel runtime restore failures fail closed on JOIN, and the failed JOIN does not leave an empty live channel behind.
+- The ChanServ restore-fail-closed integration test is registered in CTest.
 
 ## Remaining release gates
 
-- Register any new direct-only regression tests in CTest where practical, including the ChanServ restore-fail-closed integration test.
 - Run the complete CTest suite, not only the focused ChanServ/NickServ/operator subset.
 - Run GCC and Clang strict Release builds without warnings.
 - Run focused sanitizer builds for account, channel, IRCv3, history, and lifecycle tests.
@@ -35,7 +35,7 @@ MemoServ expansion, persistent direct-message history, and additional external i
 
 ## Completion estimate
 
-Feature and behavior work for Milestone 2 is effectively complete. The remaining work is release validation, not major implementation. Barring failures in full-suite, strict-build, sanitizer, or soak runs, Milestone 2 is approximately 85 to 90 percent complete.
+Feature and behavior work for Milestone 2 is effectively complete. The remaining work is release validation, not major implementation. Barring failures in full-suite, strict-build, sanitizer, or soak runs, Milestone 2 is approximately 90 percent complete.
 
 ## Completion gate
 
