@@ -27,16 +27,18 @@ MemoServ expansion, persistent direct-message history, and additional external i
 - A standalone Linux launcher template is available at `tools/scratchircd-start.sh` and documented in the README and Network Administrator Guide.
 - A reproducible release-gate runner is available at `tools/milestone2-release-gate.sh` to capture build, test, toolchain, dependency, sanitizer, and soak evidence, and exits nonzero on any required gate failure.
 - A local Milestone 2 release-gate run reached completion with the focused sanitizer CTest subset passing 14/14 tests, the soak smoke passing, and the soak release gate passing.
+- Draft Milestone 2 release notes are available in `MILESTONE-2-RELEASE-NOTES.md`.
 
 ## Remaining release gates
 
 - Review and retain the generated `release-evidence/milestone-2/` logs for the final tested commit.
 - Record the exact tested commit, compiler versions, dependency versions, test command output, and soak evidence before tagging.
 - Decide whether to run a longer manual soak beyond the built-in release-gate smoke before tagging.
+- Approve the release notes and tag the exact tested commit.
 
 ## Completion estimate
 
-Feature and behavior work for Milestone 2 is effectively complete. The release-gate runner has completed successfully in local validation. Milestone 2 is approximately 95 to 97 percent complete; the remaining work is final evidence review and tag preparation.
+Feature and behavior work for Milestone 2 is effectively complete. The release-gate runner has completed successfully in local validation, and draft release notes are now prepared. Milestone 2 is approximately 97 percent complete; the remaining work is final evidence review, optional longer soak, release-note approval, and tagging.
 
 ## Completion gate
 
