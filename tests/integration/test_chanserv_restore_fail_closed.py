@@ -64,7 +64,7 @@ def corrupt_persisted_mask(chanserv_db):
     try:
         db.execute(
             "INSERT INTO channel_masks(channel,type,mask,protected_authorized) "
-            "VALUES(?1,?2,?3,?4)",
+            "VALUES(?,?,?,?)",
             ("#restorefail", 1, "bad\nmask", 0),
         )
         db.commit()
