@@ -119,6 +119,63 @@ sudo cmake --install build
 
 When using an installed binary, prefer absolute paths in `ircd.conf` for certificates, text files, databases, GeoIP files, logs, and the sendmail program.
 
+## Standalone launcher template
+
+`tools/scratchircd-start.sh` is a Linux/Bash standalone supervisor template. It is useful for a small deployment where you want a detached non-root supervisor but are not yet using systemd. It starts a detached supervisor, records a supervisor PID and daemon PID in a private state directory, appends daemon output and supervisor events to `console.log`, and restarts the daemon after any process exit unless you stop it through the script.
+
+Copy the template outside the Git checkout before using it:
+
+```sh
+cp tools/scratchircd-start.sh ~/scratchircd-start.sh
+chmod +x ~/scratchircd-start.sh
+```
+
+Edit the defaults at the top of the copied file if your installation differs:
+
+```sh
+WORK_DIR=${SCRATCHIRCD_HOME:-"$HOME/ScratchIRCd"}
+BINARY=${SCRATCHIRCD_BIN:-/usr/local/bin/scratchircd}
+CONFIG=${SCRATCHIRCD_CONFIG:-ircd.conf}
+STATE_DIR=${SCRATCHIRCD_STATE_DIR:-"${XDG_STATE_HOME:-$HOME/.local/state}/scratchircd"}
+```
+
+Relative `BINARY` and `CONFIG` values are resolved under `WORK_DIR`. Database, MOTD, certificate, GeoIP, history, and log paths inside `ircd.conf` still resolve according to the daemon working directory, so use the same `WORK_DIR` consistently.
+
+Start, inspect, restart, and stop the supervised daemon with:
+
+```sh
+~/scratchircd-start.sh start
+~/scratchircd-start.sh status
+~/scratchircd-start.sh restart
+~/scratchircd-start.sh stop
+```
+
+Use `stop` for a lasting shutdown. The launcher restarts the daemon after crashes, `/DIE`, a direct `SIGTERM`, or any other exit while supervision is active. `/RESTART` continues to work normally because the supervisor treats process exit as something to relaunch.
+
+Do not run this launcher at the same time as systemd, another process supervisor, or `update-and-restart.sh`. For an upgrade, stop this launcher first, perform the update/build/test/install workflow, then start it again:
+
+```sh
+~/scratchircd-start.sh stop
+./update-and-restart.sh --help
+~/scratchircd-start.sh start
+```
+
+The default state directory is private to the service user:
+
+```text
+~/.local/state/scratchircd
+```
+
+It contains `control.lock`, `supervisor.lock`, `supervisor.pid`, `daemon.pid`, `stop.requested`, and `console.log`. Rotate or archive `console.log` periodically. A simple safe rotation is: stop the launcher, move the log, then start the launcher again.
+
+For optional start after reboot, add a crontab entry for the same unprivileged user, adjusting the path as needed:
+
+```cron
+@reboot /home/ircd/scratchircd-start.sh start
+```
+
+This script does not install the cron entry itself, does not build or update the daemon, does not require root, does not send `SIGKILL`, and does not adopt unrelated manually started `scratchircd` processes.
+
 ## Configuration file
 
 ScratchIRCd reads `key = value` lines. Blank lines and lines beginning with `#` are ignored. Duplicate list-style options such as `webirc_gateway`, `connection_limit_exempt_ip`, and `dnsbl` add entries; other keys replace a single value. Begin with `ircd.conf.example`, which tracks every supported setting and its defaults.
@@ -452,7 +509,7 @@ For binary upgrades, use an external service manager: stop the old process clean
 
 ## Service supervision and automatic restart
 
-Use a dedicated unprivileged account and a service manager such as systemd. The following is a starting point; replace all paths and the account name for the installation:
+Use a dedicated unprivileged account and a service manager such as systemd for production deployments. The following is a starting point; replace all paths and the account name for the installation:
 
 ```ini
 [Unit]
@@ -488,6 +545,8 @@ journalctl -u scratchircd.service -f
 
 `Restart=on-failure` restarts crashes and nonzero exits without turning an intentional clean shutdown into a restart loop. Rate limiting can be added with `StartLimitIntervalSec` and `StartLimitBurst` if repeated startup failure is possible.
 
+Do not run systemd and `tools/scratchircd-start.sh` at the same time for the same daemon. Choose one supervisor.
+
 ## Upgrade procedure
 
 Use a clean checkout and keep the previous tested binary available for rollback:
@@ -506,6 +565,24 @@ sudo systemctl status scratchircd.service
 ```
 
 Before the restart, take a consistent backup and review changes to `ircd.conf.example` for new or changed settings. Afterward, verify plaintext/TLS listeners as applicable, registration, SASL, joins, messaging, services, operator login, database writes, logs, and PING/PONG behavior.
+
+If using the standalone launcher instead of systemd, stop it before upgrade work and start it again only after build, test, install, and configuration review succeed:
+
+```sh
+~/scratchircd-start.sh stop
+git switch Genesis
+git pull --ff-only origin Genesis
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+sudo cmake --install build
+~/scratchircd-start.sh start
+~/scratchircd-start.sh status
+```
+
+For a manually started daemon that is not under the standalone launcher or systemd, `./update-and-restart.sh` can perform a fast-forward-only pull, strict rebuild, full test run, install, graceful stop, and restart. Do not run it while the standalone launcher is supervising the daemon.
 
 ## Security checklist
 
