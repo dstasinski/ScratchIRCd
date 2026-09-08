@@ -9,9 +9,13 @@
 
 set -euo pipefail
 
+SCRIPT_VERSION=2026-09-07.2
 ROOT=${SCRATCHIRCD_SOURCE_DIR:-$(pwd)}
 OUT=${SCRATCHIRCD_RELEASE_EVIDENCE_DIR:-"$ROOT/release-evidence/milestone-2"}
 JOBS=${SCRATCHIRCD_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')}
+GCC_BUILD=${SCRATCHIRCD_M2_GCC_BUILD:-build-m2-gcc}
+CLANG_BUILD=${SCRATCHIRCD_M2_CLANG_BUILD:-build-m2-clang}
+SANITIZER_BUILD=${SCRATCHIRCD_M2_SANITIZER_BUILD:-build-m2-sanitize}
 SANITIZER_CTEST_REGEX=${SCRATCHIRCD_SANITIZER_CTEST_REGEX:-'^(chanserv_restore_fail_closed_integration|chanserv_database|chanserv_persistence|chanserv_integration|chanserv_policy_controls_integration|chanserv_founder_transfer_integration|chanserv_identity_transitions_integration|chanserv_successor_promotion_integration|chanserv_persistence_integration|nickserv_integration|sasl_integration|ircv3_cap_integration|history_integration|operator_actions_integration)$'}
 
 mkdir -p "$OUT"
@@ -49,14 +53,37 @@ prepare_build_runtime() {
     mkdir -p "$build_dir/data" "$build_dir/logs"
 }
 
+run_ctest() {
+    local name=$1 build_dir=$2
+    shift 2
+    prepare_build_runtime "$build_dir"
+    run_logged "$name" ctest --test-dir "$build_dir" "$@"
+}
+
+verify_unit_test_binaries() {
+    local build_dir=$1
+    local missing=0
+    for binary in test_chanserv_db test_chanserv_persist; do
+        if [[ ! -x "$build_dir/$binary" ]]; then
+            printf 'missing expected test executable after build: %s/%s\n' "$build_dir" "$binary" >&2
+            missing=1
+        fi
+    done
+    (( missing == 0 ))
+}
+
 cd "$ROOT"
 : > "$OUT/summary.log"
 
 log "Milestone 2 release evidence"
 {
+    printf 'script_version=%s\n' "$SCRIPT_VERSION"
     printf 'source_dir=%s\n' "$ROOT"
     printf 'evidence_dir=%s\n' "$OUT"
     printf 'jobs=%s\n' "$JOBS"
+    printf 'gcc_build=%s\n' "$GCC_BUILD"
+    printf 'clang_build=%s\n' "$CLANG_BUILD"
+    printf 'sanitizer_build=%s\n' "$SANITIZER_BUILD"
     printf 'commit=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
     printf 'branch=%s\n' "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf unknown)"
     printf 'date_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -74,25 +101,25 @@ capture_text sqlite3-version.txt sh -c 'sqlite3 --version 2>/dev/null || pkg-con
 capture_text openssl-version.txt openssl version -a
 capture_text pkg-config-deps.txt sh -c 'pkg-config --modversion sqlite3 openssl 2>/dev/null || true'
 
-run_logged full-gcc-config cmake -S . -B build-m2-gcc -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
-prepare_build_runtime build-m2-gcc
-run_logged full-gcc-build cmake --build build-m2-gcc -j"$JOBS"
-run_logged full-gcc-ctest ctest --test-dir build-m2-gcc --output-on-failure
+run_logged full-gcc-config cmake -S . -B "$GCC_BUILD" -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
+run_logged full-gcc-build cmake --build "$GCC_BUILD" --target all -j"$JOBS"
+verify_unit_test_binaries "$GCC_BUILD"
+run_ctest full-gcc-ctest "$GCC_BUILD" --output-on-failure
 
 if command -v clang >/dev/null 2>&1; then
-    run_logged full-clang-config env CC=clang cmake -S . -B build-m2-clang -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
-    prepare_build_runtime build-m2-clang
-    run_logged full-clang-build cmake --build build-m2-clang -j"$JOBS"
-    run_logged full-clang-ctest ctest --test-dir build-m2-clang --output-on-failure
+    run_logged full-clang-config env CC=clang cmake -S . -B "$CLANG_BUILD" -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
+    run_logged full-clang-build cmake --build "$CLANG_BUILD" --target all -j"$JOBS"
+    verify_unit_test_binaries "$CLANG_BUILD"
+    run_ctest full-clang-ctest "$CLANG_BUILD" --output-on-failure
 fi
 
-run_logged sanitizer-config cmake -S . -B build-m2-sanitize -DCMAKE_BUILD_TYPE=Debug -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=ON
-prepare_build_runtime build-m2-sanitize
-run_logged sanitizer-build cmake --build build-m2-sanitize -j"$JOBS"
-run_logged sanitizer-ctest env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build-m2-sanitize -R "$SANITIZER_CTEST_REGEX" --output-on-failure
+run_logged sanitizer-config cmake -S . -B "$SANITIZER_BUILD" -DCMAKE_BUILD_TYPE=Debug -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=ON
+run_logged sanitizer-build cmake --build "$SANITIZER_BUILD" --target all -j"$JOBS"
+verify_unit_test_binaries "$SANITIZER_BUILD"
+run_ctest sanitizer-ctest "$SANITIZER_BUILD" -R "$SANITIZER_CTEST_REGEX" --output-on-failure
 
-run_logged soak-smoke python3 tools/run_soak.py ./build-m2-gcc/scratchircd --duration-seconds 30 --clients 6 --cycle-delay-seconds 0.1 --sample-interval-seconds 5
-run_logged soak-release-gate python3 tests/integration/test_soak_release_gate.py tools/run_soak.py ./build-m2-gcc/scratchircd
+run_logged soak-smoke python3 tools/run_soak.py "./$GCC_BUILD/scratchircd" --duration-seconds 30 --clients 6 --cycle-delay-seconds 0.1 --sample-interval-seconds 5
+run_logged soak-release-gate python3 tests/integration/test_soak_release_gate.py tools/run_soak.py "./$GCC_BUILD/scratchircd"
 
 log "Evidence written"
 printf 'Milestone 2 evidence directory: %s\n' "$OUT"
