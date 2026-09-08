@@ -44,6 +44,11 @@ capture_text() {
     } > "$OUT/$file"
 }
 
+prepare_build_runtime() {
+    local build_dir=$1
+    mkdir -p "$build_dir/data" "$build_dir/logs"
+}
+
 cd "$ROOT"
 : > "$OUT/summary.log"
 
@@ -70,17 +75,20 @@ capture_text openssl-version.txt openssl version -a
 capture_text pkg-config-deps.txt sh -c 'pkg-config --modversion sqlite3 openssl 2>/dev/null || true'
 
 run_logged full-gcc-config cmake -S . -B build-m2-gcc -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
-run_logged full-gcc-build cmake --build build-m2-gcc --target scratchircd scratchircd-mkpasswd -j"$JOBS"
+prepare_build_runtime build-m2-gcc
+run_logged full-gcc-build cmake --build build-m2-gcc -j"$JOBS"
 run_logged full-gcc-ctest ctest --test-dir build-m2-gcc --output-on-failure
 
 if command -v clang >/dev/null 2>&1; then
     run_logged full-clang-config env CC=clang cmake -S . -B build-m2-clang -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=OFF
-    run_logged full-clang-build cmake --build build-m2-clang --target scratchircd scratchircd-mkpasswd -j"$JOBS"
+    prepare_build_runtime build-m2-clang
+    run_logged full-clang-build cmake --build build-m2-clang -j"$JOBS"
     run_logged full-clang-ctest ctest --test-dir build-m2-clang --output-on-failure
 fi
 
 run_logged sanitizer-config cmake -S . -B build-m2-sanitize -DCMAKE_BUILD_TYPE=Debug -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON -DSCRATCHIRCD_ENABLE_SANITIZERS=ON
-run_logged sanitizer-build cmake --build build-m2-sanitize --target scratchircd scratchircd-mkpasswd -j"$JOBS"
+prepare_build_runtime build-m2-sanitize
+run_logged sanitizer-build cmake --build build-m2-sanitize -j"$JOBS"
 run_logged sanitizer-ctest env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir build-m2-sanitize -R "$SANITIZER_CTEST_REGEX" --output-on-failure
 
 run_logged soak-smoke python3 tools/run_soak.py ./build-m2-gcc/scratchircd --duration-seconds 30 --clients 6 --cycle-delay-seconds 0.1 --sample-interval-seconds 5
