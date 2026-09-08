@@ -3,6 +3,7 @@
 #include "channel_log.h"
 #include "channel_policy.h"
 #include "chanserv.h"
+#include "chanserv_persist.h"
 #include "config.h"
 #include "ircv3.h"
 #include "modes.h"
@@ -65,6 +66,13 @@ static void join_one(Server *server, Client *client, const char *name,
     if (channel == NULL || channel_has_client(channel, client)) return;
 
     chanserv_restore_channel(server, channel);
+    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
+        chanserv_persist_restore(server->config.chanserv_db, channel) != 0) {
+        client_sendf(client,
+                     ":%s NOTICE %s :Cannot join %s: persistent channel state could not be restored.",
+                     server->config.server_name, client->nick, channel->name);
+        return;
+    }
     service_privileges = chanserv_client_privileges(server, client, channel->name);
     owner_account = channel_privilege_has(service_privileges, CHANNEL_PRIV_OWNER);
     protected_account = channel_privilege_has(service_privileges, CHANNEL_PRIV_PROTECTED);
