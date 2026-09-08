@@ -122,7 +122,8 @@ def main():
             )
             assert not any(" JOIN #restorefail" in line for line in lines), lines
             intruder.send("NAMES #restorefail")
-            intruder.expect(" 403 Intruder #restorefail :No such channel")
+            names_result = intruder.expect(" 366 Intruder #restorefail :End of /NAMES list.")
+            assert not any(" 353 Intruder " in line for line in names_result), names_result
         finally:
             if alice is not None:
                 alice.close()
