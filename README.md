@@ -59,4 +59,15 @@ sudo cmake --install build
 /usr/local/bin/scratchircd /absolute/path/to/ircd.conf
 ```
 
+For a simple non-root detached launcher, copy the standalone template outside the checkout, edit the defaults at the top if needed, and run it as the same unprivileged account that owns the configuration and data:
+
+```sh
+cp tools/scratchircd-start.sh ~/scratchircd-start.sh
+chmod +x ~/scratchircd-start.sh
+~/scratchircd-start.sh start
+~/scratchircd-start.sh status
+```
+
+The launcher supervises process exit and restarts the daemon after crashes, `/DIE`, or direct `SIGTERM`. Use `~/scratchircd-start.sh stop` for a lasting shutdown. Do not run it at the same time as systemd or `update-and-restart.sh`. See [`docs/NETWORK_ADMIN_GUIDE.md`](docs/NETWORK_ADMIN_GUIDE.md) for full operating instructions.
+
 For a clean `Genesis` checkout running a manually started daemon, `./update-and-restart.sh` performs a fast-forward-only update, strict rebuild, complete test run, installation, graceful stop, and automatic restart. Run `./update-and-restart.sh --help` for its path and timeout options.
