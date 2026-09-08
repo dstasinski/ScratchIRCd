@@ -11,7 +11,7 @@ The server remains a modern single-server IRC daemon. Multi-server linking remai
 - Add a dedicated MemoServ guide and align the operator, client, and network-administrator documentation.
 - Add persistent E-LINE support in the existing bans database.
 - Use E-LINEs as the general exception mechanism for selected restrictions. Do not add a ZLINE-specific whitelist or separate ZLINE exception list.
-- Preserve the existing real-IP model: KLINE evaluates real hostname/IP identity, ZLINE evaluates `Client.real_ip`, and WebIRC policy uses the authenticated end-user address rather than the gateway socket address.
+- Preserve the existing real-IP model: KLINE evaluates real hostname/IP identity, ZLINE evaluates `Client.real_ip`, GeoBAN evaluates GeoIP-derived client attributes, and WebIRC policy uses the authenticated end-user address rather than the gateway socket address.
 
 ## MemoServ goals
 
@@ -52,7 +52,7 @@ Milestone 3 should finish the remaining polish and lifecycle work.
 
 Milestone 3 must add E-LINE support instead of a ZLINE-specific whitelist.
 
-E-LINEs are persistent exceptions stored in the existing `bans.db` database. An E-LINE can exempt a matching user, host, or IP mask from selected local ban or connection-policy checks.
+E-LINEs are persistent exceptions stored in the existing `bans.db` database. An E-LINE can exempt a matching user, host, or IP mask from selected local ban, GeoBAN, or connection-policy checks.
 
 ### Command syntax
 
@@ -69,7 +69,7 @@ The mask to exempt.
 Recommended operator practice is to use numeric IP masks where possible, especially `*@IP`, such as:
 
 ```text
-ELINE *@198.51.100.1 kzB 0 :Trusted user static IP
+ELINE *@198.51.100.1 kzBG 0 :Trusted user static IP
 ```
 
 This avoids depending on DNS resolution and allows the exception to apply early in the connection lifecycle.
@@ -94,9 +94,10 @@ k - KLINE exemption
 z - ZLINE exemption
 m - max-per-IP / connection-limit exemption
 B - DNSBL / blacklist exemption
+G - GeoBAN exemption
 ```
 
-The letters are deliberately case-sensitive for `B` so it does not conflict visually with other lower-case policy flags. Invalid letters must be rejected.
+The letters are deliberately case-sensitive for `B` and `G` so they do not conflict visually with lower-case policy flags. Invalid letters must be rejected.
 
 #### `<expiry-time>`
 
@@ -119,10 +120,11 @@ A required operator-supplied reason. Store it without a leading `:` if one is su
 Examples:
 
 ```text
-ELINE *@198.51.100.1 kzB 0 :Trusted user static IP
+ELINE *@198.51.100.1 kzBG 0 :Trusted user static IP
 ELINE *@203.0.113.0/24 z 1d :Temporary ISP false positive
 ELINE *@192.0.2.50 m 2h :Conference NAT gateway
 ELINE *@198.51.100.44 B 30m :DNSBL false positive investigation
+ELINE *@203.0.113.77 G 1d :GeoBAN false positive investigation
 ```
 
 ### Removal and listing
@@ -137,7 +139,7 @@ ELINE LIST <bantype>
 
 Removal should delete all stored exception rows for the mask unless a later design deliberately adds type-specific removal syntax.
 
-`ELINE LIST <bantype>` should filter by one of `k`, `z`, `m`, or `B`.
+`ELINE LIST <bantype>` should filter by one of `k`, `z`, `m`, `B`, or `G`.
 
 ### Permissions
 
@@ -169,6 +171,7 @@ Recommended type mapping:
 2 = z  ZLINE
 3 = m  max-per-IP / connection limit
 4 = B  DNSBL / blacklist
+5 = G  GeoBAN
 ```
 
 The existing bans database schema version must be migrated safely. Existing KLINE/ZLINE rows must survive migration unchanged.
@@ -195,6 +198,10 @@ else enforce configured connection limits
 if ELINE matches for B:
     skip DNSBL denial/check result enforcement
 else enforce DNSBL result
+
+if ELINE matches for G:
+    skip GeoBAN denial
+else enforce GeoBAN result
 ```
 
 E-LINEs must not bypass unrelated security checks, authentication requirements, operator permissions, channel bans, ChanServ policy, SASL policy, TLS certificate handling, malformed input limits, registration syntax rules, or resource safety controls unless that bypass is deliberately added in a future milestone.
@@ -203,8 +210,9 @@ E-LINEs must not bypass unrelated security checks, authentication requirements, 
 
 - KLINE-oriented E-LINEs should match the same identity surfaces KLINE checks use, such as `user@real_host` and `user@real_ip`.
 - ZLINE-oriented E-LINEs should match real IP only, including exact IP, CIDR, and wildcard IP masks.
-- Max-per-IP and DNSBL E-LINEs should be able to apply early by numeric real IP, preferably via masks such as `*@198.51.100.1` or `*@203.0.113.0/24`.
+- Max-per-IP, DNSBL, and GeoBAN E-LINEs should be able to apply early by numeric real IP, preferably via masks such as `*@198.51.100.1` or `*@203.0.113.0/24`.
 - Hostname-based E-LINEs may not apply until the hostname is known. The implementation must avoid treating unresolved hostnames as a reason to accidentally bypass IP-based checks.
+- GeoBAN-oriented E-LINEs exempt a matching client identity from GeoBAN enforcement; they do not disable GeoIP lookup globally and do not bypass unrelated country, region, ASN, or organization reporting.
 
 ### Tests required
 
@@ -215,10 +223,12 @@ Add focused integration tests for:
 - `ELINE *@cidr z 0 :reason` allows a client inside a blocked ZLINE CIDR.
 - `ELINE *@ip B 0 :reason` prevents DNSBL denial while leaving non-exempt clients subject to DNSBL policy.
 - `ELINE *@ip m 0 :reason` permits an approved NAT/shared IP case without globally disabling connection limits.
+- `ELINE *@ip G 0 :reason` allows a client otherwise denied by GeoBAN while leaving non-exempt clients subject to GeoBAN policy.
 - Expired E-LINEs do not exempt clients.
 - Invalid bantype letters are rejected.
 - Invalid CIDR masks are rejected.
 - `ELINE -<mask>` removes the exception and restores normal enforcement.
+- `ELINE LIST G` filters GeoBAN exemptions.
 - `STATS`, operator guide, and server notices show enough information for operators to audit exceptions without exposing sensitive data unnecessarily.
 
 ## Out of scope
@@ -238,7 +248,7 @@ Add focused integration tests for:
 4. Add bans database schema migration for the `exceptions` table.
 5. Add E-LINE database APIs and unit tests.
 6. Add `/ELINE` parser, permissions, server notices, list, and remove forms.
-7. Wire `k`, `z`, `m`, and `B` evaluation into the correct enforcement points.
+7. Wire `k`, `z`, `m`, `B`, and `G` evaluation into the correct enforcement points.
 8. Add focused integration coverage for E-LINE behavior.
 9. Update `docs/OPERATOR_GUIDE.md`, `docs/NETWORK_ADMIN_GUIDE.md`, `docs/RELEASE_CHECKLIST.md`, and any relevant config examples.
 10. Run focused tests, then full release-gate validation when Milestone 3 is complete.
@@ -251,6 +261,6 @@ Milestone 3 is complete when:
 - MemoServ account disable/drop behavior is defined, implemented, and tested.
 - MemoServ persistence and migration behavior is covered by tests.
 - E-LINEs are persisted in the bans database and support add, list, remove, expiry, and selected bantypes.
-- KLINE, ZLINE, max-per-IP, and DNSBL enforcement correctly honor E-LINEs only for their selected bantypes.
+- KLINE, ZLINE, max-per-IP, DNSBL, and GeoBAN enforcement correctly honor E-LINEs only for their selected bantypes.
 - E-LINEs do not bypass unrelated security or channel policy controls.
 - The complete regression suite, focused E-LINE tests, focused MemoServ lifecycle tests, sanitizer tests, and a release soak pass before tagging.
