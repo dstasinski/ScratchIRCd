@@ -41,6 +41,12 @@ Before this audit, the return value from `chanserv_persist_restore()` was ignore
 
 The client receives a server notice explaining that persistent channel state could not be restored. This prevents a corrupted or unreadable runtime/mask persistence layer from silently turning a registered channel permissive.
 
+## Regression coverage
+
+`tests/integration/test_chanserv_restore_fail_closed.py` creates an enabled registered channel, persists ordinary channel runtime state, parts the last user so the live `Channel` is freed, injects a malformed persisted mask row, and then verifies that the next `JOIN` is denied before the user enters the channel.
+
+That test is intentionally focused on the recreated-channel path because an already-live channel may have valid in-memory state even if the backing database later becomes corrupt. The risk audited here is the fresh restore path after the live object is gone.
+
 ## Remaining architectural improvement
 
 The long-term cleaner design would be to change `chanserv_restore_channel()` to return success/failure directly and have all callers honor that result. The current fix avoids a broader API change while closing the observable JOIN-side risk.
