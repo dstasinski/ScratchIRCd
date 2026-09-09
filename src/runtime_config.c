@@ -33,6 +33,26 @@ static int valid_numeric_ip(const char *ip) {
            (inet_pton(AF_INET, ip, &v4) == 1 || inet_pton(AF_INET6, ip, &v6) == 1);
 }
 
+static int valid_nick_char(unsigned char ch) {
+    return isalnum(ch) || ch == '-' || ch == '_' || ch == '[' || ch == ']' ||
+           ch == '\\' || ch == '`' || ch == '^' || ch == '{' || ch == '}' ||
+           ch == '|';
+}
+
+static int valid_config_nickname(const char *nick) {
+    size_t i;
+    size_t length;
+
+    if (nick == NULL) return 0;
+    length = strlen(nick);
+    if (length == 0U || length > IRC_NICK_MAX) return 0;
+    if (!(isalpha((unsigned char)nick[0]) || strchr("[]\\`_^{|}", nick[0]) != NULL))
+        return 0;
+    for (i = 1U; i < length; ++i)
+        if (!valid_nick_char((unsigned char)nick[i])) return 0;
+    return 1;
+}
+
 static int valid_cloak_prefix(const char *value) {
     const unsigned char *p = (const unsigned char *)value;
 
@@ -155,6 +175,44 @@ static int add_connection_limit_exempt_ip(ServerConfig *config, const char *valu
     return 0;
 }
 
+static int reserved_nick_exists(const ServerConfig *config, const char *nick) {
+    size_t i;
+
+    if (config == NULL || nick == NULL) return 0;
+    for (i = 0U; i < config->reserved_nick_count; ++i) {
+        if (strcasecmp(config->reserved_nicks[i], nick) == 0) return 1;
+    }
+    return 0;
+}
+
+static int add_reserved_nick_one(ServerConfig *config, const char *nick) {
+    char *dest;
+
+    if (!valid_config_nickname(nick)) return -1;
+    if (reserved_nick_exists(config, nick)) return 0;
+    if (config->reserved_nick_count >= IRCD_MAX_RESERVED_NICKS) return -1;
+    dest = config->reserved_nicks[config->reserved_nick_count];
+    if (copy_value(dest, IRC_NICK_MAX + 1U, nick) != 0) return -1;
+    ++config->reserved_nick_count;
+    return 0;
+}
+
+static int add_reserved_nicks(ServerConfig *config, const char *value) {
+    char copy[IRCD_CONFIG_LINE_MAX];
+    char *cursor;
+    char *token;
+
+    if (config == NULL || value == NULL || strlen(value) >= sizeof(copy)) return -1;
+    (void)snprintf(copy, sizeof(copy), "%s", value);
+    cursor = copy;
+    while ((token = strsep(&cursor, ",")) != NULL) {
+        token = trim(token);
+        if (*token == '\0') continue;
+        if (add_reserved_nick_one(config, token) != 0) return -1;
+    }
+    return 0;
+}
+
 static int add_dnsbl(ServerConfig *config, const char *value) {
     char copy[IRCD_CONFIG_LINE_MAX];
     char *name;
@@ -214,6 +272,7 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     if (strcmp(key, "webirc_gateway") == 0) return add_webirc_gateway(config, value);
     if (strcmp(key, "connection_limit_exempt_ip") == 0)
         return add_connection_limit_exempt_ip(config, value);
+    if (strcmp(key, "reserved_nicks") == 0) return add_reserved_nicks(config, value);
     if (strcmp(key, "dnsbl") == 0) return add_dnsbl(config, value);
     if (strcmp(key, "nospoof") == 0) return set_bool(value, &config->nospoof_enabled);
     if (strcmp(key, "cloak_prefix") == 0)
