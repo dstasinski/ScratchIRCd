@@ -13,7 +13,8 @@ The server remains a modern single-server IRC daemon. Multi-server linking remai
 - Support CIDR-based E-LINE masks for IP-oriented exceptions.
 - Use E-LINEs as the general exception mechanism for selected restrictions. Do not add a ZLINE-specific whitelist or separate ZLINE exception list.
 - Add reserved nicknames configurable from `ircd.conf`.
-- Prevent ordinary users from using or registering reserved nicknames.
+- Keep hard-coded service nicknames server-only for everyone.
+- Prevent ordinary users from using or registering configured reserved nicknames.
 - Add `can_eline` to the operator permission flags.
 - Use existing `include/numerics.h` reply macros wherever possible instead of hard-coded numeric literals.
 - Preserve the existing real-IP model: KLINE evaluates real hostname/IP identity, ZLINE evaluates `Client.real_ip`, GeoBAN evaluates GeoIP-derived client attributes, and WebIRC policy uses the authenticated end-user address rather than the gateway socket address.
@@ -258,45 +259,81 @@ Add focused integration tests for:
 
 ## Reserved nickname design
 
-Milestone 3 must add reserved nicknames configurable from `ircd.conf`.
+Milestone 3 must add configured reserved nicknames from `ircd.conf` while keeping hard-coded service nicknames permanently server-only.
 
-Reserved nicknames are names that ordinary users may not use and may not register. IRC operators and network administrators may use reserved nicknames. Ordinary users attempting to use or register a reserved nickname must receive `ERR_RESERVEDNICK`.
+Hard-coded virtual service nicknames are reserved for server use only:
+
+```text
+NickServ
+ChanServ
+MemoServ
+```
+
+No client may use or register these service-only names, regardless of case and regardless of whether the client is an ordinary user, IRC operator, or network administrator.
+
+Configured reserved nicknames are names that ordinary users may not use and may not register. IRC operators and network administrators may use or register configured reserved nicknames only when normal server and NickServ rules otherwise allow. Ordinary users attempting to use or register a configured reserved nickname must receive `ERR_RESERVEDNICK`.
 
 ### Configuration
 
-Add an `ircd.conf` setting for reserved nicknames. The exact parser form can follow the existing configuration style, but it must support multiple reserved names. Acceptable implementation forms include a comma-separated setting or repeated settings if the config parser supports them cleanly.
+Add an `ircd.conf` setting for configured reserved nicknames. The parser should support a comma-separated list.
 
-Example preferred form:
+Preferred form:
 
 ```text
-reserved_nicks = NickServ,ChanServ,MemoServ,OperServ,Admin,Root
+reserved_nicks = Admin,Root,OperServ
 ```
 
-Reserved nick matching must be case-insensitive and must obey the same nickname length and validity constraints used elsewhere in the server.
+Do not require operators to list `NickServ`, `ChanServ`, or `MemoServ` here. Those names are hard-coded service-only names and are always protected even when the configured list is empty.
+
+### Case handling
+
+Reserved nickname matching must be case-insensitive everywhere:
+
+```text
+NickServ
+nickserv
+NICKSERV
+NiCkSeRv
+```
+
+all refer to the same service-only reserved nickname. Likewise, if `Admin` appears in `reserved_nicks`, then `Admin`, `admin`, `ADMIN`, and `aDmIn` are the same configured reserved nickname.
+
+Configured reserved nicknames should be stored exactly as written in `ircd.conf` for display and documentation purposes. Matching must use case-insensitive comparison. Case-duplicate configured entries should be silently collapsed, preserving the first spelling encountered.
+
+Example:
+
+```text
+reserved_nicks = Admin,admin,ADMIN,Root
+```
+
+loads as two configured reserved nicknames: `Admin` and `Root`.
+
+Reserved nicknames must obey the same nickname length and validity constraints used elsewhere in the server. Later, if ScratchIRCd adds a single shared RFC1459 casemapping/canonical-nick helper, reserved nickname matching should move to that helper.
 
 ### Enforcement
 
 Reserved nicknames must be enforced in both nickname use and NickServ registration flows:
 
 ```text
-NICK NickServ
+NICK Admin
 NICKSERV REGISTER password
 PRIVMSG NickServ :REGISTER password
 ```
 
 Rules:
 
-- Ordinary users cannot initially register with a reserved nick.
-- Ordinary users cannot change to a reserved nick with `NICK`.
-- Ordinary identified users cannot register a reserved nick through NickServ.
-- IRC operators and network administrators may use reserved nicks.
-- IRC operators and network administrators may register reserved nicks only if the existing NickServ registration rules otherwise allow it.
+- Ordinary users cannot initially register with a configured reserved nick.
+- Ordinary users cannot change to a configured reserved nick with `NICK`.
+- Ordinary identified users cannot register a configured reserved nick through NickServ.
+- IRC operators and network administrators may use configured reserved nicks.
+- IRC operators and network administrators may register configured reserved nicks only if the existing NickServ registration rules otherwise allow it.
+- Hard-coded service names are always denied to everyone and cannot be registered by anyone.
 - Reserved-nick enforcement must not block the virtual service names themselves from receiving service-directed messages.
 - Reserved-nick enforcement must not make service names appear as normal users.
 
 ### Numeric reply
 
-Attempted use of a reserved nickname by a non-operator/non-admin must return `ERR_RESERVEDNICK`.
+Attempted use of a service-only nickname by any client, or attempted use of a configured reserved nickname by an unauthorized client, must return `ERR_RESERVEDNICK`.
 
 Use the existing `ERR_RESERVEDNICK` macro from `include/numerics.h`. Do not hard-code the numeric literal at call sites. If the parameter shape needs adjustment, adjust the macro in `include/numerics.h` once and use that define consistently everywhere.
 
@@ -316,10 +353,12 @@ Add focused integration tests for:
 - A configured reserved nick is rejected during later `NICK` changes for ordinary users.
 - A configured reserved nick cannot be registered through direct `/NICKSERV REGISTER` by an ordinary user.
 - A configured reserved nick cannot be registered through `PRIVMSG NickServ :REGISTER` by an ordinary user.
+- A hard-coded service-only nick cannot be used or registered by anyone, including opers and network administrators.
 - Rejection uses `ERR_RESERVEDNICK` from `include/numerics.h`, not a hard-coded numeric literal.
-- Matching is case-insensitive.
-- An IRC operator or network administrator can use a reserved nick.
-- An IRC operator or network administrator can register a reserved nick when normal NickServ requirements are satisfied.
+- Matching is case-insensitive for service-only and configured reserved nicks.
+- Case-duplicate configured reserved nicks are collapsed while preserving the first spelling.
+- An IRC operator or network administrator can use a configured reserved nick.
+- An IRC operator or network administrator can register a configured reserved nick when normal NickServ requirements are satisfied.
 - Reserved service names remain virtual and do not appear as ordinary clients.
 - Reload/restart behavior preserves the configured reserved nickname list.
 
@@ -368,9 +407,11 @@ Milestone 3 is complete when:
 - MemoServ has complete user and administrator documentation.
 - MemoServ account disable/drop behavior is defined, implemented, and tested.
 - MemoServ persistence and migration behavior is covered by tests.
-- Reserved nicknames are configurable from `ircd.conf` and enforced for ordinary nickname use and registration.
-- Ordinary users receive `ERR_RESERVEDNICK` when attempting to use or register reserved nicks.
-- Operators and network administrators can use and register reserved nicks when normal rules otherwise allow it.
+- Configured reserved nicknames are loaded from `ircd.conf` and enforced for ordinary nickname use and registration.
+- Hard-coded service nicknames are server-only and cannot be used or registered by anyone.
+- Ordinary users receive `ERR_RESERVEDNICK` when attempting to use or register configured reserved nicks.
+- Operators and network administrators can use and register configured reserved nicks when normal rules otherwise allow it.
+- Reserved-nick matching is case-insensitive and configured case duplicates are collapsed.
 - `can_eline` is available as an operator permission flag and documented.
 - E-LINEs are persisted in the bans database and support add, list, remove, expiry, CIDR masks, selected bantypes, and `STATS e` inspection.
 - KLINE, ZLINE, max-per-IP, DNSBL, and GeoBAN enforcement correctly honor E-LINEs only for their selected bantypes.
