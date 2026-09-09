@@ -29,9 +29,13 @@ max_connections_per_ip = 0
 # connection_limit_exempt_ip = 192.0.2.10
 # connection_limit_exempt_ip = 2001:db8::20
 
-# Comma-separated reserved nicknames. Ordinary users cannot use these nicks;
-# authenticated IRC operators and network administrators may use them. Built-in
-# virtual service names remain reserved by the server even if not listed here.
+# Comma-separated reserved nicknames. Matching is case-insensitive, but the
+# configured spelling is preserved. Case-duplicate entries are silently
+# collapsed. Ordinary users cannot use or register these nicks; authenticated
+# IRC operators and network administrators may use/register them when normal
+# rules otherwise allow. Built-in virtual service names such as NickServ,
+# ChanServ, and MemoServ are always server-only and may not be used or
+# registered by anyone, whether or not they appear here.
 # reserved_nicks = Admin,Root,OperServ
 
 # Maximum time from socket acceptance until IRC registration completes.
