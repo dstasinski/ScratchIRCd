@@ -5,6 +5,33 @@
 #include "config.h"
 #include "dnsbl.h"
 
+/*
+ * runtime_config.c uses strsep-like comma splitting for list settings. Keep the
+ * implementation project-local so strict POSIX feature macros do not depend on
+ * non-standard libc declarations. Empty fields are intentionally returned so
+ * callers can trim and ignore repeated commas.
+ */
+static inline char *runtime_config_strsep(char **stringp, const char *delim) {
+    char *start;
+    char *p;
+
+    if (stringp == NULL || *stringp == NULL || delim == NULL) return NULL;
+    start = *stringp;
+    for (p = start; *p != '\0'; ++p) {
+        const char *d;
+        for (d = delim; *d != '\0'; ++d) {
+            if (*p == *d) {
+                *p = '\0';
+                *stringp = p + 1;
+                return start;
+            }
+        }
+    }
+    *stringp = NULL;
+    return start;
+}
+#define strsep runtime_config_strsep
+
 typedef struct WebIrcGatewayConfig {
     char ip[IRC_IP_MAX + 1U];
     char password[IRCD_WEBIRC_PASSWORD_MAX + 1U];
