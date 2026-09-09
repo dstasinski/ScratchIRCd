@@ -5,6 +5,34 @@
 #include "config.h"
 #include "dnsbl.h"
 
+/*
+ * Portable comma-list token splitter used by runtime_config.c.  The source
+ * historically used libc strsep(), but strict POSIX feature settings may hide
+ * that non-standard declaration.  Keep the behavior local and deterministic.
+ */
+static inline char *runtime_config_strsep(char **stringp, const char *delim) {
+    char *start;
+    char *scan;
+    const char *d;
+
+    if (stringp == NULL || *stringp == NULL || delim == NULL || *delim == '\0')
+        return NULL;
+    start = *stringp;
+    for (scan = start; *scan != '\0'; ++scan) {
+        for (d = delim; *d != '\0'; ++d) {
+            if (*scan == *d) {
+                *scan = '\0';
+                *stringp = scan + 1;
+                return start;
+            }
+        }
+    }
+    *stringp = NULL;
+    return start;
+}
+
+#define strsep runtime_config_strsep
+
 typedef struct WebIrcGatewayConfig {
     char ip[IRC_IP_MAX + 1U];
     char password[IRCD_WEBIRC_PASSWORD_MAX + 1U];
