@@ -10,9 +10,9 @@ static const OperPermissionName permission_names[] = {
     {"can_restart",OPER_PERMISSION_RESTART},{"helpop",OPER_PERMISSION_HELPOP},
     {"can_wallops",OPER_PERMISSION_WALLOPS},{"can_kill",OPER_PERMISSION_KILL},
     {"can_kline",OPER_PERMISSION_KLINE},{"can_unkline",OPER_PERMISSION_UNKLINE},
-    {"can_zline",OPER_PERMISSION_ZLINE},{"can_geoban",OPER_PERMISSION_GEOBAN},
-    {"get_host",OPER_PERMISSION_GETHOST},{"can_override",OPER_PERMISSION_OVERRIDE},
-    {"netadmin",OPER_PERMISSION_NETADMIN}
+    {"can_zline",OPER_PERMISSION_ZLINE},{"can_eline",OPER_PERMISSION_ELINE},
+    {"can_geoban",OPER_PERMISSION_GEOBAN},{"get_host",OPER_PERMISSION_GETHOST},
+    {"can_override",OPER_PERMISSION_OVERRIDE},{"netadmin",OPER_PERMISSION_NETADMIN}
 };
 
 int oper_permission_has(OperPermissionSet permissions,OperPermissionSet mask){return (permissions&mask)!=0U;}
