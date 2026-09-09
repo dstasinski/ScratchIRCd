@@ -1,7 +1,6 @@
 /** @file nick.c @brief IRC NICK command. */
 #include "commands.h"
 #include "config.h"
-#include "modes.h"
 #include "nickserv.h"
 #include "nospoof.h"
 #include "numerics.h"
@@ -10,7 +9,6 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 
 static int valid_nick_char(unsigned char ch) {
     return isalnum(ch) || ch == '-' || ch == '_' || ch == '[' || ch == ']' ||
@@ -56,22 +54,6 @@ static void broadcast_nick_change(Server *server, Client *client, const char *ol
     (void)client_send_line(client, message);
 }
 
-static int configured_reserved_nick(const Server *server, const char *nick) {
-    size_t i;
-
-    if (server == NULL || nick == NULL) return 0;
-    for (i = 0U; i < server->config.reserved_nick_count; ++i) {
-        if (strcasecmp(server->config.reserved_nicks[i], nick) == 0) return 1;
-    }
-    return 0;
-}
-
-static int reserved_nick_allowed(const Client *client) {
-    return client != NULL &&
-           (client_mode_has(client->modes, CLIENT_MODE_OPER) ||
-            client_mode_has(client->modes, CLIENT_MODE_NETADMIN));
-}
-
 CommandResult command_nick(Server *server, Client *client, char *params) {
     Client *existing;
     char old_nick[IRC_NICK_MAX + 1U];
@@ -89,7 +71,8 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (service_nickname_reserved(params) ||
-        (configured_reserved_nick(server, params) && !reserved_nick_allowed(client))) {
+        (nickserv_config_reserved_nickname(server, params) &&
+         !nickserv_reserved_nickname_allowed(client))) {
         client_sendf(client, ERR_RESERVEDNICK,
                      server->config.server_name, command_reply_nick(client), params);
         return COMMAND_KEEP_CLIENT;
