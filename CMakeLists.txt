@@ -43,6 +43,7 @@ if(NOT MAXMINDDB_INCLUDE_DIR OR NOT MAXMINDDB_LIBRARY)
 endif()
 
 enable_testing()
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/data)
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/cloak.c src/channel.c src/channel_policy.c src/channel_log.c
