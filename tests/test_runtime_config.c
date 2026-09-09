@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
     assert(config.argon2_global_ops_per_minute == IRCD_DEFAULT_ARGON2_GLOBAL_OPS_PER_MINUTE);
     assert(config.argon2_global_burst_per_second == IRCD_DEFAULT_ARGON2_GLOBAL_BURST_PER_SECOND);
     assert(config.tls_chain_file[0] == '\0');
+    assert(config.reserved_nick_count == 0U);
 
     assert(fd >= 0);
     file = fdopen(fd, "w");
@@ -68,6 +69,7 @@ int main(int argc, char **argv) {
     assert(fputs("max_connections_per_ip = 4\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
+    assert(fputs("reserved_nicks = Admin, admin, Root,, OperServ, ROOT\n", file) >= 0);
     assert(fputs("registration_timeout_seconds = 75\n", file) >= 0);
     assert(fputs("ping_interval_seconds = 45\n", file) >= 0);
     assert(fputs("ping_timeout_seconds = 30\n", file) >= 0);
@@ -114,6 +116,10 @@ int main(int argc, char **argv) {
     assert(config.connection_limit_exempt_ip_count == 2U);
     assert(strcmp(config.connection_limit_exempt_ips[0], "192.0.2.10") == 0);
     assert(strcmp(config.connection_limit_exempt_ips[1], "2001:db8::10") == 0);
+    assert(config.reserved_nick_count == 3U);
+    assert(strcmp(config.reserved_nicks[0], "Admin") == 0);
+    assert(strcmp(config.reserved_nicks[1], "Root") == 0);
+    assert(strcmp(config.reserved_nicks[2], "OperServ") == 0);
     assert(config.registration_timeout_seconds == 75U);
     assert(config.ping_interval_seconds == 45U);
     assert(config.ping_timeout_seconds == 30U);
@@ -203,6 +209,9 @@ int main(int argc, char **argv) {
     assert(load_single_option("argon2_global_burst_per_second = 0\n") == 0);
     assert(load_single_option("argon2_global_burst_per_second = 101\n") != 0);
     assert(load_single_option("argon2_global_burst_per_second = 100\n") == 0);
+    assert(load_single_option("reserved_nicks = Admin,admin,ADMIN\n") == 0);
+    assert(load_single_option("reserved_nicks = 1Admin\n") != 0);
+    assert(load_single_option("reserved_nicks = ThisNickIsFarTooLongForIRC\n") != 0);
     assert(load_single_option("chanserv_max_channels_per_account = 20\n") != 0);
 
     (void)unlink(path);
