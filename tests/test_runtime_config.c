@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
     assert(fputs("max_connections_per_ip = 4\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 192.0.2.10\n", file) >= 0);
     assert(fputs("connection_limit_exempt_ip = 2001:db8::10\n", file) >= 0);
-    assert(fputs("reserved_nicks = Admin, admin, Root,, OperServ, ROOT\n", file) >= 0);
+    assert(fputs("reserved_nicks = Admin, Root, OperServ, admin, ROOT\n", file) >= 0);
     assert(fputs("registration_timeout_seconds = 75\n", file) >= 0);
     assert(fputs("ping_interval_seconds = 45\n", file) >= 0);
     assert(fputs("ping_timeout_seconds = 30\n", file) >= 0);
@@ -184,6 +184,9 @@ int main(int argc, char **argv) {
     assert(load_single_option("memoserv_sender_quota = 0\n") != 0);
     assert(load_single_option("memoserv_sender_quota = 50001\n") != 0);
     assert(load_single_option("memoserv_sender_quota = 50000\n") == 0);
+    assert(load_single_option("reserved_nicks = Admin,,Root\n") == 0);
+    assert(load_single_option("reserved_nicks = 9Admin\n") != 0);
+    assert(load_single_option("reserved_nicks = Admin,ThisNicknameIsWayTooLong\n") != 0);
     assert(load_single_option("nickserv_registrations_per_ip = 0\n") == 0);
     assert(load_single_option("nickserv_registrations_per_ip = 101\n") != 0);
     assert(load_single_option("nickserv_registration_window_seconds = 59\n") != 0);
@@ -209,9 +212,6 @@ int main(int argc, char **argv) {
     assert(load_single_option("argon2_global_burst_per_second = 0\n") == 0);
     assert(load_single_option("argon2_global_burst_per_second = 101\n") != 0);
     assert(load_single_option("argon2_global_burst_per_second = 100\n") == 0);
-    assert(load_single_option("reserved_nicks = Admin,admin,ADMIN\n") == 0);
-    assert(load_single_option("reserved_nicks = 1Admin\n") != 0);
-    assert(load_single_option("reserved_nicks = ThisNickIsFarTooLongForIRC\n") != 0);
     assert(load_single_option("chanserv_max_channels_per_account = 20\n") != 0);
 
     (void)unlink(path);
