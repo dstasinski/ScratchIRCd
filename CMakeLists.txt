@@ -116,6 +116,11 @@ target_include_directories(test_runtime_config PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_compile_definitions(test_runtime_config PRIVATE _POSIX_C_SOURCE=200809L)
 add_test(NAME runtime_config COMMAND test_runtime_config ${CMAKE_CURRENT_SOURCE_DIR}/ircd.conf.example)
 
+add_executable(test_reserved_nick_config tests/test_reserved_nick_config.c src/runtime_config.c)
+target_include_directories(test_reserved_nick_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_reserved_nick_config PRIVATE _POSIX_C_SOURCE=200809L)
+add_test(NAME reserved_nick_config COMMAND test_reserved_nick_config)
+
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME modes COMMAND test_modes)
