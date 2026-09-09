@@ -83,6 +83,7 @@ def main():
             f.write("server_name = test.local\nnetwork_name = TestNet\nbind_address = 127.0.0.1\n")
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
             f.write(f"operators_db = {td}/operators.db\nbans_db = {td}/bans.db\nnickserv_db = {td}/nickserv.db\n")
+            f.write(f"chanserv_db = {td}/chanserv.db\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
         proc=subprocess.Popen([binary,conf],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         clients=[]
