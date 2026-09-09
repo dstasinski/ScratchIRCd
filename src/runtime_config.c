@@ -199,16 +199,19 @@ static int add_reserved_nick_one(ServerConfig *config, const char *nick) {
 
 static int add_reserved_nicks(ServerConfig *config, const char *value) {
     char copy[IRCD_CONFIG_LINE_MAX];
-    char *cursor;
     char *token;
+    char *comma;
 
     if (config == NULL || value == NULL || strlen(value) >= sizeof(copy)) return -1;
     (void)snprintf(copy, sizeof(copy), "%s", value);
-    cursor = copy;
-    while ((token = strsep(&cursor, ",")) != NULL) {
+    token = copy;
+    for (;;) {
+        comma = strchr(token, ',');
+        if (comma != NULL) *comma = '\0';
         token = trim(token);
-        if (*token == '\0') continue;
-        if (add_reserved_nick_one(config, token) != 0) return -1;
+        if (*token != '\0' && add_reserved_nick_one(config, token) != 0) return -1;
+        if (comma == NULL) break;
+        token = comma + 1;
     }
     return 0;
 }
