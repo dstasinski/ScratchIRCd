@@ -15,6 +15,7 @@ The server remains a modern single-server IRC daemon. Multi-server linking remai
 - Add reserved nicknames configurable from `ircd.conf`.
 - Prevent ordinary users from using or registering reserved nicknames.
 - Add `can_eline` to the operator permission flags.
+- Use existing `include/numerics.h` reply macros wherever possible instead of hard-coded numeric literals.
 - Preserve the existing real-IP model: KLINE evaluates real hostname/IP identity, ZLINE evaluates `Client.real_ip`, GeoBAN evaluates GeoIP-derived client attributes, and WebIRC policy uses the authenticated end-user address rather than the gateway socket address.
 
 ## MemoServ goals
@@ -29,6 +30,7 @@ Milestone 3 should finish the remaining polish and lifecycle work.
 - Expand `/MEMOSERV HELP` from a single summary line into command-specific help.
 - Use human-readable timestamps in `LIST`, `SENT`, and `READ` output instead of raw Unix timestamps.
 - Improve error messages for disabled accounts, unknown accounts, full inboxes, invalid memo IDs, quota exhaustion, and database failures.
+- Use existing numeric reply macros from `include/numerics.h` wherever a standard or project-defined numeric already exists.
 - Consider user commands such as:
   - `READ NEW` or `READ NEXT`
   - `UNREAD <memo-id>`
@@ -164,6 +166,7 @@ Removal should delete all stored exception rows for the mask unless a later desi
 - Listing E-LINEs through `ELINE LIST` or `STATS e` should require operator status. A stricter design may require `can_eline`, but ordinary users must not be able to inspect E-LINEs.
 - The bootstrap network administrator receives `can_eline` through the existing all-permissions model.
 - E-LINE changes should produce ban/server-notice category output so operators can audit exception changes.
+- E-LINE command responses and errors should use existing `include/numerics.h` defines wherever possible, with NOTICE fallbacks only where the current command style deliberately uses service/operator notices.
 
 ### Database schema
 
@@ -250,6 +253,7 @@ Add focused integration tests for:
 - `ELINE LIST G` filters GeoBAN exemptions.
 - `STATS e` lists active E-LINE exceptions for operators.
 - Ordinary users cannot inspect E-LINEs through `STATS e`.
+- E-LINE numeric replies use `include/numerics.h` defines wherever applicable instead of hard-coded numeric literals.
 - `STATS`, operator guide, and server notices show enough information for operators to audit exceptions without exposing sensitive data unnecessarily.
 
 ## Reserved nickname design
@@ -294,15 +298,15 @@ Rules:
 
 Attempted use of a reserved nickname by a non-operator/non-admin must return `ERR_RESERVEDNICK`.
 
-Use the project's numeric registry to define the reply consistently. If no numeric is already reserved for this purpose, select an appropriate IRCd-compatible numeric and document it in `include/numerics.h`, the operator guide, and the client guide.
+Use the existing `ERR_RESERVEDNICK` macro from `include/numerics.h`. Do not hard-code the numeric literal at call sites. If the parameter shape needs adjustment, adjust the macro in `include/numerics.h` once and use that define consistently everywhere.
 
-Suggested wire form:
+Preferred wire form:
 
 ```text
 :<server> 484 <nick-or-*> <reserved-nick> :Cannot use reserved nickname
 ```
 
-The exact numeric and parameter shape should be made consistent with the project's existing numeric conventions before implementation.
+The implementation should reuse existing numeric defines from `include/numerics.h` wherever possible across the reserved-nick path. Add or adjust a numeric define only when there is no suitable existing project numeric.
 
 ### Tests required
 
@@ -312,12 +316,24 @@ Add focused integration tests for:
 - A configured reserved nick is rejected during later `NICK` changes for ordinary users.
 - A configured reserved nick cannot be registered through direct `/NICKSERV REGISTER` by an ordinary user.
 - A configured reserved nick cannot be registered through `PRIVMSG NickServ :REGISTER` by an ordinary user.
-- Rejection uses `ERR_RESERVEDNICK`.
+- Rejection uses `ERR_RESERVEDNICK` from `include/numerics.h`, not a hard-coded numeric literal.
 - Matching is case-insensitive.
 - An IRC operator or network administrator can use a reserved nick.
 - An IRC operator or network administrator can register a reserved nick when normal NickServ requirements are satisfied.
 - Reserved service names remain virtual and do not appear as ordinary clients.
 - Reload/restart behavior preserves the configured reserved nickname list.
+
+## Numeric reply policy
+
+Milestone 3 implementation work should use `include/numerics.h` defines wherever possible.
+
+Rules:
+
+- Do not hard-code IRC numeric reply literals at call sites when a `numerics.h` macro exists.
+- Reserved nickname rejection must use `ERR_RESERVEDNICK` from `include/numerics.h`.
+- E-LINE, reserved-nick, MemoServ, and STATS work should reuse existing numeric macros for standard errors such as missing parameters, permission failures, unknown nicknames, and unavailable commands.
+- When a new project-specific numeric is needed, add it to `include/numerics.h`, document it, and use the macro everywhere.
+- Tests should validate wire output behavior, but implementation code should remain macro-based.
 
 ## Out of scope
 
@@ -331,10 +347,10 @@ Add focused integration tests for:
 
 ## Suggested implementation order
 
-1. Add `MILESTONE-3.md` and document the accepted MemoServ, E-LINE, and reserved-nick scope.
+1. Add `MILESTONE-3.md` and document the accepted MemoServ, E-LINE, reserved-nick, and numeric-reply scope.
 2. Add `docs/MEMOSERV_GUIDE.md` based on the current MemoServ command set.
 3. Define MemoServ account lifecycle behavior and add lifecycle tests.
-4. Add reserved nick configuration parsing, `ERR_RESERVEDNICK`, and nickname-use enforcement.
+4. Add reserved nick configuration parsing, `ERR_RESERVEDNICK` reuse, and nickname-use enforcement.
 5. Add NickServ reserved-name registration enforcement and tests.
 6. Add `can_eline` to the operator permission flags, parser, docs, and tests.
 7. Add bans database schema migration for the `exceptions` table.
@@ -342,7 +358,7 @@ Add focused integration tests for:
 9. Add `/ELINE` parser, permissions, server notices, list, remove forms, and `STATS e` inspection.
 10. Wire `k`, `z`, `m`, `B`, and `G` evaluation into the correct enforcement points.
 11. Add focused integration coverage for E-LINE behavior.
-12. Update `docs/OPERATOR_GUIDE.md`, `docs/NETWORK_ADMIN_GUIDE.md`, `docs/CLIENT_GUIDE.md`, `docs/RELEASE_CHECKLIST.md`, and any relevant config examples.
+12. Update `docs/OPERATOR_GUIDE.md`, `docs/NETWORK_ADMIN_GUIDE.md`, `docs/CLIENT_GUIDE.md`, `docs/RELEASE_CHECKLIST.md`, `include/numerics.h`, and any relevant config examples.
 13. Run focused tests, then full release-gate validation when Milestone 3 is complete.
 
 ## Completion gate
@@ -359,4 +375,5 @@ Milestone 3 is complete when:
 - E-LINEs are persisted in the bans database and support add, list, remove, expiry, CIDR masks, selected bantypes, and `STATS e` inspection.
 - KLINE, ZLINE, max-per-IP, DNSBL, and GeoBAN enforcement correctly honor E-LINEs only for their selected bantypes.
 - E-LINEs do not bypass unrelated security, reserved nick, or channel policy controls.
+- Milestone 3 command implementations use `include/numerics.h` defines wherever possible instead of hard-coded numeric literals.
 - The complete regression suite, focused E-LINE tests, focused reserved-nick tests, focused MemoServ lifecycle tests, sanitizer tests, and a release soak pass before tagging.
