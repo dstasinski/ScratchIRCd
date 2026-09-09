@@ -5,6 +5,11 @@
 #include "config.h"
 #include "dnsbl.h"
 
+/* runtime_config.c uses strsep for comma-separated settings while the build
+ * defines strict POSIX feature macros. Some libc headers hide the declaration
+ * under those settings even though the symbol is provided by libc. */
+char *strsep(char **stringp, const char *delim);
+
 typedef struct WebIrcGatewayConfig {
     char ip[IRC_IP_MAX + 1U];
     char password[IRCD_WEBIRC_PASSWORD_MAX + 1U];
