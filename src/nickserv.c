@@ -12,6 +12,7 @@
 #include "mail.h"
 #include "modes.h"
 #include "nickserv_db.h"
+#include "numerics.h"
 #include "usermode_policy.h"
 
 #include <argon2.h>
@@ -69,6 +70,29 @@ void nickserv_reset_runtime_state(void) {
 static void nickserv_notice(Server *server, Client *client, const char *text) {
     client_sendf(client, ":NickServ!service@%s NOTICE %s :%s",
                  server->config.server_name, client->nick, text);
+}
+
+int service_nickname_reserved(const char *nick) {
+    if (nick == NULL) return 0;
+    return strcasecmp(nick, "NickServ") == 0 ||
+           strcasecmp(nick, "ChanServ") == 0 ||
+           strcasecmp(nick, "MemoServ") == 0;
+}
+
+int nickserv_config_reserved_nickname(const Server *server, const char *nick) {
+    size_t i;
+
+    if (server == NULL || nick == NULL) return 0;
+    for (i = 0U; i < server->config.reserved_nick_count; ++i) {
+        if (strcasecmp(server->config.reserved_nicks[i], nick) == 0) return 1;
+    }
+    return 0;
+}
+
+int nickserv_reserved_nickname_allowed(const Client *client) {
+    return client != NULL &&
+           (client_mode_has(client->modes, CLIENT_MODE_OPER) ||
+            client_mode_has(client->modes, CLIENT_MODE_NETADMIN));
 }
 
 static int hash_password(const char *password, char *encoded, size_t encoded_size) {
@@ -224,6 +248,13 @@ static void command_register(Server *server, Client *client, char *password) {
     }
     if (client->account_name[0] != '\0') {
         nickserv_notice(server, client, "You are already identified to an account.");
+        return;
+    }
+    if (service_nickname_reserved(client->nick) ||
+        (nickserv_config_reserved_nickname(server, client->nick) &&
+         !nickserv_reserved_nickname_allowed(client))) {
+        client_sendf(client, ERR_RESERVEDNICK,
+                     server->config.server_name, client->nick, client->nick);
         return;
     }
 
@@ -582,11 +613,4 @@ void nickserv_handle_message(Server *server, Client *client, char *text) {
     } else {
         nickserv_notice(server, client, "Unknown command. Use HELP.");
     }
-}
-
-int service_nickname_reserved(const char *nick) {
-    if (nick == NULL) return 0;
-    return strcasecmp(nick, "NickServ") == 0 ||
-           strcasecmp(nick, "ChanServ") == 0 ||
-           strcasecmp(nick, "MemoServ") == 0;
 }
