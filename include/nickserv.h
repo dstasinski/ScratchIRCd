@@ -18,7 +18,16 @@ int nickserv_identify(Server *server, Client *client,
 /** Close process-local NickServ service state for shutdown or in-process RESTART. */
 void nickserv_reset_runtime_state(void);
 
-/** Return non-zero when a nickname is reserved for an internal service. */
+/**
+ * Return non-zero when a nickname is owned by an internal virtual service.
+ * These names are server-only and may not be used or registered by anyone.
+ */
 int service_nickname_reserved(const char *nick);
+
+/** Return non-zero when nick appears in the ircd.conf reserved_nicks list. */
+int nickserv_config_reserved_nickname(const Server *server, const char *nick);
+
+/** Return non-zero when client may use/register an ircd.conf reserved nickname. */
+int nickserv_reserved_nickname_allowed(const Client *client);
 
 #endif /* IRCD_NICKSERV_H */
