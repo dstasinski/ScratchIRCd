@@ -93,7 +93,7 @@ def register(client, nick):
 
 def assert_alive(client, nick):
     client.send(f"PING :{nick}")
-    client.expect(f"PONG :{nick}")
+    client.expect(f"PONG test.local ::{nick}")
 
 
 def expect_registration_rejected(port, nick):
