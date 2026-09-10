@@ -138,18 +138,31 @@ def main():
 
             admin.send("ELINE 203.0.113.0/24 z 1m :cidr exception")
             admin.expect("NOTICE Admin :ELINE added: 203.0.113.0/24 z")
+            admin.send("ELINE 127.0.0.1 mBG 0 :all remaining exception types")
+            admin.expect("NOTICE Admin :ELINE added: 127.0.0.1 mBG")
+
             admin.send("ELINE LIST z")
             z_lines = admin.expect("End of ELINE list (2 entries)")
             assert any("ELINE z *@example.test" in line for line in z_lines), z_lines
             assert any("ELINE z 203.0.113.0/24" in line and
                        "cidr exception" in line for line in z_lines), z_lines
 
+            for letter in ("m", "B", "G"):
+                admin.send(f"ELINE LIST {letter}")
+                type_lines = admin.expect("End of ELINE list (1 entries)")
+                assert any(f"ELINE {letter} 127.0.0.1" in line and
+                           "all remaining exception types" in line
+                           for line in type_lines), type_lines
+
             admin.send("ELINE -*@example.test")
             admin.expect("NOTICE Admin :ELINE removed: *@example.test")
             admin.send("ELINE LIST")
-            remaining = admin.expect("End of ELINE list (1 entries)")
+            remaining = admin.expect("End of ELINE list (4 entries)")
             assert not any("*@example.test" in line for line in remaining), remaining
             assert any("203.0.113.0/24" in line for line in remaining), remaining
+            assert any("ELINE m 127.0.0.1" in line for line in remaining), remaining
+            assert any("ELINE B 127.0.0.1" in line for line in remaining), remaining
+            assert any("ELINE G 127.0.0.1" in line for line in remaining), remaining
         finally:
             for client in clients:
                 client.close()
