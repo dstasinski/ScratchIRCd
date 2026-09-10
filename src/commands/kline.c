@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 typedef struct KlineDisconnectContext {
     Server *server;
@@ -225,7 +226,7 @@ CommandResult command_eline(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    if (strcmp(first, "LIST") == 0) {
+    if (strcasecmp(first, "LIST") == 0) {
         char *filter = strtok(NULL, " ");
         ElineListContext context = {server, client, 0U};
         int rc;
