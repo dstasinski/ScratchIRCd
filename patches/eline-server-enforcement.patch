@@ -1,25 +1,9 @@
 diff --git a/src/server.c b/src/server.c
 --- a/src/server.c
 +++ b/src/server.c
-@@
- #include "commands.h"
-+#include "eline_policy.h"
- #include "irc.h"
-@@
- int server_connection_limit_ip_exempt(const Server *server, const char *ip) {
-     size_t index;
-     if (server == NULL || ip == NULL || *ip == '\0') return 0;
-     for (index = 0U; index < server->config.connection_limit_exempt_ip_count; ++index)
-         if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
-     for (index = 0U; index < server->config.webirc_gateway_count; ++index)
-         if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
-+    if (eline_policy_match_server(&server->config,
-+                                  BAN_EXCEPTION_CONNECTION_LIMIT,
-+                                  ip, NULL))
-+        return 1;
-     return 0;
- }
-@@
+@@ -606,6 +606,19 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
+                        (int)IRCD_DNSBL_NAME_MAX, name,
+                        (int)SERVER_DNSBL_REASON_ZONE_MAX, zone);
          (void)snprintf(set_by, sizeof(set_by), "DNSBL:%.*s",
                         (int)SERVER_DNSBL_SET_BY_NAME_MAX, name);
 +        if (eline_policy_match_server(&server->config, BAN_EXCEPTION_DNSBL,
