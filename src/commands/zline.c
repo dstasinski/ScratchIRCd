@@ -25,6 +25,7 @@
 typedef struct ZlineDisconnectContext {
     Server *server;
     Client *setter;
+    BanDb *db;
     const char *reason;
     const char *added_mask;
 } ZlineDisconnectContext;
@@ -37,6 +38,19 @@ static int zline_disconnect_row(const BanRecord *record, void *context) {
         Client *target = ctx->server->clients[i];
         if (target != ctx->setter &&
             ban_record_matches(record, target->real_ip, NULL)) {
+            BanExceptionRecord exception;
+            if (ctx->db != NULL &&
+                ban_exception_db_match(ctx->db, BAN_EXCEPTION_ZLINE,
+                                       target->real_ip, NULL, &exception) == 1) {
+                snotice_broadcast(ctx->server, SNOTICE_BANS,
+                                  "ZLINE matched but ELINE exempted %s (%s@%s) [real_ip=%s] ban=%s exception=%s",
+                                  command_reply_nick(target), target->user,
+                                  target->display_host, target->real_ip,
+                                  ctx->added_mask != NULL ? ctx->added_mask : record->mask,
+                                  exception.mask);
+                ++i;
+                continue;
+            }
             snotice_broadcast(ctx->server, SNOTICE_BANS,
                               "ZLINE matched %s (%s@%s) [real_ip=%s] by %s",
                               command_reply_nick(target), target->user,
@@ -157,7 +171,7 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     }
 
     {
-        ZlineDisconnectContext context = {server, client, reason, mask};
+        ZlineDisconnectContext context = {server, client, &db, reason, mask};
         (void)ban_db_list(&db, BAN_TYPE_ZLINE, zline_disconnect_row, &context);
     }
     ban_db_close(&db);
