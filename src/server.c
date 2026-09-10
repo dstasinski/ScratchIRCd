@@ -2,6 +2,7 @@
 #include "ban_db.h"
 #include "channel_log.h"
 #include "commands.h"
+#include "eline_policy.h"
 #include "irc.h"
 #include "message_policy.h"
 #include "modes.h"
@@ -135,6 +136,10 @@ int server_connection_limit_ip_exempt(const Server *server, const char *ip) {
         if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
     for (index = 0U; index < server->config.webirc_gateway_count; ++index)
         if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
+    if (eline_policy_match_server(&server->config,
+                                  BAN_EXCEPTION_CONNECTION_LIMIT,
+                                  ip, NULL))
+        return 1;
     return 0;
 }
 

@@ -94,8 +94,11 @@ def assert_rejected_by_connection_limit(port):
     try:
         lines = client.read_for(0.75)
         assert not any("Looking up your hostname" in line for line in lines), lines
-        client.send("NICK Blocked")
-        client.send("USER Blocked 0 * :Blocked")
+        try:
+            client.send("NICK Blocked")
+            client.send("USER Blocked 0 * :Blocked")
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
         lines = client.read_for(0.75)
         assert not any(" 001 Blocked " in line for line in lines), lines
     finally:
