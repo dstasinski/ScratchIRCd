@@ -28,6 +28,7 @@
 typedef struct KlineDisconnectContext {
     Server *server;
     Client *setter;
+    BanDb *db;
     const char *reason;
     const char *added_mask;
 } KlineDisconnectContext;
@@ -59,6 +60,19 @@ static int kline_disconnect_row(const BanRecord *record, void *context) {
         }
 
         if (target != ctx->setter && ban_record_matches(record, first, ip_identity)) {
+            BanExceptionRecord exception;
+            if (ctx->db != NULL &&
+                ban_exception_db_match(ctx->db, BAN_EXCEPTION_KLINE,
+                                       first, ip_identity, &exception) == 1) {
+                snotice_broadcast(ctx->server, SNOTICE_BANS,
+                                  "KLINE matched but ELINE exempted %s (%s@%s) [real_ip=%s] ban=%s exception=%s",
+                                  command_reply_nick(target), target->user,
+                                  target->display_host, target->real_ip,
+                                  ctx->added_mask != NULL ? ctx->added_mask : record->mask,
+                                  exception.mask);
+                ++i;
+                continue;
+            }
             snotice_broadcast(ctx->server, SNOTICE_BANS,
                               "KLINE matched %s (%s@%s) [real_ip=%s] by %s",
                               command_reply_nick(target), target->user,
@@ -427,7 +441,7 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     }
 
     {
-        KlineDisconnectContext context = {server, client, reason, mask};
+        KlineDisconnectContext context = {server, client, &db, reason, mask};
         (void)ban_db_list(&db, BAN_TYPE_KLINE, kline_disconnect_row, &context);
     }
     ban_db_close(&db);
