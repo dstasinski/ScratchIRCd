@@ -58,7 +58,33 @@ static GeoBanDb *registration_geoban_handle(Server *server){
     return &registration_geoban_db;
 }
 
-static int registration_geo_banned(Server *server,Client *client){GeoBanDb *db;GeoBanRecord record;int matched;db=registration_geoban_handle(server);if(db==NULL)return 0;matched=geoban_db_match(db,&client->geoip,&record);if(matched==1){snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");(void)shutdown(client->fd,SHUT_RDWR);}return matched==1;}
+static int registration_exception_matches(BanDb *db,BanExceptionType type,const char *identity1,const char *identity2){
+    BanExceptionRecord exception;
+    return ban_exception_db_match(db,type,identity1,identity2,&exception)==1;
+}
+
+static int registration_geo_banned(Server *server,Client *client){
+    GeoBanDb *db;
+    GeoBanRecord record;
+    int matched;
+    db=registration_geoban_handle(server);
+    if(db==NULL)return 0;
+    matched=geoban_db_match(db,&client->geoip,&record);
+    if(matched==1){
+        BanDb *ban_db=registration_ban_handle(server);
+        char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+        (void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);
+        if(ban_db!=NULL&&registration_exception_matches(ban_db,BAN_EXCEPTION_GEOBAN,client->real_ip,ip_identity)){
+            snotice_broadcast(server,SNOTICE_GEOBANS,"Registration GEOBAN match exempted by ELINE: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);
+            return 0;
+        }
+        snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);
+        client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);
+        (void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");
+        (void)shutdown(client->fd,SHUT_RDWR);
+    }
+    return matched==1;
+}
 
 static int registration_ban_policy_error(Server *server,Client *client){
     snotice_broadcast(server,SNOTICE_SECURITY|SNOTICE_BANS,"Registration rejected because KLINE/ZLINE policy could not be read safely for %s!%s@%s [real_ip=%s]",command_reply_nick(client),client->user,client->display_host,client->real_ip);
@@ -66,11 +92,6 @@ static int registration_ban_policy_error(Server *server,Client *client){
     (void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s","Ban policy database error");
     (void)shutdown(client->fd,SHUT_RDWR);
     return 1;
-}
-
-static int registration_exception_matches(BanDb *db,BanExceptionType type,const char *identity1,const char *identity2){
-    BanExceptionRecord exception;
-    return ban_exception_db_match(db,type,identity1,identity2,&exception)==1;
 }
 
 static int registration_banned(Server *server,Client *client){
