@@ -84,11 +84,34 @@ static void create_legacy_memoserv_db(const char *path) {
     sqlite3_close(legacy);
 }
 
+static void create_incompatible_memoserv_db(const char *path) {
+    sqlite3 *legacy = NULL;
+    char *error = NULL;
+    static const char sql[] =
+        "CREATE TABLE memos ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "sender TEXT COLLATE NOCASE NOT NULL,"
+        "recipient TEXT COLLATE NOCASE NOT NULL,"
+        "text TEXT NOT NULL,"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch())"
+        ");"
+        "INSERT INTO memos(sender,recipient,text,created_at) "
+        "VALUES('Alice','Bob','broken legacy memo',12345);";
+
+    assert(sqlite3_open(path, &legacy) == SQLITE_OK);
+    assert(sqlite3_exec(legacy, sql, NULL, NULL, &error) == SQLITE_OK);
+    assert(error == NULL);
+    assert(!raw_column_exists(legacy, "read_at"));
+    sqlite3_close(legacy);
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
     char legacy_path[] = "/tmp/scratchircd-memoserv-legacy-XXXXXX";
+    char incompatible_path[] = "/tmp/scratchircd-memoserv-broken-XXXXXX";
     int fd = mkstemp(path);
     int legacy_fd = mkstemp(legacy_path);
+    int incompatible_fd = mkstemp(incompatible_path);
     MemoServDb db = {0};
     MemoServMemo memos[8];
     MemoServMemo memo;
@@ -107,10 +130,18 @@ int main(void) {
 
     assert(fd >= 0);
     assert(legacy_fd >= 0);
+    assert(incompatible_fd >= 0);
     close(fd);
     close(legacy_fd);
+    close(incompatible_fd);
     unlink(path);
     unlink(legacy_path);
+    unlink(incompatible_path);
+
+    create_incompatible_memoserv_db(incompatible_path);
+    assert(memoserv_db_open(&db, incompatible_path) == -1);
+    assert(db.handle == NULL);
+    unlink(incompatible_path);
 
     create_legacy_memoserv_db(legacy_path);
     assert(memoserv_db_open(&db, legacy_path) == 0);
