@@ -41,9 +41,54 @@ static int raw_index_exists(sqlite3 *db, const char *name) {
     return found;
 }
 
+static int raw_column_exists(sqlite3 *db, const char *column_name) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    assert(sqlite3_prepare_v2(db, "PRAGMA table_info(memos)", -1,
+                              &stmt, NULL) == SQLITE_OK);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp((const char *)name, column_name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    assert(rc == SQLITE_ROW || rc == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+static void create_legacy_memoserv_db(const char *path) {
+    sqlite3 *legacy = NULL;
+    char *error = NULL;
+    static const char sql[] =
+        "CREATE TABLE memos ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "sender TEXT COLLATE NOCASE NOT NULL,"
+        "recipient TEXT COLLATE NOCASE NOT NULL,"
+        "text TEXT NOT NULL,"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "read_at INTEGER NOT NULL DEFAULT 0"
+        ");"
+        "CREATE INDEX memos_recipient_id ON memos(recipient,id DESC);"
+        "CREATE INDEX memos_recipient_unread ON memos(recipient,read_at);"
+        "CREATE INDEX memos_sender_id ON memos(sender,id DESC);"
+        "INSERT INTO memos(sender,recipient,text,created_at,read_at) "
+        "VALUES('Alice','Bob','legacy memo',12345,0);";
+
+    assert(sqlite3_open(path, &legacy) == SQLITE_OK);
+    assert(sqlite3_exec(legacy, sql, NULL, NULL, &error) == SQLITE_OK);
+    assert(error == NULL);
+    assert(!raw_column_exists(legacy, "sender_deleted"));
+    sqlite3_close(legacy);
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
+    char legacy_path[] = "/tmp/scratchircd-memoserv-legacy-XXXXXX";
     int fd = mkstemp(path);
+    int legacy_fd = mkstemp(legacy_path);
     MemoServDb db = {0};
     MemoServMemo memos[8];
     MemoServMemo memo;
@@ -61,8 +106,27 @@ int main(void) {
     fill_overlong(long_text, IRCD_MEMOSERV_TEXT_MAX, 'M');
 
     assert(fd >= 0);
+    assert(legacy_fd >= 0);
     close(fd);
+    close(legacy_fd);
     unlink(path);
+    unlink(legacy_path);
+
+    create_legacy_memoserv_db(legacy_path);
+    assert(memoserv_db_open(&db, legacy_path) == 0);
+    assert(raw_column_exists(db.handle, "sender_deleted"));
+    assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
+    assert(memoserv_db_list_sent(&db, "alice", memos, 8U, &count) == 0);
+    assert(count == 1U);
+    assert(memos[0].id == 1);
+    assert(strcmp(memos[0].recipient, "Bob") == 0);
+    assert(memoserv_db_delete_sent(&db, "Alice", 1) == 1);
+    assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
+    assert(count == 0U);
+    assert(memoserv_db_get(&db, "Bob", 1, &memo) == 1);
+    assert(strcmp(memo.text, "legacy memo") == 0);
+    memoserv_db_close(&db);
+    unlink(legacy_path);
 
     assert(memoserv_db_open(&db, path) == 0);
     assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
