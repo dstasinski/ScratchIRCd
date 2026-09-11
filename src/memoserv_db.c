@@ -51,6 +51,19 @@ static unsigned int memo_column_bit(const char *name) {
     return 0U;
 }
 
+static const char *memo_column_name(unsigned int bit) {
+    switch (bit) {
+    case MEMOSERV_COL_ID: return "id";
+    case MEMOSERV_COL_SENDER: return "sender";
+    case MEMOSERV_COL_RECIPIENT: return "recipient";
+    case MEMOSERV_COL_TEXT: return "text";
+    case MEMOSERV_COL_CREATED_AT: return "created_at";
+    case MEMOSERV_COL_READ_AT: return "read_at";
+    case MEMOSERV_COL_SENDER_DELETED: return "sender_deleted";
+    default: return "unknown";
+    }
+}
+
 static int load_memo_columns(sqlite3 *db, unsigned int *columns) {
     sqlite3_stmt *stmt = NULL;
     int rc;
@@ -68,14 +81,29 @@ static int load_memo_columns(sqlite3 *db, unsigned int *columns) {
 }
 
 static int validate_memo_columns(sqlite3 *db) {
-    static const unsigned int required =
-        MEMOSERV_COL_ID | MEMOSERV_COL_SENDER | MEMOSERV_COL_RECIPIENT |
-        MEMOSERV_COL_TEXT | MEMOSERV_COL_CREATED_AT | MEMOSERV_COL_READ_AT |
-        MEMOSERV_COL_SENDER_DELETED;
+    static const unsigned int required[] = {
+        MEMOSERV_COL_ID,
+        MEMOSERV_COL_SENDER,
+        MEMOSERV_COL_RECIPIENT,
+        MEMOSERV_COL_TEXT,
+        MEMOSERV_COL_CREATED_AT,
+        MEMOSERV_COL_READ_AT,
+        MEMOSERV_COL_SENDER_DELETED
+    };
     unsigned int columns = 0U;
+    size_t i;
+    int missing = 0;
 
     if (load_memo_columns(db, &columns) != 0) return -1;
-    return (columns & required) == required ? 0 : -1;
+    for (i = 0U; i < sizeof(required) / sizeof(required[0]); ++i) {
+        if ((columns & required[i]) == 0U) {
+            fprintf(stderr,
+                    "MemoServ database: incompatible memos schema missing %s column\n",
+                    memo_column_name(required[i]));
+            missing = 1;
+        }
+    }
+    return missing ? -1 : 0;
 }
 
 static int copy_text_column(sqlite3_stmt *stmt, int column,
