@@ -2,6 +2,7 @@
 """End-to-end coverage for virtual MemoServ persistence and restart lifecycle."""
 
 import os
+import re
 import socket
 import sqlite3
 import subprocess
@@ -68,6 +69,9 @@ def stop(proc):
         try: proc.wait(timeout=3.0)
         except subprocess.TimeoutExpired: proc.kill(); proc.wait(timeout=3.0)
 
+def assert_utc_timestamp(text):
+    assert re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", text), text
+
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: test_memoserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
@@ -105,7 +109,10 @@ def main():
             alice.send(f"MEMOSERV SEND Bob :{long_text}")
             second_line = alice.expect("sent to Bob"); second_id = int(second_line.split("#",1)[1].split(" ",1)[0])
             alice.send("MEMOSERV SEND Bob :Third memo"); alice.expect("Recipient memo box is full.")
-            alice.send("MEMOSERV SENT"); alice.expect("TO Bob")
+            alice.send("MEMOSERV SENT")
+            sent_unread_line = alice.expect("TO Bob UNREAD sent ")
+            assert " read " not in sent_unread_line, sent_unread_line
+            assert_utc_timestamp(sent_unread_line)
             alice.send("MEMOSERV STATUS"); alice.expect("Memos: 0/2 stored, 0 unread.")
         finally:
             if bob is not None: bob.close()
@@ -150,6 +157,10 @@ def main():
             alice2.send("IDENTIFY Alice alicepass"); alice2.expect("Password accepted - you are now identified.")
             alice2.send("MEMOSERV STATUS"); alice2.expect("Memos: 2/2 stored, 2 unread.")
             alice2.send("MEMOSERV LIST"); alice2.expect("UNREAD from Bob")
+            alice2.send("MEMOSERV SENT")
+            sent_read_line = alice2.expect("TO Bob READ sent ")
+            assert " read " in sent_read_line, sent_read_line
+            assert len(re.findall(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", sent_read_line)) == 2, sent_read_line
 
             # STATUS above warms the five-minute retention throttle. Insert an
             # already-expired memo directly into persistent storage; another
