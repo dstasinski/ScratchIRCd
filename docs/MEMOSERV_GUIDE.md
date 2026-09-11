@@ -45,6 +45,7 @@ After successful direct IDENTIFY, NickServ IDENTIFY, or SASL identification, Mem
 /MEMOSERV DELETE ALL
 /MEMOSERV STATUS
 /MEMOSERV HELP
+/MEMOSERV HELP <command>
 ```
 
 The traditional service-message form is also supported:
@@ -187,13 +188,29 @@ Memos: 4/100 stored, 2 unread.
 
 ## HELP
 
-Show the built-in command list:
+Show the built-in command overview:
 
 ```irc
 /MEMOSERV HELP
 ```
 
-The current built-in HELP reply is a concise one-line list. Expanded in-server help text is planned as a later polish item.
+Show help for one command:
+
+```irc
+/MEMOSERV HELP SEND
+/MEMOSERV HELP READ
+/MEMOSERV HELP DELETE
+```
+
+Unknown help topics produce a short syntax reminder instead of exposing internal state.
+
+## Account lifecycle
+
+MemoServ sends only to enabled NickServ accounts. Disabled accounts cannot receive new memos, and users cannot identify to disabled accounts to read existing memos.
+
+When a network administrator disables an account with `NSSET <account> ENABLED 0`, existing MemoServ rows are preserved. If the account is later re-enabled, its owner can identify again and manage its stored memos normally.
+
+When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient. This prevents dropped account names from leaving orphaned sent or received memo history behind.
 
 ## Retention
 
