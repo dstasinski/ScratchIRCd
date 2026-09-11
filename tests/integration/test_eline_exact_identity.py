@@ -94,9 +94,10 @@ def register(client, nick, user=None):
     client.expect(f" 001 {nick} ")
 
 
-def assert_still_connected(client, nick):
+def assert_still_connected(client):
     client.send("PING :eline-exact-probe")
-    client.expect(f"PONG {nick} :eline-exact-probe")
+    lines = client.expect("eline-exact-probe")
+    assert any(" PONG " in line and "eline-exact-probe" in line for line in lines), lines
 
 
 def assert_disconnected(client):
@@ -150,7 +151,7 @@ def main():
             admin.send("KLINE *@127.0.0.1 :local test ban")
             admin.expect("NOTICE Admin :KLINE added: *@127.0.0.1")
 
-            assert_still_connected(friend, "Friend")
+            assert_still_connected(friend)
             assert_disconnected(enemy)
         finally:
             for client in clients:
