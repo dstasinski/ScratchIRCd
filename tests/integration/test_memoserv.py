@@ -72,6 +72,21 @@ def stop(proc):
 def assert_utc_timestamp(text):
     assert re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", text), text
 
+def oper_as_netadmin(client, nick):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        client.send("OPER root adminpass")
+        lines = client.collect_for(1.0)
+        last_lines = lines
+        if any(f" 381 {nick} :You are now a Network Administrator" in line for line in lines):
+            return
+        if any(f" 263 {nick} OPER " in line for line in lines):
+            time.sleep(1.0)
+            continue
+        break
+    raise AssertionError(f"expected OPER success for {nick!r}; got {last_lines!r}")
+
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: test_memoserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
@@ -197,8 +212,7 @@ def main():
             # An in-process RESTART must clear the process-local maintenance
             # throttle. The first MemoServ access afterward should therefore
             # purge the expired row immediately, matching a clean process start.
-            alice2.send("OPER root adminpass")
-            alice2.expect(" 381 AliceAgain :You are now a Network Administrator")
+            oper_as_netadmin(alice2, "AliceAgain")
             alice2.send("RESTART")
             alice2.expect("NOTICE AliceAgain :Restarting ScratchIRCd")
             alice2.close(); alice2 = None
