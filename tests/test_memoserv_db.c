@@ -27,6 +27,20 @@ static void raw_set_memo_text(sqlite3 *db, const char *column,
     sqlite3_finalize(stmt);
 }
 
+static int raw_index_exists(sqlite3 *db, const char *name) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    assert(sqlite3_prepare_v2(db,
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?1",
+        -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    found = rc == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
     int fd = mkstemp(path);
@@ -51,6 +65,7 @@ int main(void) {
     unlink(path);
 
     assert(memoserv_db_open(&db, path) == 0);
+    assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
 
     /* Public writes must reject data that cannot round-trip through the fixed
      * MemoServ record structure. */
