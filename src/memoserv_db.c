@@ -63,6 +63,28 @@ static int fill_memo(sqlite3_stmt *stmt, MemoServMemo *memo) {
     return 0;
 }
 
+static int ensure_sender_deleted_column(sqlite3 *db) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+
+    if (db == NULL) return -1;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(memos)", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp((const char *)name, "sender_deleted") == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) return -1;
+    if (found) return 0;
+    return exec_sql(db,
+        "ALTER TABLE memos ADD COLUMN sender_deleted INTEGER NOT NULL DEFAULT 0;");
+}
+
 int memoserv_db_open(MemoServDb *db, const char *path) {
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS memos ("
@@ -71,7 +93,8 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "recipient TEXT COLLATE NOCASE NOT NULL,"
         "text TEXT NOT NULL,"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "read_at INTEGER NOT NULL DEFAULT 0"
+        "read_at INTEGER NOT NULL DEFAULT 0,"
+        "sender_deleted INTEGER NOT NULL DEFAULT 0"
         ");"
         "CREATE INDEX IF NOT EXISTS memos_recipient_id "
         "ON memos(recipient,id DESC);"
@@ -91,7 +114,8 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         memoserv_db_close(db);
         return -1;
     }
-    if (exec_sql(db->handle, schema) != 0) {
+    if (exec_sql(db->handle, schema) != 0 ||
+        ensure_sender_deleted_column(db->handle) != 0) {
         memoserv_db_close(db);
         return -1;
     }
