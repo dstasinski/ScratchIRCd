@@ -196,7 +196,7 @@ Hide all memos from your sent history:
 /MEMOSERV DELSENT ALL
 ```
 
-`DEL` and `DELETE` physically delete recipient-owned inbox memos. `DELSENT` only removes sender-side visibility from `SENT`; it does not remove the recipient's copy. The recipient can continue to LIST, READ, REPLY to, FORWARD, or delete the memo normally. Account deletion and retention cleanup can still physically remove sender-hidden rows.
+`DEL` and `DELETE` physically delete recipient-owned inbox memos. `DELSENT` only removes sender-side visibility from `SENT`; it does not remove the recipient's copy. The recipient can continue to LIST, READ, REPLY to, FORWARD, or delete the memo normally. Sender-hidden rows remain in storage only while the recipient still owns the memo. Recipient deletion, retention cleanup, or account deletion can physically remove those rows.
 
 Existing MemoServ databases are migrated automatically with a sender-history visibility field. Existing memos remain visible in `SENT` unless the sender later uses `DELSENT`.
 
@@ -243,7 +243,7 @@ When a network administrator deletes an account with `NSDROP <account>`, MemoSer
 
 ## Retention
 
-When `memoserv_retention_days` is nonzero, MemoServ can remove expired memos by creation time. Normal MemoServ activity may trigger retention cleanup, but the cleanup is throttled internally so ordinary commands do not run a global purge every time.
+When `memoserv_retention_days` is nonzero, MemoServ removes expired memo rows by creation time, including rows hidden from a sender's `SENT` view. Normal MemoServ activity may trigger retention cleanup, but the cleanup is throttled internally so ordinary commands do not run a global purge every time.
 
 ## Network-administrator commands
 
