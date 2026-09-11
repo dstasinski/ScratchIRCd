@@ -274,6 +274,7 @@ static void list_records(Server *server, Client *client, int sent) {
     size_t count = 0U, i;
     char line[IRCD_OUTPUT_BUFFER_SIZE];
     char created_at[sizeof("YYYY-MM-DDTHH:MM:SSZ")];
+    char read_at[sizeof("YYYY-MM-DDTHH:MM:SSZ")];
     if (!require_account(server, client)) return;
     db = memo_db(server);
     if (db == NULL) {
@@ -289,14 +290,22 @@ static void list_records(Server *server, Client *client, int sent) {
     if (count == 0U) { ms_notice(server, client, sent ? "You have no sent memos." : "You have no memos."); return; }
     for (i = 0U; i < count; ++i) {
         format_memo_time(memos[i].created_at, created_at, sizeof(created_at));
-        if (sent)
-            (void)snprintf(line, sizeof(line), "#%lld TO %s %s at %s",
-                           memos[i].id, memos[i].recipient,
-                           memos[i].read_at == 0 ? "UNREAD" : "READ", created_at);
-        else
+        if (sent) {
+            if (memos[i].read_at != 0) {
+                format_memo_time(memos[i].read_at, read_at, sizeof(read_at));
+                (void)snprintf(line, sizeof(line),
+                               "#%lld TO %s READ sent %s read %s",
+                               memos[i].id, memos[i].recipient, created_at, read_at);
+            } else {
+                (void)snprintf(line, sizeof(line),
+                               "#%lld TO %s UNREAD sent %s",
+                               memos[i].id, memos[i].recipient, created_at);
+            }
+        } else {
             (void)snprintf(line, sizeof(line), "#%lld %s from %s at %s",
                            memos[i].id, memos[i].read_at == 0 ? "UNREAD" : "READ",
                            memos[i].sender, created_at);
+        }
         ms_notice(server, client, line);
     }
 }
@@ -373,7 +382,7 @@ static void command_help(Server *server, Client *client, char *params) {
         else if (strcasecmp(topic, "LIST") == 0)
             ms_notice(server, client, "LIST - show received memos with READ or UNREAD state.");
         else if (strcasecmp(topic, "SENT") == 0)
-            ms_notice(server, client, "SENT - show memos you have sent.");
+            ms_notice(server, client, "SENT - show memos you have sent, including whether the recipient has read them.");
         else if (strcasecmp(topic, "READ") == 0)
             ms_notice(server, client, "READ <memo-id> - read a received memo and mark it read.");
         else if (strcasecmp(topic, "REPLY") == 0)
