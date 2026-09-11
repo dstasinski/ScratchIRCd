@@ -45,6 +45,10 @@ int memoserv_db_delete(MemoServDb *db, const char *recipient,
                        long long memo_id);
 int memoserv_db_delete_all(MemoServDb *db, const char *recipient);
 
+/** Delete all memos sent by or received by account. */
+int memoserv_db_delete_account(MemoServDb *db, const char *account,
+                               size_t *deleted);
+
 /** Delete memos older than cutoff; recipient may be NULL to purge globally. */
 int memoserv_db_purge_before(MemoServDb *db, const char *recipient,
                              long long cutoff, size_t *deleted);
