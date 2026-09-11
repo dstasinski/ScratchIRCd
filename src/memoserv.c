@@ -293,12 +293,10 @@ static void list_records(Server *server, Client *client, int sent) {
         if (sent) {
             if (memos[i].read_at != 0) {
                 format_memo_time(memos[i].read_at, read_at, sizeof(read_at));
-                (void)snprintf(line, sizeof(line),
-                               "#%lld TO %s READ sent %s read %s",
+                (void)snprintf(line, sizeof(line), "#%lld TO %s READ sent %s read %s",
                                memos[i].id, memos[i].recipient, created_at, read_at);
             } else {
-                (void)snprintf(line, sizeof(line),
-                               "#%lld TO %s UNREAD sent %s",
+                (void)snprintf(line, sizeof(line), "#%lld TO %s UNREAD sent %s",
                                memos[i].id, memos[i].recipient, created_at);
             }
         } else {
@@ -343,6 +341,21 @@ static void command_delete(Server *server, Client *client, char *params) {
     ms_notice(server, client, rc == 1 ? "Memo deleted." : rc == 0 ? "No such memo." : "Memo deletion failed.");
 }
 
+static void command_delete_sent(Server *server, Client *client, char *params) {
+    MemoServDb *db; char *what = params != NULL ? strtok(params, " ") : NULL; long long id; int rc;
+    if (!require_account(server, client)) return;
+    if (what == NULL) { ms_notice(server, client, "Syntax: DELSENT <memo-id|ALL>"); return; }
+    db = memo_db(server);
+    if (db == NULL) { ms_notice(server, client, "Memo database is unavailable."); return; }
+    if (strcasecmp(what, "ALL") == 0) {
+        rc = memoserv_db_delete_all_sent(db, client->account_name);
+        ms_notice(server, client, rc == 0 ? "All sent memos deleted." : "Sent memo deletion failed."); return;
+    }
+    if (parse_id(what, &id) != 0) { ms_notice(server, client, "Syntax: DELSENT <memo-id|ALL>"); return; }
+    rc = memoserv_db_delete_sent(db, client->account_name, id);
+    ms_notice(server, client, rc == 1 ? "Sent memo deleted." : rc == 0 ? "No such sent memo." : "Sent memo deletion failed.");
+}
+
 static void command_reply(Server *server, Client *client, char *params) {
     MemoServDb *db; MemoServMemo memo; long long id, new_id = 0; char *id_text, *text; char line[IRCD_OUTPUT_BUFFER_SIZE];
     if (!require_account(server, client)) return;
@@ -382,7 +395,7 @@ static void command_help(Server *server, Client *client, char *params) {
         else if (strcasecmp(topic, "LIST") == 0)
             ms_notice(server, client, "LIST - show received memos with READ or UNREAD state.");
         else if (strcasecmp(topic, "SENT") == 0)
-            ms_notice(server, client, "SENT - show memos you have sent, including whether the recipient has read them.");
+            ms_notice(server, client, "SENT - show sent memos and whether recipients have read them.");
         else if (strcasecmp(topic, "READ") == 0)
             ms_notice(server, client, "READ <memo-id> - read a received memo and mark it read.");
         else if (strcasecmp(topic, "REPLY") == 0)
@@ -391,6 +404,8 @@ static void command_help(Server *server, Client *client, char *params) {
             ms_notice(server, client, "FORWARD <memo-id> <account> - forward memo text to another enabled account.");
         else if (strcasecmp(topic, "DEL") == 0 || strcasecmp(topic, "DELETE") == 0)
             ms_notice(server, client, "DEL <memo-id>|ALL - delete one or all received memos.");
+        else if (strcasecmp(topic, "DELSENT") == 0)
+            ms_notice(server, client, "DELSENT <memo-id>|ALL - delete one or all sent-history memos.");
         else if (strcasecmp(topic, "STATUS") == 0)
             ms_notice(server, client, "STATUS - show stored and unread memo counts.");
         else
@@ -398,7 +413,7 @@ static void command_help(Server *server, Client *client, char *params) {
         return;
     }
     ms_notice(server, client, "MemoServ commands require an identified NickServ account.");
-    ms_notice(server, client, "Commands: SEND, LIST, SENT, READ, REPLY, FORWARD, DEL, STATUS, HELP");
+    ms_notice(server, client, "Commands: SEND, LIST, SENT, READ, REPLY, FORWARD, DEL, DELSENT, STATUS, HELP");
     ms_notice(server, client, "Use /MEMOSERV HELP <command> for command-specific help.");
     ms_notice(server, client, "You can also use: PRIVMSG MemoServ :<command>.");
 }
@@ -414,6 +429,7 @@ void memoserv_handle_message(Server *server, Client *client, char *text) {
     else if (strcasecmp(command, "REPLY") == 0) command_reply(server, client, params);
     else if (strcasecmp(command, "FORWARD") == 0) command_forward(server, client, params);
     else if (strcasecmp(command, "DEL") == 0 || strcasecmp(command, "DELETE") == 0) command_delete(server, client, params);
+    else if (strcasecmp(command, "DELSENT") == 0) command_delete_sent(server, client, params);
     else if (strcasecmp(command, "STATUS") == 0) command_status(server, client);
     else if (strcasecmp(command, "HELP") == 0) command_help(server, client, params);
     else ms_notice(server, client, "Unknown MemoServ command. Use /MEMOSERV HELP.");
