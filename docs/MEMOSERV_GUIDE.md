@@ -43,6 +43,8 @@ After successful direct IDENTIFY, NickServ IDENTIFY, or SASL identification, Mem
 /MEMOSERV DEL ALL
 /MEMOSERV DELETE <memo-id>
 /MEMOSERV DELETE ALL
+/MEMOSERV DELSENT <memo-id>
+/MEMOSERV DELSENT ALL
 /MEMOSERV STATUS
 /MEMOSERV HELP
 /MEMOSERV HELP <command>
@@ -166,7 +168,7 @@ Forward a received memo to another enabled NickServ account:
 
 The forwarded memo is stored as a new memo from the forwarding account. The original memo text is reused.
 
-## DEL and DELETE
+## DEL, DELETE, and DELSENT
 
 Delete one received memo:
 
@@ -182,7 +184,19 @@ Delete all received memos:
 
 `DELETE` is accepted as an alias for `DEL`.
 
-Deletion affects recipient-owned inbox memos. `SENT` can show sent history, but there is not currently a separate command for deleting only sent-history entries.
+Delete one sent-history memo:
+
+```irc
+/MEMOSERV DELSENT 13
+```
+
+Delete all sent-history memos:
+
+```irc
+/MEMOSERV DELSENT ALL
+```
+
+`DEL` and `DELETE` affect recipient-owned inbox memos. `DELSENT` affects sender-owned sent-history rows. Deleting a sent-history row removes that memo record from storage, so the recipient will no longer be able to read that same memo record after it is deleted by the sender.
 
 ## STATUS
 
@@ -212,6 +226,7 @@ Show help for one command:
 /MEMOSERV HELP SEND
 /MEMOSERV HELP READ
 /MEMOSERV HELP DELETE
+/MEMOSERV HELP DELSENT
 ```
 
 Unknown help topics produce a short syntax reminder instead of exposing internal state.
