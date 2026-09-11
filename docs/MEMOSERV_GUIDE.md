@@ -112,10 +112,16 @@ Show sent memos:
 /MEMOSERV SENT
 ```
 
-A sent memo row currently looks like this:
+Unread sent memo rows show when the memo was sent:
 
 ```text
-#13 TO Bob READ at 2026-09-11T13:46:00Z
+#13 TO Bob UNREAD sent 2026-09-11T13:46:00Z
+```
+
+Read sent memo rows show both the sent time and the recipient read time:
+
+```text
+#13 TO Bob READ sent 2026-09-11T13:46:00Z read 2026-09-11T14:02:00Z
 ```
 
 `LIST` and `SENT` show at most the configured internal list limit for one reply set. User-facing memo timestamps are formatted as UTC text using `YYYY-MM-DDTHH:MM:SSZ`. MemoServ still stores timestamps internally as integer Unix epoch values.
