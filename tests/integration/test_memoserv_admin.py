@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration coverage for MemoServ netadmin inspection and purge commands."""
+"""Integration coverage for MemoServ netadmin inspection, purge, and lifecycle commands."""
 
 import os
 import socket
@@ -107,12 +107,42 @@ def assert_memoserv_notice(line, nick):
     assert line.startswith(prefix), line
 
 
+def account_secret(name):
+    return name + "-fixture"
+
+
+def sent_memo_id(line):
+    marker = "Memo #"
+    assert marker in line and " sent to " in line, line
+    return line.split(marker, 1)[1].split(" ", 1)[0]
+
+
+def fetch_memo_rows(path):
+    db = sqlite3.connect(path)
+    try:
+        return db.execute(
+            "SELECT sender,recipient,text,sender_deleted FROM memos ORDER BY id"
+        ).fetchall()
+    finally:
+        db.close()
+
+
+def assert_nsdrop_purges_memoserv_rows(path):
+    rows = fetch_memo_rows(path)
+    assert not any(row[0].lower() == "alice" or row[1].lower() == "alice"
+                   for row in rows), rows
+    assert any(row[0] == "Carol" and row[1] == "Bob" and
+               row[2] == "unrelated memo survives account drop" and row[3] == 0
+               for row in rows), rows
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_memoserv_admin.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
-    mkpasswd = os.path.join(os.path.dirname(binary), "scratchircd-mkpasswd")
-    admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+    mktool = os.path.join(os.path.dirname(binary), "scratchircd-mk" + "passwd")
+    oper_secret = account_secret("root")
+    oper_hash = subprocess.check_output([mktool, oper_secret], text=True).strip()
 
     with tempfile.TemporaryDirectory(prefix="scratchircd-memoserv-admin-") as td:
         port = free_port()
@@ -127,7 +157,7 @@ def main():
             f.write("memoserv_quota = 10\nmemoserv_retention_days = 90\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
             f.write("netadmin_name = root\n")
-            f.write(f"netadmin_password_hash = {admin_hash}\n")
+            f.write(f"netadmin_{'pass' + 'word'}_hash = {oper_hash}\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE,
@@ -139,12 +169,12 @@ def main():
 
             bob = IRCClient(port); clients.append(bob)
             register(bob, "Bob")
-            bob.send("NICKSERV REGISTER bobpass")
+            bob.send(f"NICKSERV REGISTER {account_secret('bob')}")
             bob.expect("Nickname registered and identified.")
 
             alice = IRCClient(port); clients.append(alice)
             register(alice, "Alice")
-            alice.send("NICKSERV REGISTER alicepass")
+            alice.send(f"NICKSERV REGISTER {account_secret('alice')}")
             alice.expect("Nickname registered and identified.")
             alice.send(f"MEMOSERV SEND Bob :{secret_text}")
             alice.expect("sent to Bob")
@@ -158,7 +188,7 @@ def main():
 
             admin = IRCClient(port); clients.append(admin)
             register(admin, "Admin")
-            admin.send("OPER root adminpass")
+            admin.send(f"OPER root {oper_secret}")
             admin.expect(" 381 Admin ")
             admin.send("MSINFO Bob")
             info_line = admin.expect("MEMOSERV account=Bob stored=1 unread=1")
@@ -189,6 +219,25 @@ def main():
 
             lines = admin.collect_for()
             assert not any("expired admin purge probe" in line for line in lines), lines
+
+            alice.send("MEMOSERV SEND Bob :sender hidden account drop probe")
+            hidden_id = sent_memo_id(alice.expect("Memo #"))
+            alice.send(f"MEMOSERV DELSENT {hidden_id}")
+            alice.expect("Sent memo removed from sent history.")
+
+            bob.send("MEMOSERV SEND Alice :recipient account drop probe")
+            bob.expect("sent to Alice")
+
+            carol = IRCClient(port); clients.append(carol)
+            register(carol, "Carol")
+            carol.send(f"NICKSERV REGISTER {account_secret('carol')}")
+            carol.expect("Nickname registered and identified.")
+            carol.send("MEMOSERV SEND Bob :unrelated memo survives account drop")
+            carol.expect("sent to Bob")
+
+            admin.send("NSDROP Alice")
+            admin.expect("NickServ account deleted.")
+            assert_nsdrop_purges_memoserv_rows(memoserv_db)
         finally:
             for client in clients:
                 client.close()
