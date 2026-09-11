@@ -178,14 +178,14 @@ def main():
             assert len(re.findall(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", sent_read_line)) == 2, sent_read_line
 
             alice2.send(f"MEMOSERV DELSENT {first_id}")
-            alice2.expect("Sent memo deleted.")
+            alice2.expect("Sent memo removed from sent history.")
             alice2.send("MEMOSERV SENT")
             sent_lines = alice2.collect_for(1.0)
             assert not any(f"#{first_id} TO Bob" in line for line in sent_lines), sent_lines
             assert any(f"#{second_id} TO Bob READ sent " in line for line in sent_lines), sent_lines
 
             alice2.send("MEMOSERV DELSENT ALL")
-            alice2.expect("All sent memos deleted.")
+            alice2.expect("All sent memos removed from sent history.")
             alice2.send("MEMOSERV SENT")
             alice2.expect("You have no sent memos.")
             alice2.send("MEMOSERV STATUS")
