@@ -112,6 +112,21 @@ static int parse_id(const char *text, long long *value) {
     return 0;
 }
 
+static void format_memo_time(long long when, char *buffer, size_t buffer_size) {
+    time_t timestamp;
+    struct tm utc;
+
+    if (buffer == NULL || buffer_size == 0U) return;
+    if (when <= 0) {
+        (void)snprintf(buffer, buffer_size, "unknown");
+        return;
+    }
+    timestamp = (time_t)when;
+    if ((long long)timestamp != when || gmtime_r(&timestamp, &utc) == NULL ||
+        strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc) == 0U)
+        (void)snprintf(buffer, buffer_size, "unknown");
+}
+
 /* Retention is maintenance work, not part of the semantics of each individual
  * MemoServ command. Run the global DELETE at most once every five minutes per
  * configured database/retention policy. A path or retention change forces an
@@ -258,6 +273,7 @@ static void list_records(Server *server, Client *client, int sent) {
     MemoServMemo memos[IRCD_MEMOSERV_LIST_LIMIT];
     size_t count = 0U, i;
     char line[IRCD_OUTPUT_BUFFER_SIZE];
+    char created_at[sizeof("YYYY-MM-DDTHH:MM:SSZ")];
     if (!require_account(server, client)) return;
     db = memo_db(server);
     if (db == NULL) {
@@ -272,20 +288,22 @@ static void list_records(Server *server, Client *client, int sent) {
     }
     if (count == 0U) { ms_notice(server, client, sent ? "You have no sent memos." : "You have no memos."); return; }
     for (i = 0U; i < count; ++i) {
+        format_memo_time(memos[i].created_at, created_at, sizeof(created_at));
         if (sent)
-            (void)snprintf(line, sizeof(line), "#%lld TO %s %s at %lld",
+            (void)snprintf(line, sizeof(line), "#%lld TO %s %s at %s",
                            memos[i].id, memos[i].recipient,
-                           memos[i].read_at == 0 ? "UNREAD" : "READ", memos[i].created_at);
+                           memos[i].read_at == 0 ? "UNREAD" : "READ", created_at);
         else
-            (void)snprintf(line, sizeof(line), "#%lld %s from %s at %lld",
+            (void)snprintf(line, sizeof(line), "#%lld %s from %s at %s",
                            memos[i].id, memos[i].read_at == 0 ? "UNREAD" : "READ",
-                           memos[i].sender, memos[i].created_at);
+                           memos[i].sender, created_at);
         ms_notice(server, client, line);
     }
 }
 
 static void command_read(Server *server, Client *client, char *params) {
     MemoServDb *db; MemoServMemo memo; long long id; char line[IRCD_OUTPUT_BUFFER_SIZE]; int found;
+    char created_at[sizeof("YYYY-MM-DDTHH:MM:SSZ")];
     char *id_text = params != NULL ? strtok(params, " ") : NULL;
     if (!require_account(server, client)) return;
     if (parse_id(id_text, &id) != 0) { ms_notice(server, client, "Syntax: READ <memo-id>"); return; }
@@ -295,7 +313,9 @@ static void command_read(Server *server, Client *client, char *params) {
     found = memoserv_db_get(db, client->account_name, id, &memo);
     if (found != 1) { ms_notice(server, client, found == 0 ? "No such memo." : "Memo lookup failed."); return; }
     (void)memoserv_db_mark_read(db, client->account_name, id, (long long)time(NULL));
-    (void)snprintf(line, sizeof(line), "Memo #%lld from %s at %lld: %s", memo.id, memo.sender, memo.created_at, memo.text);
+    format_memo_time(memo.created_at, created_at, sizeof(created_at));
+    (void)snprintf(line, sizeof(line), "Memo #%lld from %s at %s: %s",
+                   memo.id, memo.sender, created_at, memo.text);
     ms_notice(server, client, line);
 }
 
