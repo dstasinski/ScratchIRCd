@@ -73,7 +73,7 @@ int memoserv_db_list_sent(MemoServDb *db, const char *sender,
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE sender=?1 ORDER BY id DESC LIMIT ?2",
+        "WHERE sender=?1 AND sender_deleted=0 ORDER BY id DESC LIMIT ?2",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
@@ -98,7 +98,7 @@ int memoserv_db_get_sent(MemoServDb *db, const char *sender,
         memo == NULL || memo_id <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE sender=?1 AND id=?2",
+        "WHERE sender=?1 AND id=?2 AND sender_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, memo_id);
@@ -118,7 +118,8 @@ int memoserv_db_delete_sent(MemoServDb *db, const char *sender,
     int changed;
     if (db == NULL || db->handle == NULL || !account_arg_fits(sender) || memo_id <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
-        "DELETE FROM memos WHERE sender=?1 AND id=?2",
+        "UPDATE memos SET sender_deleted=1 "
+        "WHERE sender=?1 AND id=?2 AND sender_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
@@ -133,7 +134,7 @@ int memoserv_db_delete_all_sent(MemoServDb *db, const char *sender) {
     int rc;
     if (db == NULL || db->handle == NULL || !account_arg_fits(sender)) return -1;
     if (sqlite3_prepare_v2(db->handle,
-        "DELETE FROM memos WHERE sender=?1",
+        "UPDATE memos SET sender_deleted=1 WHERE sender=?1 AND sender_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
