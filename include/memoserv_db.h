@@ -44,6 +44,9 @@ int memoserv_db_mark_read(MemoServDb *db, const char *recipient,
 int memoserv_db_delete(MemoServDb *db, const char *recipient,
                        long long memo_id);
 int memoserv_db_delete_all(MemoServDb *db, const char *recipient);
+int memoserv_db_delete_sent(MemoServDb *db, const char *sender,
+                            long long memo_id);
+int memoserv_db_delete_all_sent(MemoServDb *db, const char *sender);
 
 /** Delete all memos sent by or received by account. */
 int memoserv_db_delete_account(MemoServDb *db, const char *account,
