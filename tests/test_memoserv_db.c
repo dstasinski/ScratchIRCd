@@ -41,6 +41,7 @@ int main(void) {
     long long first = 0;
     long long second = 0;
     long long third = 0;
+    long long fourth = 0;
 
     fill_overlong(long_account, IRC_NICK_MAX, 'A');
     fill_overlong(long_text, IRCD_MEMOSERV_TEXT_MAX, 'M');
@@ -87,6 +88,29 @@ int main(void) {
     assert(strcmp(memo.text, "first memo") == 0);
     assert(memo.read_at == 0);
     assert(memoserv_db_get(&db, "Alice", first, &memo) == 0);
+
+    /* Sent-history deletion is sender-owned and does not delete unrelated
+     * inbox rows. */
+    assert(memoserv_db_delete_sent(&db, "Mallory", third) == 0);
+    assert(memoserv_db_delete_sent(&db, "ALICE", third) == 1);
+    assert(memoserv_db_get_sent(&db, "Alice", third, &memo) == 0);
+    assert(memoserv_db_count(&db, "Dave", &count) == 0);
+    assert(count == 0U);
+    assert(memoserv_db_count(&db, "Bob", &count) == 0);
+    assert(count == 2U);
+
+    assert(memoserv_db_send(&db, "Alice", "Erin", "another sent memo", &fourth) == 0);
+    assert(fourth > third);
+    assert(memoserv_db_delete_all_sent(&db, "ALICE") == 0);
+    assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
+    assert(count == 0U);
+    assert(memoserv_db_count(&db, "Bob", &count) == 0);
+    assert(count == 1U);
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
+
+    /* Recreate an Alice-owned row for corruption and account-purge checks. */
+    assert(memoserv_db_send(&db, "Alice", "Dave", "sent memo", &third) == 0);
 
     /* Legacy/external corruption must fail closed rather than returning a
      * clipped or multi-line sender, recipient, or memo body. */
