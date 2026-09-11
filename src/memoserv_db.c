@@ -101,9 +101,7 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
         "ON memos(recipient,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
-        "ON memos(sender,id DESC);"
-        "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
-        "ON memos(sender,sender_deleted,id DESC);";
+        "ON memos(sender,id DESC);";
 
     if (db == NULL || path == NULL || *path == '\0') return -1;
     db->handle = NULL;
