@@ -127,12 +127,6 @@ static void format_memo_time(long long when, char *buffer, size_t buffer_size) {
         (void)snprintf(buffer, buffer_size, "unknown");
 }
 
-/* Retention is maintenance work, not part of the semantics of each individual
- * MemoServ command. Run the global DELETE at most once every five minutes per
- * configured database/retention policy. A path or retention change forces an
- * immediate pass. Failed purges are not cached, so the next operation retries.
- * Runtime throttle state is module-local so the server lifecycle can reset it
- * and make in-process RESTART behave like a fresh process. */
 static void purge_expired(Server *server, MemoServDb *db) {
     long long cutoff;
     time_t now;
@@ -349,11 +343,11 @@ static void command_delete_sent(Server *server, Client *client, char *params) {
     if (db == NULL) { ms_notice(server, client, "Memo database is unavailable."); return; }
     if (strcasecmp(what, "ALL") == 0) {
         rc = memoserv_db_delete_all_sent(db, client->account_name);
-        ms_notice(server, client, rc == 0 ? "All sent memos deleted." : "Sent memo deletion failed."); return;
+        ms_notice(server, client, rc == 0 ? "All sent memos removed from sent history." : "Sent-history update failed."); return;
     }
     if (parse_id(what, &id) != 0) { ms_notice(server, client, "Syntax: DELSENT <memo-id|ALL>"); return; }
     rc = memoserv_db_delete_sent(db, client->account_name, id);
-    ms_notice(server, client, rc == 1 ? "Sent memo deleted." : rc == 0 ? "No such sent memo." : "Sent memo deletion failed.");
+    ms_notice(server, client, rc == 1 ? "Sent memo removed from sent history." : rc == 0 ? "No such sent memo." : "Sent-history update failed.");
 }
 
 static void command_reply(Server *server, Client *client, char *params) {
@@ -405,7 +399,7 @@ static void command_help(Server *server, Client *client, char *params) {
         else if (strcasecmp(topic, "DEL") == 0 || strcasecmp(topic, "DELETE") == 0)
             ms_notice(server, client, "DEL <memo-id>|ALL - delete one or all received memos.");
         else if (strcasecmp(topic, "DELSENT") == 0)
-            ms_notice(server, client, "DELSENT <memo-id>|ALL - delete one or all sent-history memos.");
+            ms_notice(server, client, "DELSENT <memo-id>|ALL - remove one or all memos from your sent history.");
         else if (strcasecmp(topic, "STATUS") == 0)
             ms_notice(server, client, "STATUS - show stored and unread memo counts.");
         else
