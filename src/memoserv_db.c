@@ -9,6 +9,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#define MEMOSERV_COL_ID             0x01U
+#define MEMOSERV_COL_SENDER         0x02U
+#define MEMOSERV_COL_RECIPIENT      0x04U
+#define MEMOSERV_COL_TEXT           0x08U
+#define MEMOSERV_COL_CREATED_AT     0x10U
+#define MEMOSERV_COL_READ_AT        0x20U
+#define MEMOSERV_COL_SENDER_DELETED 0x40U
+
 static int exec_sql(sqlite3 *db, const char *sql) {
     char *error = NULL;
     int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
@@ -29,6 +37,45 @@ static int account_arg_fits(const char *account) {
     if (account == NULL) return 0;
     length = strlen(account);
     return length != 0U && length <= IRC_NICK_MAX && !has_line_break(account);
+}
+
+static unsigned int memo_column_bit(const char *name) {
+    if (name == NULL) return 0U;
+    if (strcmp(name, "id") == 0) return MEMOSERV_COL_ID;
+    if (strcmp(name, "sender") == 0) return MEMOSERV_COL_SENDER;
+    if (strcmp(name, "recipient") == 0) return MEMOSERV_COL_RECIPIENT;
+    if (strcmp(name, "text") == 0) return MEMOSERV_COL_TEXT;
+    if (strcmp(name, "created_at") == 0) return MEMOSERV_COL_CREATED_AT;
+    if (strcmp(name, "read_at") == 0) return MEMOSERV_COL_READ_AT;
+    if (strcmp(name, "sender_deleted") == 0) return MEMOSERV_COL_SENDER_DELETED;
+    return 0U;
+}
+
+static int load_memo_columns(sqlite3 *db, unsigned int *columns) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+
+    if (db == NULL || columns == NULL) return -1;
+    *columns = 0U;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(memos)", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        *columns |= memo_column_bit((const char *)name);
+    }
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int validate_memo_columns(sqlite3 *db) {
+    static const unsigned int required =
+        MEMOSERV_COL_ID | MEMOSERV_COL_SENDER | MEMOSERV_COL_RECIPIENT |
+        MEMOSERV_COL_TEXT | MEMOSERV_COL_CREATED_AT | MEMOSERV_COL_READ_AT |
+        MEMOSERV_COL_SENDER_DELETED;
+    unsigned int columns = 0U;
+
+    if (load_memo_columns(db, &columns) != 0) return -1;
+    return (columns & required) == required ? 0 : -1;
 }
 
 static int copy_text_column(sqlite3_stmt *stmt, int column,
@@ -64,23 +111,10 @@ static int fill_memo(sqlite3_stmt *stmt, MemoServMemo *memo) {
 }
 
 static int ensure_sender_deleted_column(sqlite3 *db) {
-    sqlite3_stmt *stmt = NULL;
-    int rc;
-    int found = 0;
+    unsigned int columns = 0U;
 
-    if (db == NULL) return -1;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(memos)", -1, &stmt, NULL) != SQLITE_OK)
-        return -1;
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        const unsigned char *name = sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp((const char *)name, "sender_deleted") == 0) {
-            found = 1;
-            break;
-        }
-    }
-    sqlite3_finalize(stmt);
-    if (rc != SQLITE_ROW && rc != SQLITE_DONE) return -1;
-    if (found) return 0;
+    if (load_memo_columns(db, &columns) != 0) return -1;
+    if ((columns & MEMOSERV_COL_SENDER_DELETED) != 0U) return 0;
     return exec_sql(db,
         "ALTER TABLE memos ADD COLUMN sender_deleted INTEGER NOT NULL DEFAULT 0;");
 }
@@ -116,6 +150,7 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
     }
     if (exec_sql(db->handle, schema) != 0 ||
         ensure_sender_deleted_column(db->handle) != 0 ||
+        validate_memo_columns(db->handle) != 0 ||
         exec_sql(db->handle,
                  "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
                  "ON memos(sender,sender_deleted,id DESC);") != 0) {
