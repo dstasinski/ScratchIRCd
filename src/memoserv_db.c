@@ -101,7 +101,9 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
         "ON memos(recipient,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
-        "ON memos(sender,id DESC);";
+        "ON memos(sender,id DESC);"
+        "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
+        "ON memos(sender,sender_deleted,id DESC);";
 
     if (db == NULL || path == NULL || *path == '\0') return -1;
     db->handle = NULL;
@@ -115,7 +117,10 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         return -1;
     }
     if (exec_sql(db->handle, schema) != 0 ||
-        ensure_sender_deleted_column(db->handle) != 0) {
+        ensure_sender_deleted_column(db->handle) != 0 ||
+        exec_sql(db->handle,
+                 "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
+                 "ON memos(sender,sender_deleted,id DESC);") != 0) {
         memoserv_db_close(db);
         return -1;
     }
