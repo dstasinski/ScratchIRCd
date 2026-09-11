@@ -148,10 +148,11 @@ static int ensure_sender_deleted_column(sqlite3 *db) {
 }
 
 int memoserv_db_open(MemoServDb *db, const char *path) {
-    /* Keep this batch compatible with both fresh databases and the oldest
-     * supported MemoServ table shape. Indexes that reference migrated columns
-     * must be created only after ensure_sender_deleted_column() succeeds. */
-    static const char schema[] =
+    /* Fresh databases and the oldest supported MemoServ table shape both pass
+     * through this table-creation batch. Do not create indexes here: indexes
+     * may reference columns that a legacy table must add during migration, and
+     * broken tables should reach validate_memo_columns() for clear diagnostics. */
+    static const char table_schema[] =
         "CREATE TABLE IF NOT EXISTS memos ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "sender TEXT COLLATE NOCASE NOT NULL,"
@@ -160,13 +161,16 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "read_at INTEGER NOT NULL DEFAULT 0,"
         "sender_deleted INTEGER NOT NULL DEFAULT 0"
-        ");"
+        ");";
+    static const char index_schema[] =
         "CREATE INDEX IF NOT EXISTS memos_recipient_id "
         "ON memos(recipient,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
         "ON memos(recipient,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
-        "ON memos(sender,id DESC);";
+        "ON memos(sender,id DESC);"
+        "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
+        "ON memos(sender,sender_deleted,id DESC);";
 
     if (db == NULL || path == NULL || *path == '\0') return -1;
     db->handle = NULL;
@@ -179,12 +183,10 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         memoserv_db_close(db);
         return -1;
     }
-    if (exec_sql(db->handle, schema) != 0 ||
+    if (exec_sql(db->handle, table_schema) != 0 ||
         ensure_sender_deleted_column(db->handle) != 0 ||
         validate_memo_columns(db->handle) != 0 ||
-        exec_sql(db->handle,
-                 "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
-                 "ON memos(sender,sender_deleted,id DESC);") != 0) {
+        exec_sql(db->handle, index_schema) != 0) {
         memoserv_db_close(db);
         return -1;
     }
