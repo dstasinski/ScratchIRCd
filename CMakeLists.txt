@@ -296,6 +296,8 @@ add_test(NAME eline_connection_limit_integration COMMAND ${Python3_EXECUTABLE} $
 set_tests_properties(eline_connection_limit_integration PROPERTIES TIMEOUT 60)
 add_test(NAME eline_exact_identity_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_eline_exact_identity.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(eline_exact_identity_integration PROPERTIES TIMEOUT 60)
+add_test(NAME reserved_nicks_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_reserved_nicks.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(reserved_nicks_integration PROPERTIES TIMEOUT 60)
 add_test(NAME channel_authority_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_authority.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(channel_authority_integration PROPERTIES TIMEOUT 60)
 add_test(NAME kick_lifecycle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_kick_lifecycle.py $<TARGET_FILE:scratchircd>)
