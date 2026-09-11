@@ -103,7 +103,7 @@ Show received memos:
 A received memo row currently looks like this:
 
 ```text
-#12 UNREAD from Alice at 1789012345
+#12 UNREAD from Alice at 2026-09-11T13:45:00Z
 ```
 
 Show sent memos:
@@ -115,10 +115,10 @@ Show sent memos:
 A sent memo row currently looks like this:
 
 ```text
-#13 TO Bob READ at 1789012400
+#13 TO Bob READ at 2026-09-11T13:46:00Z
 ```
 
-`LIST` and `SENT` show at most the configured internal list limit for one reply set. Current timestamps are Unix epoch values. Human-readable timestamp formatting is planned for a later MemoServ polish pass.
+`LIST` and `SENT` show at most the configured internal list limit for one reply set. User-facing memo timestamps are formatted as UTC text using `YYYY-MM-DDTHH:MM:SSZ`. MemoServ still stores timestamps internally as integer Unix epoch values.
 
 ## READ
 
@@ -132,6 +132,12 @@ Only the recipient account can read a memo. Reading marks it read. If the memo d
 
 ```text
 No such memo.
+```
+
+A read reply includes the memo creation time in UTC text:
+
+```text
+Memo #12 from Alice at 2026-09-11T13:45:00Z: Please check the channel policy when you get back.
 ```
 
 ## REPLY
