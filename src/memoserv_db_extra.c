@@ -111,6 +111,21 @@ int memoserv_db_get_sent(MemoServDb *db, const char *sender,
     return rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
 }
 
+int memoserv_db_delete_account(MemoServDb *db, const char *account,
+                               size_t *deleted) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(account)) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+        "DELETE FROM memos WHERE sender=?1 OR recipient=?1",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_text(stmt, 1, account, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    if (deleted != NULL) *deleted = rc == SQLITE_DONE ? (size_t)sqlite3_changes(db->handle) : 0U;
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 int memoserv_db_purge_before(MemoServDb *db, const char *recipient,
                              long long cutoff, size_t *deleted) {
     sqlite3_stmt *stmt = NULL;
