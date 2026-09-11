@@ -191,6 +191,22 @@ def main():
             alice2.send("MEMOSERV STATUS")
             alice2.expect("Memos: 2/2 stored, 2 unread.")
 
+            # DELSENT hides sender history without deleting the recipient's
+            # copy. Both Alice->Bob rows must still exist for Bob.
+            db = sqlite3.connect(memoserv_db)
+            try:
+                bob_rows = db.execute(
+                    "SELECT COUNT(*) FROM memos WHERE recipient='Bob' AND sender='Alice'"
+                ).fetchone()[0]
+                hidden_rows = db.execute(
+                    "SELECT COUNT(*) FROM memos WHERE recipient='Bob' AND sender='Alice' "
+                    "AND sender_deleted=1"
+                ).fetchone()[0]
+            finally:
+                db.close()
+            assert bob_rows == 2, bob_rows
+            assert hidden_rows == 2, hidden_rows
+
             # STATUS above warms the five-minute retention throttle. Insert an
             # already-expired memo directly into persistent storage; another
             # command during ordinary uptime must honor the throttle and leave
