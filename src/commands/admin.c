@@ -24,6 +24,11 @@ typedef struct StatsGeoBanContext {
     Client *client;
 } StatsGeoBanContext;
 
+typedef struct StatsElineContext {
+    Server *server;
+    Client *client;
+} StatsElineContext;
+
 static int stats_reason_precision(int base_length, const char *reason) {
     size_t available;
     size_t length;
@@ -36,6 +41,17 @@ static int stats_reason_precision(int base_length, const char *reason) {
     length = strlen(reason);
     if (length > available) length = available;
     return (int)length;
+}
+
+static char stats_eline_type_letter(BanExceptionType type) {
+    switch (type) {
+        case BAN_EXCEPTION_KLINE: return 'k';
+        case BAN_EXCEPTION_ZLINE: return 'z';
+        case BAN_EXCEPTION_CONNECTION_LIMIT: return 'm';
+        case BAN_EXCEPTION_DNSBL: return 'B';
+        case BAN_EXCEPTION_GEOBAN: return 'G';
+    }
+    return '?';
 }
 
 static int stats_ban_row(const BanRecord *record, void *context) {
@@ -92,6 +108,30 @@ static int stats_geoban_row(const GeoBanRecord *record, void *context) {
                  geoban_type_name(record->type), record->value,
                  record->set_by, record->expires_at, reason_precision,
                  record->reason);
+    return stats->client->output_overflowed ? 1 : 0;
+}
+
+static int stats_eline_row(const BanExceptionRecord *record, void *context) {
+    StatsElineContext *stats = context;
+    char type_letter;
+    int base_length;
+    int reason_precision;
+
+    if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
+        return -1;
+
+    type_letter = stats_eline_type_letter(record->type);
+    base_length = snprintf(NULL, 0,
+                           ":%s 210 %s :ELINE %c %s set-by=%s expires=%lld reason=",
+                           stats->server->config.server_name,
+                           stats->client->nick, type_letter, record->mask,
+                           record->set_by, record->expires_at);
+    reason_precision = stats_reason_precision(base_length, record->reason);
+    client_sendf(stats->client,
+                 ":%s 210 %s :ELINE %c %s set-by=%s expires=%lld reason=%.*s",
+                 stats->server->config.server_name, stats->client->nick,
+                 type_letter, record->mask, record->set_by, record->expires_at,
+                 reason_precision, record->reason);
     return stats->client->output_overflowed ? 1 : 0;
 }
 
@@ -229,6 +269,15 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
             ban_db_close(&db);
         }
         selector = 'z';
+    } else if (selector == 'e' || selector == 'E') {
+        BanDb db = {0};
+        StatsElineContext context = {server, client};
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_exception_db_list_all(&db, stats_eline_row, &context);
+            ban_db_close(&db);
+        }
+        selector = 'e';
     } else if (selector == 'g' || selector == 'G') {
         GeoBanDb db = {0};
         StatsGeoBanContext context = {server, client};
@@ -248,6 +297,9 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
         client_sendf(client, RPL_STATSHELP,
                      server->config.server_name, client->nick,
                      "STATS z - persistent ZLINEs (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS e - persistent E-LINE exceptions (IRCops only)");
         client_sendf(client, RPL_STATSHELP,
                      server->config.server_name, client->nick,
                      "STATS g - persistent GeoBAN policies (IRCops only)");
