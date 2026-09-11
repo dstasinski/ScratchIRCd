@@ -8,6 +8,7 @@
 #include "chanserv_db.h"
 #include "ircv3.h"
 #include "message_policy.h"
+#include "memoserv_db.h"
 #include "modes.h"
 #include "nickserv_db.h"
 #include "numerics.h"
@@ -413,6 +414,20 @@ static void remove_chanserv_account_references(Server *server,
     free(items);
 }
 
+static void remove_memoserv_account_references(Server *server,
+                                               const char *account_name) {
+    MemoServDb db = {0};
+    size_t deleted = 0U;
+    if (server == NULL || !valid_account_name(account_name)) return;
+    if (memoserv_db_open(&db, server->config.memoserv_db) != 0) return;
+    if (memoserv_db_delete_account(&db, account_name, &deleted) == 0 && deleted != 0U) {
+        snotice_broadcast(server, SNOTICE_SERVICES,
+                          "MemoServ rows purged: account=%s deleted=%zu",
+                          account_name, deleted);
+    }
+    memoserv_db_close(&db);
+}
+
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     NickServDb db = {0};
     NickServAccount account;
@@ -540,6 +555,7 @@ CommandResult command_nsdrop(Server *server, Client *client, char *params) {
     clear_live_account(server, canonical_name);
     handle_chanserv_founder_account_removed(server, canonical_name);
     remove_chanserv_account_references(server, canonical_name);
+    remove_memoserv_account_references(server, canonical_name);
     notice(server, client, "NickServ account deleted.");
     snotice_broadcast(server, SNOTICE_SERVICES,
                       "NSDROP by %s: account=%s", client->nick, canonical_name);
