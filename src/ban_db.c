@@ -171,16 +171,28 @@ static int cidr_identity_match(const char *pattern, const char *identity) {
     return cidr_match(pattern_copy, identity_at != NULL ? identity_at + 1 : identity_copy);
 }
 
-static int ip_identity_equal(const char *pattern, const char *identity) {
-    const char *pattern_host;
-    const char *identity_host;
+static int exact_ip_identity_equal(const char *pattern, const char *identity) {
+    char pattern_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char identity_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char *pattern_at;
+    char *identity_at;
 
     if (pattern == NULL || identity == NULL) return 0;
-    pattern_host = strrchr(pattern, '@');
-    identity_host = strrchr(identity, '@');
-    pattern_host = pattern_host != NULL ? pattern_host + 1 : pattern;
-    identity_host = identity_host != NULL ? identity_host + 1 : identity;
-    return numeric_ip_equal(pattern_host, identity_host);
+    if (strlen(pattern) >= sizeof(pattern_copy) || strlen(identity) >= sizeof(identity_copy))
+        return 0;
+    (void)snprintf(pattern_copy, sizeof(pattern_copy), "%s", pattern);
+    (void)snprintf(identity_copy, sizeof(identity_copy), "%s", identity);
+
+    pattern_at = strrchr(pattern_copy, '@');
+    identity_at = strrchr(identity_copy, '@');
+    if (pattern_at != NULL) {
+        if (identity_at == NULL) return 0;
+        *pattern_at++ = '\0';
+        *identity_at++ = '\0';
+        return wildcard_match(pattern_copy, identity_copy) &&
+               numeric_ip_equal(pattern_at, identity_at);
+    }
+    return numeric_ip_equal(pattern_copy, identity_at != NULL ? identity_at + 1 : identity_copy);
 }
 
 int ban_record_matches(const BanRecord *record, const char *identity1,
@@ -207,9 +219,9 @@ int ban_exception_record_matches(const BanExceptionRecord *record,
                (identity2 != NULL && cidr_identity_match(record->mask, identity2));
     }
     if (strchr(record->mask, '*') == NULL && strchr(record->mask, '?') == NULL &&
-        ip_identity_equal(record->mask, identity1)) return 1;
+        exact_ip_identity_equal(record->mask, identity1)) return 1;
     if (strchr(record->mask, '*') == NULL && strchr(record->mask, '?') == NULL &&
-        ip_identity_equal(record->mask, identity2)) return 1;
+        exact_ip_identity_equal(record->mask, identity2)) return 1;
     return (identity1 != NULL && wildcard_match(record->mask, identity1)) ||
            (identity2 != NULL && wildcard_match(record->mask, identity2));
 }
