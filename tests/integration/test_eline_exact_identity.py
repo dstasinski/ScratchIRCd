@@ -51,6 +51,11 @@ class IRCClient:
                 self.buffer += data
             except socket.timeout:
                 pass
+            except ConnectionResetError:
+                break
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            got.append(raw.rstrip(b"\r").decode(errors="replace"))
         return got
 
     def close(self):
@@ -89,19 +94,14 @@ def register(client, nick, user=None):
     client.expect(f" 001 {nick} ")
 
 
-def assert_banned(port, nick, user):
-    client = IRCClient(port)
-    try:
-        try:
-            client.send(f"NICK {nick}")
-            client.send(f"USER {user} 0 * :{nick}")
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            return
-        lines = client.read_for(2.0)
-        assert not any(f" 001 {nick} " in line for line in lines), lines
-        assert any(" 465 " in line or "ERROR" in line for line in lines), lines
-    finally:
-        client.close()
+def assert_still_connected(client, nick):
+    client.send("PING :eline-exact-probe")
+    client.expect(f"PONG {nick} :eline-exact-probe")
+
+
+def assert_disconnected(client):
+    lines = client.read_for(2.0)
+    assert any(" 465 " in line or "ERROR" in line for line in lines), lines
 
 
 def main():
@@ -141,12 +141,17 @@ def main():
             admin.expect(" 381 Admin ")
             admin.send("ELINE friend@127.0.0.1 k 0 :single identity exception")
             admin.expect("NOTICE Admin :ELINE added: friend@127.0.0.1 k")
-            admin.send("KLINE *@127.0.0.1 :local test ban")
 
             friend = IRCClient(port); clients.append(friend)
             register(friend, "Friend", "friend")
+            enemy = IRCClient(port); clients.append(enemy)
+            register(enemy, "Enemy", "enemy")
 
-            assert_banned(port, "Enemy", "enemy")
+            admin.send("KLINE *@127.0.0.1 :local test ban")
+            admin.expect("NOTICE Admin :KLINE added: *@127.0.0.1")
+
+            assert_still_connected(friend, "Friend")
+            assert_disconnected(enemy)
         finally:
             for client in clients:
                 client.close()
