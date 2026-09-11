@@ -105,6 +105,37 @@ static void create_incompatible_memoserv_db(const char *path) {
     sqlite3_close(legacy);
 }
 
+static void assert_incompatible_schema_rejected(const char *path) {
+    char capture_path[] = "/tmp/scratchircd-memoserv-stderr-XXXXXX";
+    char buffer[512];
+    MemoServDb db = {0};
+    int capture_fd = mkstemp(capture_path);
+    int saved_stderr;
+    ssize_t got;
+
+    assert(capture_fd >= 0);
+    saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    fflush(stderr);
+    assert(dup2(capture_fd, STDERR_FILENO) >= 0);
+
+    assert(memoserv_db_open(&db, path) == -1);
+    assert(db.handle == NULL);
+
+    fflush(stderr);
+    assert(dup2(saved_stderr, STDERR_FILENO) >= 0);
+    close(saved_stderr);
+    assert(lseek(capture_fd, 0, SEEK_SET) == 0);
+    got = read(capture_fd, buffer, sizeof(buffer) - 1U);
+    assert(got >= 0);
+    buffer[got] = '\0';
+    close(capture_fd);
+    unlink(capture_path);
+
+    assert(strstr(buffer,
+                  "MemoServ database: incompatible memos schema missing read_at column") != NULL);
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
     char legacy_path[] = "/tmp/scratchircd-memoserv-legacy-XXXXXX";
@@ -139,8 +170,7 @@ int main(void) {
     unlink(incompatible_path);
 
     create_incompatible_memoserv_db(incompatible_path);
-    assert(memoserv_db_open(&db, incompatible_path) == -1);
-    assert(db.handle == NULL);
+    assert_incompatible_schema_rejected(incompatible_path);
     unlink(incompatible_path);
 
     create_legacy_memoserv_db(legacy_path);
