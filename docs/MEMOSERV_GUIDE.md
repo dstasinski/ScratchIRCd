@@ -16,7 +16,7 @@ memoserv_retention_days = 90
 
 `memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of stored inbox memos for one recipient account. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
 
-Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, and read time. Reading a memo marks it read, but it remains stored until deletion or retention expiry.
+Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, and sender-side sent-history visibility. Reading a memo marks it read, but it remains stored until recipient deletion, retention expiry, or account cleanup.
 
 ## Authentication
 
@@ -184,19 +184,21 @@ Delete all received memos:
 
 `DELETE` is accepted as an alias for `DEL`.
 
-Delete one sent-history memo:
+Hide one memo from your sent history:
 
 ```irc
 /MEMOSERV DELSENT 13
 ```
 
-Delete all sent-history memos:
+Hide all memos from your sent history:
 
 ```irc
 /MEMOSERV DELSENT ALL
 ```
 
-`DEL` and `DELETE` affect recipient-owned inbox memos. `DELSENT` affects sender-owned sent-history rows. Deleting a sent-history row removes that memo record from storage, so the recipient will no longer be able to read that same memo record after it is deleted by the sender.
+`DEL` and `DELETE` physically delete recipient-owned inbox memos. `DELSENT` only removes sender-side visibility from `SENT`; it does not remove the recipient's copy. The recipient can continue to LIST, READ, REPLY to, FORWARD, or delete the memo normally. Account deletion and retention cleanup can still physically remove sender-hidden rows.
+
+Existing MemoServ databases are migrated automatically with a sender-history visibility field. Existing memos remain visible in `SENT` unless the sender later uses `DELSENT`.
 
 ## STATUS
 
@@ -237,7 +239,7 @@ MemoServ sends only to enabled NickServ accounts. Disabled accounts cannot recei
 
 When a network administrator disables an account with `NSSET <account> ENABLED 0`, existing MemoServ rows are preserved. If the account is later re-enabled, its owner can identify again and manage its stored memos normally.
 
-When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient. This prevents dropped account names from leaving orphaned sent or received memo history behind.
+When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient, including sender-hidden rows. This prevents dropped account names from leaving orphaned sent or received memo history behind.
 
 ## Retention
 
