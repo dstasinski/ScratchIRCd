@@ -102,6 +102,11 @@ def stop(proc):
             proc.wait(timeout=3.0)
 
 
+def assert_memoserv_notice(line, nick):
+    prefix = f":MemoServ!service@test.local NOTICE {nick} :"
+    assert line.startswith(prefix), line
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_memoserv_admin.py scratchircd")
@@ -157,6 +162,7 @@ def main():
             admin.expect(" 381 Admin ")
             admin.send("MSINFO Bob")
             info_line = admin.expect("MEMOSERV account=Bob stored=1 unread=1")
+            assert_memoserv_notice(info_line, "Admin")
             assert secret_text not in info_line, info_line
 
             db = sqlite3.connect(memoserv_db)
@@ -172,11 +178,14 @@ def main():
                 db.close()
 
             admin.send("MSINFO Bob")
-            admin.expect("MEMOSERV account=Bob stored=2 unread=2")
+            info_line = admin.expect("MEMOSERV account=Bob stored=2 unread=2")
+            assert_memoserv_notice(info_line, "Admin")
             admin.send("MSPURGE Bob")
-            admin.expect("MemoServ purge deleted 1 expired memo.")
+            purge_line = admin.expect("MemoServ purge deleted 1 expired memo.")
+            assert_memoserv_notice(purge_line, "Admin")
             admin.send("MSINFO Bob")
-            admin.expect("MEMOSERV account=Bob stored=1 unread=1")
+            info_line = admin.expect("MEMOSERV account=Bob stored=1 unread=1")
+            assert_memoserv_notice(info_line, "Admin")
 
             lines = admin.collect_for()
             assert not any("expired admin purge probe" in line for line in lines), lines
