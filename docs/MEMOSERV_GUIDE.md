@@ -18,6 +18,8 @@ memoserv_retention_days = 90
 
 Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, and sender-side sent-history visibility. Reading a memo marks it read, but it remains stored until recipient deletion, retention expiry, or account cleanup.
 
+MemoServ can automatically migrate the known legacy table shape that predates sender-side sent-history visibility. The migration adds the sender visibility field and the supporting visible-sent index while keeping existing sent rows visible. If an existing `memos` table is missing required legacy columns, MemoServ rejects that database instead of guessing how to repair it. Operators should restore a valid backup or migrate the table manually before pointing `memoserv_db` at it again.
+
 ## Authentication
 
 All current MemoServ user commands require an authenticated NickServ account. If the user is not identified, MemoServ replies:
