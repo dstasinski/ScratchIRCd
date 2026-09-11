@@ -272,6 +272,8 @@ add_test(NAME chanserv_restore_fail_closed_integration COMMAND ${Python3_EXECUTA
 set_tests_properties(chanserv_restore_fail_closed_integration PROPERTIES TIMEOUT 60)
 add_test(NAME memoserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(memoserv_integration PROPERTIES TIMEOUT 60)
+add_test(NAME memoserv_admin_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv_admin.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(memoserv_admin_integration PROPERTIES TIMEOUT 60)
 add_test(NAME presence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_presence.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(presence_integration PROPERTIES TIMEOUT 60)
 add_test(NAME user_modes_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_user_modes.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
