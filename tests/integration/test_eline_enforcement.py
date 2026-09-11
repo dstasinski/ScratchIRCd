@@ -177,7 +177,7 @@ def main():
              "*@127.0.0.1", "k", "KBlocked")
     run_case(binary, mkpasswd,
              "ZLINE 127.0.0.1 :blocked by zline",
-             "127.0.0.1", "z", "ZBlocked")
+             "*@127.0.0.1", "z", "ZBlocked")
 
 
 if __name__ == "__main__":
