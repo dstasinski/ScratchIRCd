@@ -109,6 +109,8 @@ def main():
             ordinary.expect(" 481 Visitor ")
             ordinary.send("ELINE *@example.test k 0 :ordinary denied")
             ordinary.expect(" 481 Visitor ")
+            ordinary.send("STATS e")
+            ordinary.expect(" 481 Visitor ")
 
             admin = IRCClient(port); clients.append(admin)
             register(admin, "Admin")
@@ -123,6 +125,13 @@ def main():
                        for line in all_lines), all_lines
             assert any("ELINE z *@example.test" in line and "test exception" in line
                        for line in all_lines), all_lines
+
+            admin.send("STATS e")
+            stats_lines = admin.expect(" 219 Admin e :End of /STATS report")
+            assert any("ELINE k *@example.test" in line and
+                       "reason=test exception" in line for line in stats_lines), stats_lines
+            assert any("ELINE z *@example.test" in line and
+                       "reason=test exception" in line for line in stats_lines), stats_lines
 
             admin.send("eline list k")
             k_lines = admin.expect("End of ELINE list (1 entries)")
@@ -153,6 +162,15 @@ def main():
                 assert any(f"ELINE {letter} 127.0.0.1" in line and
                            "all remaining exception types" in line
                            for line in type_lines), type_lines
+
+            admin.send("STATS e")
+            stats_lines = admin.expect(" 219 Admin e :End of /STATS report")
+            assert any("ELINE m 127.0.0.1" in line and
+                       "reason=all remaining exception types" in line for line in stats_lines), stats_lines
+            assert any("ELINE B 127.0.0.1" in line and
+                       "reason=all remaining exception types" in line for line in stats_lines), stats_lines
+            assert any("ELINE G 127.0.0.1" in line and
+                       "reason=all remaining exception types" in line for line in stats_lines), stats_lines
 
             admin.send("ELINE -*@example.test")
             admin.expect("NOTICE Admin :ELINE removed: *@example.test")
