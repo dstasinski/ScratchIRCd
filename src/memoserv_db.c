@@ -120,6 +120,9 @@ static int ensure_sender_deleted_column(sqlite3 *db) {
 }
 
 int memoserv_db_open(MemoServDb *db, const char *path) {
+    /* Keep this batch compatible with both fresh databases and the oldest
+     * supported MemoServ table shape. Indexes that reference migrated columns
+     * must be created only after ensure_sender_deleted_column() succeeds. */
     static const char schema[] =
         "CREATE TABLE IF NOT EXISTS memos ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
