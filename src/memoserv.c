@@ -345,6 +345,19 @@ static void command_forward(Server *server, Client *client, char *params) {
     }
 }
 
+static void command_help(Server *server, Client *client) {
+    ms_notice(server, client, "MemoServ commands require an identified NickServ account.");
+    ms_notice(server, client, "SEND <account> :<message> - send a memo to an enabled account.");
+    ms_notice(server, client, "LIST - show received memos with READ or UNREAD state.");
+    ms_notice(server, client, "SENT - show memos you have sent.");
+    ms_notice(server, client, "READ <memo-id> - read a received memo and mark it read.");
+    ms_notice(server, client, "REPLY <memo-id> :<message> - reply to the memo sender.");
+    ms_notice(server, client, "FORWARD <memo-id> <account> - forward memo text to another account.");
+    ms_notice(server, client, "DEL <memo-id>|ALL - delete one or all received memos.");
+    ms_notice(server, client, "STATUS - show stored and unread memo counts.");
+    ms_notice(server, client, "You can also use: PRIVMSG MemoServ :<command>.");
+}
+
 void memoserv_handle_message(Server *server, Client *client, char *text) {
     char *command, *params;
     if (server == NULL || client == NULL || text == NULL) return;
@@ -357,7 +370,6 @@ void memoserv_handle_message(Server *server, Client *client, char *text) {
     else if (strcasecmp(command, "FORWARD") == 0) command_forward(server, client, params);
     else if (strcasecmp(command, "DEL") == 0 || strcasecmp(command, "DELETE") == 0) command_delete(server, client, params);
     else if (strcasecmp(command, "STATUS") == 0) command_status(server, client);
-    else if (strcasecmp(command, "HELP") == 0)
-        ms_notice(server, client, "Commands: SEND, LIST, SENT, READ, REPLY, FORWARD, DEL, STATUS, HELP");
+    else if (strcasecmp(command, "HELP") == 0) command_help(server, client);
     else ms_notice(server, client, "Unknown MemoServ command. Use /MEMOSERV HELP.");
 }
