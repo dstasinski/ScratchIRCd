@@ -109,23 +109,23 @@ int main(void) {
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
     assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
-    /* Recreate an Alice-owned row for corruption and account-purge checks. */
+    /* Recreate an Alice-owned row for sent corruption and account-purge checks. */
     assert(memoserv_db_send(&db, "Alice", "Dave", "sent memo", &third) == 0);
 
     /* Legacy/external corruption must fail closed rather than returning a
      * clipped or multi-line sender, recipient, or memo body. */
-    raw_set_memo_text(db.handle, "text", first, long_text);
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == -1);
+    raw_set_memo_text(db.handle, "text", second, long_text);
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == -1);
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
-    assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == -1);
-    raw_set_memo_text(db.handle, "text", first, "first memo");
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
+    assert(memoserv_db_list_sent(&db, "Carol", memos, 8U, &count) == -1);
+    raw_set_memo_text(db.handle, "text", second, "second memo");
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
-    raw_set_memo_text(db.handle, "text", first, "first\nmemo");
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == -1);
+    raw_set_memo_text(db.handle, "text", second, "second\nmemo");
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == -1);
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
-    raw_set_memo_text(db.handle, "text", first, "first memo");
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
+    raw_set_memo_text(db.handle, "text", second, "second memo");
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
     raw_set_memo_text(db.handle, "sender", second, long_account);
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
@@ -143,20 +143,19 @@ int main(void) {
     raw_set_memo_text(db.handle, "recipient", third, "Dave");
     assert(memoserv_db_get_sent(&db, "Alice", third, &memo) == 1);
 
-    assert(memoserv_db_mark_read(&db, "Bob", first, 12345) == 0);
+    assert(memoserv_db_mark_read(&db, "Bob", second, 12345) == 0);
     assert(memoserv_db_unread_count(&db, "Bob", &unread) == 0);
-    assert(unread == 1U);
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
+    assert(unread == 0U);
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
     assert(memo.read_at == 12345);
 
     /* Dropped account cleanup removes both inbox and sent rows. */
     assert(memoserv_db_delete_account(&db, "ALICE", &deleted) == 0);
-    assert(deleted == 2U);
+    assert(deleted == 1U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
     assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
     /* A future cutoff deterministically purges all remaining rows. */
