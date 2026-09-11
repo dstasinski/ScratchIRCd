@@ -125,9 +125,19 @@ int main(void) {
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
     assert(memo.read_at == 12345);
 
+    /* Dropped account cleanup removes both inbox and sent rows. */
+    assert(memoserv_db_delete_account(&db, "ALICE", &deleted) == 0);
+    assert(deleted == 2U);
+    assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
+    assert(count == 0U);
+    assert(memoserv_db_count(&db, "Bob", &count) == 0);
+    assert(count == 1U);
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
+    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
+
     /* A future cutoff deterministically purges all remaining rows. */
     assert(memoserv_db_purge_before(&db, NULL, 4102444800LL, &deleted) == 0);
-    assert(deleted == 3U);
+    assert(deleted == 1U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 0U);
 
