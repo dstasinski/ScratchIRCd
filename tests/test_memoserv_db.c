@@ -89,13 +89,15 @@ int main(void) {
     assert(memo.read_at == 0);
     assert(memoserv_db_get(&db, "Alice", first, &memo) == 0);
 
-    /* Sent-history deletion is sender-owned and does not delete unrelated
-     * inbox rows. */
+    /* Sent-history deletion is sender-owned visibility only. The recipient's
+     * memo remains stored and readable. */
     assert(memoserv_db_delete_sent(&db, "Mallory", third) == 0);
     assert(memoserv_db_delete_sent(&db, "ALICE", third) == 1);
     assert(memoserv_db_get_sent(&db, "Alice", third, &memo) == 0);
     assert(memoserv_db_count(&db, "Dave", &count) == 0);
-    assert(count == 0U);
+    assert(count == 1U);
+    assert(memoserv_db_get(&db, "Dave", third, &memo) == 1);
+    assert(strcmp(memo.text, "sent memo") == 0);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 2U);
 
@@ -105,11 +107,13 @@ int main(void) {
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
+    assert(count == 2U);
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == 1);
+    assert(memoserv_db_count(&db, "Erin", &count) == 0);
     assert(count == 1U);
-    assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
-    assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
-    /* Recreate an Alice-owned row for sent corruption and account-purge checks. */
+    /* Recreate an Alice-owned visible sent row for sent corruption and
+     * account-purge checks. */
     assert(memoserv_db_send(&db, "Alice", "Dave", "sent memo", &third) == 0);
 
     /* Legacy/external corruption must fail closed rather than returning a
@@ -145,17 +149,19 @@ int main(void) {
 
     assert(memoserv_db_mark_read(&db, "Bob", second, 12345) == 0);
     assert(memoserv_db_unread_count(&db, "Bob", &unread) == 0);
-    assert(unread == 0U);
+    assert(unread == 1U);
     assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
     assert(memo.read_at == 12345);
 
-    /* Dropped account cleanup removes both inbox and sent rows. */
+    /* Dropped account cleanup physically removes both inbox and sent rows,
+     * including sender-hidden rows. */
     assert(memoserv_db_delete_account(&db, "ALICE", &deleted) == 0);
-    assert(deleted == 1U);
+    assert(deleted == 4U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
+    assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
     assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
 
     /* A future cutoff deterministically purges all remaining rows. */
