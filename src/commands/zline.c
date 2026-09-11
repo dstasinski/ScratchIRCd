@@ -39,9 +39,14 @@ static int zline_disconnect_row(const BanRecord *record, void *context) {
         if (target != ctx->setter &&
             ban_record_matches(record, target->real_ip, NULL)) {
             BanExceptionRecord exception;
+            char ip_identity[IRC_USER_MAX + 1U + IRC_IP_MAX + 1U];
+            (void)snprintf(ip_identity, sizeof(ip_identity), "%s@%s",
+                           target->user[0] != '\0' ? target->user : "*",
+                           target->real_ip);
             if (ctx->db != NULL &&
                 ban_exception_db_match(ctx->db, BAN_EXCEPTION_ZLINE,
-                                       target->real_ip, NULL, &exception) == 1) {
+                                       target->real_ip, ip_identity,
+                                       &exception) == 1) {
                 snotice_broadcast(ctx->server, SNOTICE_BANS,
                                   "ZLINE matched but ELINE exempted %s (%s@%s) [real_ip=%s] ban=%s exception=%s",
                                   command_reply_nick(target), target->user,
