@@ -35,14 +35,17 @@ static int sender_retained_count(Server *server, const char *sender,
     if (memoserv_db_open(&db, server->config.memoserv_db) != 0) return -1;
     if (server->config.memoserv_retention_days == 0U) {
         if (sqlite3_prepare_v2(db.handle,
-                "SELECT COUNT(*) FROM memos WHERE sender=?1 COLLATE NOCASE",
+                "SELECT COUNT(*) FROM memos "
+                "WHERE sender=?1 COLLATE NOCASE AND recipient_deleted=0",
                 -1, &stmt, NULL) != SQLITE_OK) goto done;
         sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     } else {
         long long cutoff = (long long)time(NULL) -
                            (long long)server->config.memoserv_retention_days * 86400LL;
         if (sqlite3_prepare_v2(db.handle,
-                "SELECT COUNT(*) FROM memos WHERE sender=?1 COLLATE NOCASE AND created_at>=?2",
+                "SELECT COUNT(*) FROM memos "
+                "WHERE sender=?1 COLLATE NOCASE AND recipient_deleted=0 "
+                "AND created_at>=?2",
                 -1, &stmt, NULL) != SQLITE_OK) goto done;
         sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int64(stmt, 2, cutoff);
