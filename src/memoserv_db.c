@@ -9,13 +9,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MEMOSERV_COL_ID             0x01U
-#define MEMOSERV_COL_SENDER         0x02U
-#define MEMOSERV_COL_RECIPIENT      0x04U
-#define MEMOSERV_COL_TEXT           0x08U
-#define MEMOSERV_COL_CREATED_AT     0x10U
-#define MEMOSERV_COL_READ_AT        0x20U
-#define MEMOSERV_COL_SENDER_DELETED 0x40U
+#define MEMOSERV_COL_ID                0x01U
+#define MEMOSERV_COL_SENDER            0x02U
+#define MEMOSERV_COL_RECIPIENT         0x04U
+#define MEMOSERV_COL_TEXT              0x08U
+#define MEMOSERV_COL_CREATED_AT        0x10U
+#define MEMOSERV_COL_READ_AT           0x20U
+#define MEMOSERV_COL_SENDER_DELETED    0x40U
+#define MEMOSERV_COL_RECIPIENT_DELETED 0x80U
 
 static int exec_sql(sqlite3 *db, const char *sql) {
     char *error = NULL;
@@ -48,6 +49,7 @@ static unsigned int memo_column_bit(const char *name) {
     if (strcmp(name, "created_at") == 0) return MEMOSERV_COL_CREATED_AT;
     if (strcmp(name, "read_at") == 0) return MEMOSERV_COL_READ_AT;
     if (strcmp(name, "sender_deleted") == 0) return MEMOSERV_COL_SENDER_DELETED;
+    if (strcmp(name, "recipient_deleted") == 0) return MEMOSERV_COL_RECIPIENT_DELETED;
     return 0U;
 }
 
@@ -60,6 +62,7 @@ static const char *memo_column_name(unsigned int bit) {
     case MEMOSERV_COL_CREATED_AT: return "created_at";
     case MEMOSERV_COL_READ_AT: return "read_at";
     case MEMOSERV_COL_SENDER_DELETED: return "sender_deleted";
+    case MEMOSERV_COL_RECIPIENT_DELETED: return "recipient_deleted";
     default: return "unknown";
     }
 }
@@ -88,7 +91,8 @@ static int validate_memo_columns(sqlite3 *db) {
         MEMOSERV_COL_TEXT,
         MEMOSERV_COL_CREATED_AT,
         MEMOSERV_COL_READ_AT,
-        MEMOSERV_COL_SENDER_DELETED
+        MEMOSERV_COL_SENDER_DELETED,
+        MEMOSERV_COL_RECIPIENT_DELETED
     };
     unsigned int columns = 0U;
     size_t i;
@@ -138,13 +142,22 @@ static int fill_memo(sqlite3_stmt *stmt, MemoServMemo *memo) {
     return 0;
 }
 
-static int ensure_sender_deleted_column(sqlite3 *db) {
+static int ensure_visibility_columns(sqlite3 *db) {
     unsigned int columns = 0U;
 
     if (load_memo_columns(db, &columns) != 0) return -1;
-    if ((columns & MEMOSERV_COL_SENDER_DELETED) != 0U) return 0;
-    return exec_sql(db,
-        "ALTER TABLE memos ADD COLUMN sender_deleted INTEGER NOT NULL DEFAULT 0;");
+    if ((columns & MEMOSERV_COL_SENDER_DELETED) == 0U) {
+        if (exec_sql(db,
+            "ALTER TABLE memos ADD COLUMN sender_deleted INTEGER NOT NULL DEFAULT 0;") != 0)
+            return -1;
+        columns |= MEMOSERV_COL_SENDER_DELETED;
+    }
+    if ((columns & MEMOSERV_COL_RECIPIENT_DELETED) == 0U) {
+        if (exec_sql(db,
+            "ALTER TABLE memos ADD COLUMN recipient_deleted INTEGER NOT NULL DEFAULT 0;") != 0)
+            return -1;
+    }
+    return 0;
 }
 
 int memoserv_db_open(MemoServDb *db, const char *path) {
@@ -160,13 +173,16 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "text TEXT NOT NULL,"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "read_at INTEGER NOT NULL DEFAULT 0,"
-        "sender_deleted INTEGER NOT NULL DEFAULT 0"
+        "sender_deleted INTEGER NOT NULL DEFAULT 0,"
+        "recipient_deleted INTEGER NOT NULL DEFAULT 0"
         ");";
     static const char index_schema[] =
         "CREATE INDEX IF NOT EXISTS memos_recipient_id "
         "ON memos(recipient,id DESC);"
+        "CREATE INDEX IF NOT EXISTS memos_recipient_visible_id "
+        "ON memos(recipient,recipient_deleted,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
-        "ON memos(recipient,read_at);"
+        "ON memos(recipient,recipient_deleted,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
         "ON memos(sender,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
@@ -184,7 +200,7 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         return -1;
     }
     if (exec_sql(db->handle, table_schema) != 0 ||
-        ensure_sender_deleted_column(db->handle) != 0 ||
+        ensure_visibility_columns(db->handle) != 0 ||
         validate_memo_columns(db->handle) != 0 ||
         exec_sql(db->handle, index_schema) != 0) {
         memoserv_db_close(db);
@@ -230,7 +246,7 @@ int memoserv_db_unread_count(MemoServDb *db, const char *recipient,
     if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || count == NULL) return -1;
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
-        "SELECT COUNT(*) FROM memos WHERE recipient=?1 AND read_at=0",
+        "SELECT COUNT(*) FROM memos WHERE recipient=?1 AND recipient_deleted=0 AND read_at=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
@@ -249,7 +265,7 @@ int memoserv_db_list(MemoServDb *db, const char *recipient,
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE recipient=?1 ORDER BY id DESC LIMIT ?2",
+        "WHERE recipient=?1 AND recipient_deleted=0 ORDER BY id DESC LIMIT ?2",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
@@ -275,7 +291,7 @@ int memoserv_db_get(MemoServDb *db, const char *recipient,
     memset(memo, 0, sizeof(*memo));
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE recipient=?1 AND id=?2",
+        "WHERE recipient=?1 AND id=?2 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
@@ -296,7 +312,7 @@ int memoserv_db_mark_read(MemoServDb *db, const char *recipient,
         memo_id <= 0 || when <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "UPDATE memos SET read_at=CASE WHEN read_at=0 THEN ?3 ELSE read_at END "
-        "WHERE recipient=?1 AND id=?2",
+        "WHERE recipient=?1 AND id=?2 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
@@ -313,7 +329,8 @@ int memoserv_db_delete(MemoServDb *db, const char *recipient,
     int changed;
     if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || memo_id <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
-        "DELETE FROM memos WHERE recipient=?1 AND id=?2",
+        "UPDATE memos SET recipient_deleted=1 "
+        "WHERE recipient=?1 AND id=?2 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
@@ -328,7 +345,8 @@ int memoserv_db_delete_all(MemoServDb *db, const char *recipient) {
     int rc;
     if (db == NULL || db->handle == NULL || !account_arg_fits(recipient)) return -1;
     if (sqlite3_prepare_v2(db->handle,
-        "DELETE FROM memos WHERE recipient=?1",
+        "UPDATE memos SET recipient_deleted=1 "
+        "WHERE recipient=?1 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
