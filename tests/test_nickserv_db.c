@@ -82,6 +82,7 @@ int main(void) {
     snprintf(second.name, sizeof(second.name), "%s", "Alice");
     snprintf(second.password_hash, sizeof(second.password_hash), "%s", "$argon2id$second");
     second.enabled = 1;
+    second.last_identified_at = 12345;
     assert(nickserv_db_add(&db, &second) == 0);
 
     memset(&third, 0, sizeof(third));
@@ -95,6 +96,13 @@ int main(void) {
     assert(strcmp(loaded.name, "Daniel") == 0);
     assert(loaded.enabled == 1);
     assert(loaded.email[0] == '\0');
+    assert(loaded.last_identified_at == 0);
+    assert(nickserv_db_set_last_identified(&db, "daniel", 123456) == 0);
+    assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
+    assert(loaded.last_identified_at == 123456);
+    assert(nickserv_db_set_last_identified(&db, "Daniel", 0) == -1);
+    assert(nickserv_db_get(&db, "Alice", &loaded) == 1);
+    assert(loaded.last_identified_at == 12345);
 
     /* Public DB APIs reject values that cannot round-trip through the fixed
      * account representation rather than relying on SQLite to accept them. */
@@ -165,6 +173,7 @@ int main(void) {
     assert(strcmp(loaded.email, "daniel@example.test") == 0);
     assert(loaded.email_verified == 1);
     assert(loaded.pending_email[0] == '\0');
+    assert(loaded.last_identified_at == 123456);
 
     assert(nickserv_db_set_reset_token(&db, "Daniel", "resethash", 3000) == 0);
     assert(nickserv_db_consume_reset_token(&db, "Daniel", "bad", 2000,
@@ -174,6 +183,7 @@ int main(void) {
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
     assert(strcmp(loaded.password_hash, "$argon2id$new") == 0);
     assert(loaded.reset_token_hash[0] == '\0');
+    assert(loaded.last_identified_at == 123456);
 
     assert(nickserv_db_admin_set_email(&db, "Daniel", "admin@example.test", 1) == 0);
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
@@ -185,10 +195,12 @@ int main(void) {
     assert(nickserv_db_get(&db, "Daniel", &loaded) == 1);
     assert(strcmp(loaded.vhost, "user.example.test") == 0);
     assert(loaded.enabled == 0);
+    assert(loaded.last_identified_at == 123456);
 
     assert(nickserv_db_set_password(&db, "Daniel", "$argon2id$changed") == 0);
     assert(nickserv_db_get(&db, "daniel", &loaded) == 1);
     assert(strcmp(loaded.password_hash, "$argon2id$changed") == 0);
+    assert(loaded.last_identified_at == 123456);
 
     assert(nickserv_db_delete(&db, "DANIEL") == 0);
     assert(nickserv_db_get(&db, "daniel", &loaded) == 0);
