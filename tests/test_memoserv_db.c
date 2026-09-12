@@ -151,6 +151,13 @@ static void assert_incompatible_schema_rejected(const char *path) {
                   "MemoServ database: incompatible memos schema missing read_at column") != NULL);
 }
 
+static void assert_current_indexes(sqlite3 *db) {
+    assert(raw_index_exists(db, "memos_sender_visible_id"));
+    assert(raw_index_exists(db, "memos_recipient_visible_id"));
+    assert(raw_index_exists(db, "memos_recipient_visible_unread"));
+    assert(raw_index_exists(db, "memos_sender_outstanding_created"));
+}
+
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
     char legacy_path[] = "/tmp/scratchircd-memoserv-legacy-XXXXXX";
@@ -193,8 +200,7 @@ int main(void) {
     assert(memoserv_db_open(&db, legacy_path) == 0);
     assert(raw_column_exists(db.handle, "sender_deleted"));
     assert(raw_column_exists(db.handle, "recipient_deleted"));
-    assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
-    assert(raw_index_exists(db.handle, "memos_recipient_visible_id"));
+    assert_current_indexes(db.handle);
     assert(memoserv_db_count_sender_outstanding(&db, "alice", 0, &outstanding) == 0);
     assert(outstanding == 1U);
     assert(memoserv_db_list_sent(&db, "alice", memos, 8U, &count) == 0);
@@ -217,8 +223,7 @@ int main(void) {
     unlink(legacy_path);
 
     assert(memoserv_db_open(&db, path) == 0);
-    assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
-    assert(raw_index_exists(db.handle, "memos_recipient_visible_id"));
+    assert_current_indexes(db.handle);
     assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
     assert(outstanding == 0U);
 
