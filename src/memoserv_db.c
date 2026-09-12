@@ -160,6 +160,12 @@ static int ensure_visibility_columns(sqlite3 *db) {
     return 0;
 }
 
+static void purge_fully_deleted_memos(sqlite3 *db) {
+    if (db == NULL) return;
+    (void)exec_sql(db,
+        "DELETE FROM memos WHERE sender_deleted=1 AND recipient_deleted=1;");
+}
+
 int memoserv_db_open(MemoServDb *db, const char *path) {
     /* Fresh databases and the oldest supported MemoServ table shape both pass
      * through this table-creation batch. Do not create indexes here: indexes
@@ -337,7 +343,9 @@ int memoserv_db_delete(MemoServDb *db, const char *recipient,
     rc = sqlite3_step(stmt);
     changed = sqlite3_changes(db->handle);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? (changed > 0 ? 1 : 0) : -1;
+    if (rc != SQLITE_DONE) return -1;
+    if (changed > 0) purge_fully_deleted_memos(db->handle);
+    return changed > 0 ? 1 : 0;
 }
 
 int memoserv_db_delete_all(MemoServDb *db, const char *recipient) {
@@ -351,5 +359,7 @@ int memoserv_db_delete_all(MemoServDb *db, const char *recipient) {
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? 0 : -1;
+    if (rc != SQLITE_DONE) return -1;
+    purge_fully_deleted_memos(db->handle);
+    return 0;
 }
