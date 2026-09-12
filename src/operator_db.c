@@ -27,6 +27,17 @@ static const char *schema_sql =
     "PRIMARY KEY(\"name\")"
     ");";
 
+static const char *required_columns[] = {
+    "name",
+    "password_hash",
+    "permissions",
+    "vhost",
+    "enabled",
+    "created_at",
+    "updated_at",
+    "last_opered_at"
+};
+
 static int text_fits(const char *text, size_t max_length, int allow_empty) {
     size_t length;
     if (text == NULL) return 0;
@@ -74,14 +85,12 @@ static int column_exists(sqlite3 *handle, const char *column) {
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
-static int migrate_schema(sqlite3 *handle) {
-    int exists = column_exists(handle, "last_opered_at");
-    if (exists < 0) return -1;
-    if (exists == 0 &&
-        sqlite3_exec(handle,
-                     "ALTER TABLE operators ADD COLUMN last_opered_at INTEGER NOT NULL DEFAULT 0",
-                     NULL, NULL, NULL) != SQLITE_OK)
-        return -1;
+static int current_schema_valid(sqlite3 *handle) {
+    size_t i;
+    for (i = 0U; i < sizeof(required_columns) / sizeof(required_columns[0]); ++i) {
+        int exists = column_exists(handle, required_columns[i]);
+        if (exists != 1) return -1;
+    }
     return 0;
 }
 
@@ -146,7 +155,7 @@ int operator_db_open(OperatorDb *db, const char *path) {
         operator_db_close(db);
         return -1;
     }
-    if (migrate_schema(db->handle) != 0 ||
+    if (current_schema_valid(db->handle) != 0 ||
         persisted_vhosts_valid(db->handle) != 0) {
         operator_db_close(db);
         return -1;
