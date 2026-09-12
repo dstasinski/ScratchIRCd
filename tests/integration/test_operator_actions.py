@@ -4,6 +4,7 @@
 import os
 import re
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -100,6 +101,7 @@ def main():
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+        oper_hash = subprocess.check_output([mkpasswd, "operpass"], text=True).strip()
         server_name = "s" * 63
 
         open(motd, "w", encoding="utf-8").write("test\n")
@@ -124,6 +126,29 @@ def main():
             f.write(f"netadmin_password_hash = {admin_hash}\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
+        operators_db = os.path.join(data_dir, "operators.db")
+        db = sqlite3.connect(operators_db)
+        try:
+            db.executescript(
+                "CREATE TABLE operators ("
+                "name TEXT COLLATE NOCASE,"
+                "password_hash TEXT NOT NULL,"
+                "permissions TEXT NOT NULL DEFAULT '',"
+                "vhost TEXT NOT NULL,"
+                "enabled INTEGER NOT NULL DEFAULT 1,"
+                "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+                "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+                "PRIMARY KEY(name));"
+            )
+            db.execute(
+                "INSERT INTO operators(name,password_hash,permissions,vhost,enabled) "
+                "VALUES(?,?,?,?,1)",
+                ("LocalOper", oper_hash, "can_kill", ""),
+            )
+            db.commit()
+        finally:
+            db.close()
+
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, cwd=tmp)
         clients = []
@@ -140,6 +165,25 @@ def main():
             admin.expect("Nickname registered and identified.")
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
+
+            local_oper = IRCClient(port); clients.append(local_oper)
+            register(local_oper, "localoper")
+            local_oper.send("OPER LocalOper operpass")
+            local_oper.expect(" 381 localoper :You are now an IRC operator")
+
+            admin.send("STATS N Bob")
+            nick_stats = admin.expect("last_identified=")
+            assert any("NICKSERV account=Bob" in line and
+                       "last_identified=20" in line for line in nick_stats), nick_stats
+            admin.send("STATS O LocalOper")
+            oper_stats = admin.expect("last_opered=")
+            assert any("OPER name=LocalOper" in line and
+                       "last_opered=20" in line for line in oper_stats), oper_stats
+
+            receiver.send("STATS N Bob")
+            receiver.expect(" 481 bob ")
+            receiver.send("STATS O LocalOper")
+            receiver.expect(" 481 bob ")
 
             # NSINFO must not silently disappear when every persisted identity
             # field is at its legal maximum and the rendered NOTICE is large.
@@ -242,6 +286,8 @@ def main():
             stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
             assert any("STATS u - server uptime" in line for line in stats_help), stats_help
             assert any("STATS g - persistent GeoBAN policies" in line for line in stats_help), stats_help
+            assert any("STATS N <account>" in line for line in stats_help), stats_help
+            assert any("STATS O <oper>" in line for line in stats_help), stats_help
 
             receiver.send("STATS k")
             receiver.expect(" 481 bob ")
