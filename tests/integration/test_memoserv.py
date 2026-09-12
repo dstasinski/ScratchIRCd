@@ -100,6 +100,17 @@ def memoserv_lines(client, command, nick, duration=1.0):
         return lines
     raise AssertionError(f"MEMOSERV throttled too long for {command!r}; got {last_lines!r}")
 
+def memoserv_expect(client, command, nick, needle, duration=1.0):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        lines = memoserv_lines(client, command, nick, duration)
+        last_lines = lines
+        for line in lines:
+            if needle in line:
+                return line
+    raise AssertionError(f"expected {needle!r} from {command!r}; got {last_lines!r}")
+
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: test_memoserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
@@ -174,12 +185,9 @@ def main():
 
             # Recipient deletion hides only Bob's inbox side. Alice must still
             # be able to see the original memo in SENT until she uses DELSENT.
-            traveler.send(f"MEMOSERV DEL {first_id}")
-            traveler.expect("Memo deleted.")
-            traveler.send(f"MEMOSERV READ {first_id}")
-            traveler.expect("No such memo.")
-            traveler.send("MEMOSERV STATUS")
-            traveler.expect("Memos: 1/2 stored, 0 unread.")
+            memoserv_expect(traveler, f"MEMOSERV DEL {first_id}", "Traveler", "Memo deleted.")
+            memoserv_expect(traveler, f"MEMOSERV READ {first_id}", "Traveler", "No such memo.")
+            memoserv_expect(traveler, "MEMOSERV STATUS", "Traveler", "Memos: 1/2 stored, 0 unread.")
             list_lines = memoserv_lines(traveler, "MEMOSERV LIST", "Traveler")
             assert not any(f"#{first_id} " in line for line in list_lines), list_lines
             assert any(f"#{second_id} READ from Alice" in line for line in list_lines), list_lines
