@@ -87,6 +87,19 @@ def oper_as_netadmin(client, nick):
         break
     raise AssertionError(f"expected OPER success for {nick!r}; got {last_lines!r}")
 
+def memoserv_lines(client, command, nick, duration=1.0):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        client.send(command)
+        lines = client.collect_for(duration)
+        last_lines = lines
+        if any(f" 263 {nick} MEMOSERV " in line for line in lines):
+            time.sleep(1.0)
+            continue
+        return lines
+    raise AssertionError(f"MEMOSERV throttled too long for {command!r}; got {last_lines!r}")
+
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: test_memoserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
@@ -167,8 +180,7 @@ def main():
             traveler.expect("No such memo.")
             traveler.send("MEMOSERV STATUS")
             traveler.expect("Memos: 1/2 stored, 0 unread.")
-            traveler.send("MEMOSERV LIST")
-            list_lines = traveler.collect_for(1.0)
+            list_lines = memoserv_lines(traveler, "MEMOSERV LIST", "Traveler")
             assert not any(f"#{first_id} " in line for line in list_lines), list_lines
             assert any(f"#{second_id} READ from Alice" in line for line in list_lines), list_lines
             db = sqlite3.connect(memoserv_db)
@@ -202,8 +214,7 @@ def main():
 
             alice2.send(f"MEMOSERV DELSENT {first_id}")
             alice2.expect("Sent memo removed from sent history.")
-            alice2.send("MEMOSERV SENT")
-            sent_lines = alice2.collect_for(1.0)
+            sent_lines = memoserv_lines(alice2, "MEMOSERV SENT", "AliceAgain")
             assert not any(f"#{first_id} TO Bob" in line for line in sent_lines), sent_lines
             assert any(f"#{second_id} TO Bob READ sent " in line for line in sent_lines), sent_lines
 
