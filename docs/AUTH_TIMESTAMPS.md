@@ -4,11 +4,11 @@ ScratchIRCd persists the last successful account and operator authentication tim
 
 ## Stored fields
 
-`nickserv.db` stores the last successful NickServ identification time in the `nickserv_accounts.last_identified_at` column. The value is a Unix epoch timestamp and defaults to `0`, which means the account has never successfully identified since the column was introduced or since the account was created without a successful identify event.
+`nickserv.db` stores the last successful NickServ identification time in the `nickserv_accounts.last_identified_at` column. The value is a Unix epoch timestamp and defaults to `0`, which means the account has never successfully identified.
 
-`operators.db` stores the last successful IRC operator authentication time in the `operators.last_opered_at` column. The value is a Unix epoch timestamp and defaults to `0`, which means the operator record has never successfully authenticated with `/OPER` since the column was introduced or since the operator record was created.
+`operators.db` stores the last successful IRC operator authentication time in the `operators.last_opered_at` column. The value is a Unix epoch timestamp and defaults to `0`, which means the operator record has never successfully authenticated with `/OPER`.
 
-Existing databases are migrated automatically when ScratchIRCd opens them. Do not add these columns manually.
+ScratchIRCd has not yet been released, so these databases are treated as current-schema development databases. Do not depend on pre-release database shapes being upgraded in place; delete or recreate development databases when the schema changes.
 
 ## What updates the fields
 
