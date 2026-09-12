@@ -452,12 +452,13 @@ CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     nickserv_db_close(&db);
 
     (void)snprintf(line, sizeof(line),
-                   "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%lld updated=%lld",
+                   "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%lld updated=%lld last_identified=%lld",
                    account.name, account.enabled,
                    account.vhost[0] != '\0' ? account.vhost : "-",
                    account.email[0] != '\0' ? account.email : "-",
                    account.email_verified,
-                   account.created_at, account.updated_at);
+                   account.created_at, account.updated_at,
+                   account.last_identified_at);
     notice(server, client, line);
     return COMMAND_KEEP_CLIENT;
 }
