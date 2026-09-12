@@ -1,3 +1,4 @@
+#include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
 
@@ -69,11 +70,29 @@ static void create_incomplete_operator_db(const char *path) {
     assert(sqlite3_close(db) == SQLITE_OK);
 }
 
+static void create_incomplete_memoserv_db(const char *path) {
+    sqlite3 *db = NULL;
+
+    assert(sqlite3_open(path, &db) == SQLITE_OK);
+    exec_sql(db,
+        "CREATE TABLE memos ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "sender TEXT COLLATE NOCASE NOT NULL,"
+        "recipient TEXT COLLATE NOCASE NOT NULL,"
+        "text TEXT NOT NULL,"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "read_at INTEGER NOT NULL DEFAULT 0"
+        ");");
+    assert(sqlite3_close(db) == SQLITE_OK);
+}
+
 int main(void) {
     char nickserv_path[128];
     char operator_path[128];
+    char memoserv_path[128];
     NickServDb nickserv = {0};
     OperatorDb operators = {0};
+    MemoServDb memoserv = {0};
 
     make_temp_path(nickserv_path, sizeof(nickserv_path),
                    "scratchircd-current-nickserv");
@@ -88,6 +107,13 @@ int main(void) {
     assert(operator_db_open(&operators, operator_path) != 0);
     assert(operators.handle == NULL);
     assert(unlink(operator_path) == 0);
+
+    make_temp_path(memoserv_path, sizeof(memoserv_path),
+                   "scratchircd-current-memoserv");
+    create_incomplete_memoserv_db(memoserv_path);
+    assert(memoserv_db_open(&memoserv, memoserv_path) != 0);
+    assert(memoserv.handle == NULL);
+    assert(unlink(memoserv_path) == 0);
 
     return 0;
 }
