@@ -27,35 +27,18 @@ static int memo_creating_command(const char *text) {
 static int sender_retained_count(Server *server, const char *sender,
                                  size_t *count) {
     MemoServDb db = {0};
-    sqlite3_stmt *stmt = NULL;
-    int rc = -1;
+    long long cutoff = 0;
+    int rc;
+
     if (count != NULL) *count = 0U;
     if (server == NULL || sender == NULL || *sender == '\0' || count == NULL)
         return -1;
+    if (server->config.memoserv_retention_days != 0U) {
+        cutoff = (long long)time(NULL) -
+                 (long long)server->config.memoserv_retention_days * 86400LL;
+    }
     if (memoserv_db_open(&db, server->config.memoserv_db) != 0) return -1;
-    if (server->config.memoserv_retention_days == 0U) {
-        if (sqlite3_prepare_v2(db.handle,
-                "SELECT COUNT(*) FROM memos "
-                "WHERE sender=?1 COLLATE NOCASE AND recipient_deleted=0",
-                -1, &stmt, NULL) != SQLITE_OK) goto done;
-        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
-    } else {
-        long long cutoff = (long long)time(NULL) -
-                           (long long)server->config.memoserv_retention_days * 86400LL;
-        if (sqlite3_prepare_v2(db.handle,
-                "SELECT COUNT(*) FROM memos "
-                "WHERE sender=?1 COLLATE NOCASE AND recipient_deleted=0 "
-                "AND created_at>=?2",
-                -1, &stmt, NULL) != SQLITE_OK) goto done;
-        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 2, cutoff);
-    }
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        sqlite3_int64 value = sqlite3_column_int64(stmt, 0);
-        if (value >= 0) { *count = (size_t)value; rc = 0; }
-    }
-done:
-    if (stmt != NULL) sqlite3_finalize(stmt);
+    rc = memoserv_db_count_sender_outstanding(&db, sender, cutoff, count);
     memoserv_db_close(&db);
     return rc;
 }
