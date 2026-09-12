@@ -14,9 +14,10 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 - MemoServ inboxes and IRCv3 CAP, account/away notifications, extended JOIN, message tags, labeled responses, server time, and channel history.
 - Channel and user modes, WATCH/SILENCE/WHOWAS presence features, persistent KLINE/ZLINE/GeoBAN policy, operator management, and server-authority moderation.
 - IRCop/admin `FLASH` announcements to channels, nickname lists, or all registered clients through server numeric 343.
+- Persistent authentication audit timestamps for NickServ identifies and operator logins, visible to authorized operators and network administrators.
 - CMake builds, strict-warning CI, unit and TCP integration tests, sanitizer coverage, and an operational soak runner.
 
-Detailed client, service, operator, configuration, security, and release documentation is maintained in [`docs/`](docs/).
+Detailed client, service, operator, configuration, security, and release documentation is maintained in [`docs/`](docs/). Authentication timestamp persistence is documented in [`docs/AUTH_TIMESTAMPS.md`](docs/AUTH_TIMESTAMPS.md).
 
 ## Installation instructions
 
