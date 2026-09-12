@@ -17,7 +17,7 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 - Persistent authentication audit timestamps for NickServ identifies and operator logins, visible to authorized operators and network administrators.
 - CMake builds, strict-warning CI, unit and TCP integration tests, sanitizer coverage, and an operational soak runner.
 
-Detailed client, service, operator, configuration, security, and release documentation is maintained in [`docs/`](docs/). Authentication timestamp persistence is documented in [`docs/AUTH_TIMESTAMPS.md`](docs/AUTH_TIMESTAMPS.md).
+Detailed client, service, operator, configuration, security, database, and release documentation is maintained in [`docs/`](docs/). Authentication timestamp persistence is documented in [`docs/AUTH_TIMESTAMPS.md`](docs/AUTH_TIMESTAMPS.md). The pre-release database schema policy is documented in [`docs/DATABASE_SCHEMA_POLICY.md`](docs/DATABASE_SCHEMA_POLICY.md).
 
 ## Installation instructions
 
