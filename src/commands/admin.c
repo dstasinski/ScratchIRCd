@@ -204,7 +204,7 @@ static void stats_nickserv_account(Server *server, Client *client,
     format_stats_time(account.last_identified_at, identified, sizeof(identified));
     client_sendf(client,
                  ":%s 210 %s :NICKSERV account=%s enabled=%d created=%s updated=%s last_identified=%s",
-                 server->config.server_name, client->nick, account.name,
+                 server->config.server_name, client->nick, account_name,
                  account.enabled ? 1 : 0, created, updated, identified);
 }
 
