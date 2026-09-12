@@ -2,9 +2,8 @@
  * @file nickserv_db.c
  * @brief SQLite persistence for registered NickServ accounts.
  *
- * Existing 0.13 databases are migrated in place by adding the recovery/email
- * columns when they are missing. Tokens are stored only as SHA-256 hex hashes;
- * plaintext verification/reset tokens never persist in SQLite.
+ * Tokens are stored only as SHA-256 hex hashes; plaintext verification/reset
+ * tokens never persist in SQLite.
  */
 
 #include "nickserv_db.h"
@@ -15,8 +14,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define NICKSERV_DB_SCHEMA_VERSION 1
-
 static const char *schema_sql =
     "CREATE TABLE IF NOT EXISTS nickserv_accounts ("
     "name TEXT COLLATE NOCASE PRIMARY KEY,"
@@ -25,23 +22,31 @@ static const char *schema_sql =
     "enabled INTEGER NOT NULL DEFAULT 1,"
     "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
     "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+    "email TEXT NOT NULL DEFAULT '',"
+    "email_verified INTEGER NOT NULL DEFAULT 0,"
+    "pending_email TEXT NOT NULL DEFAULT '',"
+    "email_verify_token_hash TEXT NOT NULL DEFAULT '',"
+    "email_verify_expires_at INTEGER NOT NULL DEFAULT 0,"
+    "reset_token_hash TEXT NOT NULL DEFAULT '',"
+    "reset_expires_at INTEGER NOT NULL DEFAULT 0,"
     "last_identified_at INTEGER NOT NULL DEFAULT 0"
     ");";
 
-typedef struct NickServMigration {
-    const char *column;
-    const char *sql;
-} NickServMigration;
-
-static const NickServMigration migrations[] = {
-    {"email", "ALTER TABLE nickserv_accounts ADD COLUMN email TEXT NOT NULL DEFAULT ''"},
-    {"email_verified", "ALTER TABLE nickserv_accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"},
-    {"pending_email", "ALTER TABLE nickserv_accounts ADD COLUMN pending_email TEXT NOT NULL DEFAULT ''"},
-    {"email_verify_token_hash", "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_token_hash TEXT NOT NULL DEFAULT ''"},
-    {"email_verify_expires_at", "ALTER TABLE nickserv_accounts ADD COLUMN email_verify_expires_at INTEGER NOT NULL DEFAULT 0"},
-    {"reset_token_hash", "ALTER TABLE nickserv_accounts ADD COLUMN reset_token_hash TEXT NOT NULL DEFAULT ''"},
-    {"reset_expires_at", "ALTER TABLE nickserv_accounts ADD COLUMN reset_expires_at INTEGER NOT NULL DEFAULT 0"},
-    {"last_identified_at", "ALTER TABLE nickserv_accounts ADD COLUMN last_identified_at INTEGER NOT NULL DEFAULT 0"}
+static const char *required_columns[] = {
+    "name",
+    "password_hash",
+    "vhost",
+    "enabled",
+    "created_at",
+    "updated_at",
+    "email",
+    "email_verified",
+    "pending_email",
+    "email_verify_token_hash",
+    "email_verify_expires_at",
+    "reset_token_hash",
+    "reset_expires_at",
+    "last_identified_at"
 };
 
 static int ensure_parent_directory(const char *path) {
@@ -79,37 +84,16 @@ static int column_exists(sqlite3 *handle, const char *column) {
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
-static int apply_migrations(sqlite3 *handle) {
+static int current_schema_valid(sqlite3 *handle) {
     size_t i;
-    for (i = 0U; i < sizeof(migrations) / sizeof(migrations[0]); ++i) {
-        int exists = column_exists(handle, migrations[i].column);
-        if (exists < 0) return -1;
-        if (exists == 0 && sqlite3_exec(handle, migrations[i].sql,
-                                        NULL, NULL, NULL) != SQLITE_OK)
-            return -1;
+    for (i = 0U; i < sizeof(required_columns) / sizeof(required_columns[0]); ++i) {
+        int exists = column_exists(handle, required_columns[i]);
+        if (exists != 1) return -1;
     }
     return 0;
 }
 
-static int schema_version(sqlite3 *handle, int *version) {
-    sqlite3_stmt *stmt = NULL;
-    int rc;
-    if (handle == NULL || version == NULL) return -1;
-    if (sqlite3_prepare_v2(handle, "PRAGMA user_version", -1, &stmt, NULL) != SQLITE_OK)
-        return -1;
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) *version = sqlite3_column_int(stmt, 0);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_ROW ? 0 : -1;
-}
-
-static int migrate_schema(sqlite3 *handle) {
-    int version = 0;
-    if (schema_version(handle, &version) != 0) return -1;
-    if (version >= NICKSERV_DB_SCHEMA_VERSION) {
-        return apply_migrations(handle);
-    }
-    if (apply_migrations(handle) != 0) return -1;
+static int set_schema_version(sqlite3 *handle) {
     return sqlite3_exec(handle, "PRAGMA user_version=1", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
@@ -205,7 +189,9 @@ int nickserv_db_open(NickServDb *db, const char *path) {
         nickserv_db_close(db);
         return -1;
     }
-    if (migrate_schema(db->handle) != 0 || persisted_vhosts_valid(db->handle) != 0) {
+    if (set_schema_version(db->handle) != 0 ||
+        current_schema_valid(db->handle) != 0 ||
+        persisted_vhosts_valid(db->handle) != 0) {
         nickserv_db_close(db);
         return -1;
     }
