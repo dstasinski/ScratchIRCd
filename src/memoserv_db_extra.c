@@ -70,6 +70,32 @@ int memoserv_db_count(MemoServDb *db, const char *recipient, size_t *count) {
     return rc == SQLITE_ROW ? 0 : -1;
 }
 
+int memoserv_db_count_sender_outstanding(MemoServDb *db, const char *sender,
+                                         long long created_at_cutoff,
+                                         size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(sender) || count == NULL) return -1;
+    *count = 0U;
+    if (created_at_cutoff > 0) {
+        if (sqlite3_prepare_v2(db->handle,
+            "SELECT COUNT(*) FROM memos "
+            "WHERE sender=?1 AND recipient_deleted=0 AND created_at>=?2",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 2, (sqlite3_int64)created_at_cutoff);
+    } else {
+        if (sqlite3_prepare_v2(db->handle,
+            "SELECT COUNT(*) FROM memos WHERE sender=?1 AND recipient_deleted=0",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+    }
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *count = (size_t)sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
 int memoserv_db_list_sent(MemoServDb *db, const char *sender,
                           MemoServMemo *memos, size_t capacity, size_t *count) {
     sqlite3_stmt *stmt = NULL;
