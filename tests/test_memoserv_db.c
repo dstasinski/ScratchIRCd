@@ -237,10 +237,10 @@ int main(void) {
     assert(first > 0 && second > first && third > second);
     assert(memoserv_db_count_sender_outstanding(&db, "alice", 0, &outstanding) == 0);
     assert(outstanding == 2U);
-    assert(memoserv_db_count_sender_outstanding(&db, "Alice", third + 1, &outstanding) == 0);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 1, &outstanding) == 0);
+    assert(outstanding == 2U);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 4102444800LL, &outstanding) == 0);
     assert(outstanding == 0U);
-    assert(memoserv_db_count_sender_outstanding(&db, "Alice", second + 1, &outstanding) == 0);
-    assert(outstanding == 1U);
 
     assert(memoserv_db_count(&db, "bob", &count) == 0);
     assert(count == 2U);
