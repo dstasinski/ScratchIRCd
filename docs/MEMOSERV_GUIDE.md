@@ -200,7 +200,7 @@ Hide all memos from your sent history:
 
 `DEL` and `DELETE` remove recipient-side inbox visibility from `LIST`, `READ`, `REPLY`, `FORWARD`, `STATUS`, unread counts, and quota accounting. They do not remove the sender's copy from `SENT`. `DELSENT` removes sender-side visibility from `SENT`; it does not remove the recipient's copy from the inbox. The two sides are independent.
 
-Rows hidden from one side remain in storage while the other side can still see the memo. Retention cleanup or account deletion can physically remove those rows. Future maintenance may also physically remove rows after both sender and recipient sides are hidden.
+Rows hidden from one side remain in storage while the other side can still see the memo. When both the sender and recipient sides are hidden, MemoServ physically removes the row during the delete operation that hides the second side. Retention cleanup or account deletion can also physically remove hidden rows.
 
 Existing MemoServ databases are migrated automatically with per-side visibility fields. Existing memos remain visible in `LIST` and `SENT` unless the recipient later uses `DEL`/`DELETE` or the sender later uses `DELSENT`.
 
