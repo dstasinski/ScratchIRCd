@@ -211,6 +211,15 @@ static void apply_account(Server *server, Client *client,
     }
 }
 
+static void record_successful_identify(Server *server, const char *account_name) {
+    NickServDb db = {0};
+    if (server == NULL || account_name == NULL || *account_name == '\0') return;
+    if (nickserv_db_open(&db, server->config.nickserv_db) == 0) {
+        (void)nickserv_db_set_last_identified(&db, account_name, (long long)time(NULL));
+        nickserv_db_close(&db);
+    }
+}
+
 int nickserv_identify(Server *server, Client *client,
                       const char *account_name, const char *password) {
     NickServDb db = {0};
@@ -229,6 +238,7 @@ int nickserv_identify(Server *server, Client *client,
     if (!auth_limit_consume(server, client, "NickServ IDENTIFY")) return 0;
     if (argon2id_verify(account.password_hash, password, strlen(password)) != ARGON2_OK) return 0;
 
+    record_successful_identify(server, account.name);
     apply_account(server, client, &account);
     return 1;
 }
@@ -280,6 +290,7 @@ static void command_register(Server *server, Client *client, char *password) {
     memset(&account, 0, sizeof(account));
     (void)snprintf(account.name, sizeof(account.name), "%s", client->nick);
     account.enabled = 1;
+    account.last_identified_at = (long long)time(NULL);
     if (hash_password(password, account.password_hash, sizeof(account.password_hash)) != 0 ||
         nickserv_db_add(&db, &account) != 0) {
         nickserv_db_close(&db);
