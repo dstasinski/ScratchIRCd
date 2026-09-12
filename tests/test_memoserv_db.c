@@ -59,6 +59,20 @@ static int raw_column_exists(sqlite3 *db, const char *column_name) {
     return found;
 }
 
+static int raw_memo_row_exists(sqlite3 *db, long long id) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    assert(sqlite3_prepare_v2(db, "SELECT 1 FROM memos WHERE id=?1",
+                              -1, &stmt, NULL) == SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, (sqlite3_int64)id);
+    rc = sqlite3_step(stmt);
+    found = rc == SQLITE_ROW;
+    assert(rc == SQLITE_ROW || rc == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 static void create_legacy_memoserv_db(const char *path) {
     sqlite3 *legacy = NULL;
     char *error = NULL;
@@ -185,10 +199,13 @@ int main(void) {
     assert(memos[0].id == 1);
     assert(strcmp(memos[0].recipient, "Bob") == 0);
     assert(memoserv_db_delete_sent(&db, "Alice", 1) == 1);
+    assert(raw_memo_row_exists(db.handle, 1));
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_get(&db, "Bob", 1, &memo) == 1);
     assert(strcmp(memo.text, "legacy memo") == 0);
+    assert(memoserv_db_delete(&db, "Bob", 1) == 1);
+    assert(!raw_memo_row_exists(db.handle, 1));
     memoserv_db_close(&db);
     unlink(legacy_path);
 
@@ -238,6 +255,7 @@ int main(void) {
     assert(memoserv_db_delete(&db, "Bob", first) == 1);
     assert(memoserv_db_delete(&db, "Bob", first) == 0);
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
+    assert(raw_memo_row_exists(db.handle, first));
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
     assert(memoserv_db_unread_count(&db, "Bob", &unread) == 0);
@@ -245,15 +263,19 @@ int main(void) {
     assert(memoserv_db_get_sent(&db, "Alice", first, &memo) == 1);
     assert(strcmp(memo.text, "first memo") == 0);
 
-    /* Sent-history deletion is sender-owned visibility only. The recipient's
-     * memo remains stored and readable. */
+    /* Sent-history deletion is sender-owned visibility only until the
+     * recipient also deletes the memo. */
     assert(memoserv_db_delete_sent(&db, "Mallory", third) == 0);
     assert(memoserv_db_delete_sent(&db, "ALICE", third) == 1);
+    assert(raw_memo_row_exists(db.handle, third));
     assert(memoserv_db_get_sent(&db, "Alice", third, &memo) == 0);
     assert(memoserv_db_count(&db, "Dave", &count) == 0);
     assert(count == 1U);
     assert(memoserv_db_get(&db, "Dave", third, &memo) == 1);
     assert(strcmp(memo.text, "sent memo") == 0);
+    assert(memoserv_db_delete(&db, "Dave", third) == 1);
+    assert(memoserv_db_get(&db, "Dave", third, &memo) == 0);
+    assert(!raw_memo_row_exists(db.handle, third));
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
 
@@ -265,6 +287,7 @@ int main(void) {
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
+    assert(!raw_memo_row_exists(db.handle, first));
     assert(memoserv_db_get(&db, "Bob", second, &memo) == 1);
     assert(memoserv_db_count(&db, "Erin", &count) == 0);
     assert(count == 1U);
@@ -313,7 +336,7 @@ int main(void) {
     /* Dropped account cleanup physically removes both inbox and sent rows,
      * including sender-hidden and recipient-hidden rows. */
     assert(memoserv_db_delete_account(&db, "ALICE", &deleted) == 0);
-    assert(deleted == 4U);
+    assert(deleted == 2U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
