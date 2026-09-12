@@ -142,24 +142,6 @@ static int fill_memo(sqlite3_stmt *stmt, MemoServMemo *memo) {
     return 0;
 }
 
-static int ensure_visibility_columns(sqlite3 *db) {
-    unsigned int columns = 0U;
-
-    if (load_memo_columns(db, &columns) != 0) return -1;
-    if ((columns & MEMOSERV_COL_SENDER_DELETED) == 0U) {
-        if (exec_sql(db,
-            "ALTER TABLE memos ADD COLUMN sender_deleted INTEGER NOT NULL DEFAULT 0;") != 0)
-            return -1;
-        columns |= MEMOSERV_COL_SENDER_DELETED;
-    }
-    if ((columns & MEMOSERV_COL_RECIPIENT_DELETED) == 0U) {
-        if (exec_sql(db,
-            "ALTER TABLE memos ADD COLUMN recipient_deleted INTEGER NOT NULL DEFAULT 0;") != 0)
-            return -1;
-    }
-    return 0;
-}
-
 static void purge_fully_deleted_memos(sqlite3 *db) {
     if (db == NULL) return;
     (void)exec_sql(db,
@@ -167,10 +149,6 @@ static void purge_fully_deleted_memos(sqlite3 *db) {
 }
 
 int memoserv_db_open(MemoServDb *db, const char *path) {
-    /* Fresh databases and the oldest supported MemoServ table shape both pass
-     * through this table-creation batch. Do not create indexes here: indexes
-     * may reference columns that a legacy table must add during migration, and
-     * broken tables should reach validate_memo_columns() for clear diagnostics. */
     static const char table_schema[] =
         "CREATE TABLE IF NOT EXISTS memos ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -188,8 +166,6 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "CREATE INDEX IF NOT EXISTS memos_recipient_visible_id "
         "ON memos(recipient,recipient_deleted,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
-        "ON memos(recipient,recipient_deleted,read_at);"
-        "CREATE INDEX IF NOT EXISTS memos_recipient_visible_unread "
         "ON memos(recipient,recipient_deleted,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
         "ON memos(sender,id DESC);"
@@ -210,7 +186,6 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         return -1;
     }
     if (exec_sql(db->handle, table_schema) != 0 ||
-        ensure_visibility_columns(db->handle) != 0 ||
         validate_memo_columns(db->handle) != 0 ||
         exec_sql(db->handle, index_schema) != 0) {
         memoserv_db_close(db);
