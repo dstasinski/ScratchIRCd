@@ -165,6 +165,7 @@ int main(void) {
     char long_text[IRCD_MEMOSERV_TEXT_MAX + 2U];
     size_t count = 0U;
     size_t unread = 0U;
+    size_t outstanding = 0U;
     size_t deleted = 0U;
     long long first = 0;
     long long second = 0;
@@ -194,24 +195,32 @@ int main(void) {
     assert(raw_column_exists(db.handle, "recipient_deleted"));
     assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
     assert(raw_index_exists(db.handle, "memos_recipient_visible_id"));
+    assert(memoserv_db_count_sender_outstanding(&db, "alice", 0, &outstanding) == 0);
+    assert(outstanding == 1U);
     assert(memoserv_db_list_sent(&db, "alice", memos, 8U, &count) == 0);
     assert(count == 1U);
     assert(memos[0].id == 1);
     assert(strcmp(memos[0].recipient, "Bob") == 0);
     assert(memoserv_db_delete_sent(&db, "Alice", 1) == 1);
     assert(raw_memo_row_exists(db.handle, 1));
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 1U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_get(&db, "Bob", 1, &memo) == 1);
     assert(strcmp(memo.text, "legacy memo") == 0);
     assert(memoserv_db_delete(&db, "Bob", 1) == 1);
     assert(!raw_memo_row_exists(db.handle, 1));
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 0U);
     memoserv_db_close(&db);
     unlink(legacy_path);
 
     assert(memoserv_db_open(&db, path) == 0);
     assert(raw_index_exists(db.handle, "memos_sender_visible_id"));
     assert(raw_index_exists(db.handle, "memos_recipient_visible_id"));
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 0U);
 
     /* Public writes must reject data that cannot round-trip through the fixed
      * MemoServ record structure. */
@@ -226,6 +235,12 @@ int main(void) {
     assert(memoserv_db_send(&db, "Carol", "Bob", "second memo", &second) == 0);
     assert(memoserv_db_send(&db, "Alice", "Dave", "sent memo", &third) == 0);
     assert(first > 0 && second > first && third > second);
+    assert(memoserv_db_count_sender_outstanding(&db, "alice", 0, &outstanding) == 0);
+    assert(outstanding == 2U);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", third + 1, &outstanding) == 0);
+    assert(outstanding == 0U);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", second + 1, &outstanding) == 0);
+    assert(outstanding == 1U);
 
     assert(memoserv_db_count(&db, "bob", &count) == 0);
     assert(count == 2U);
@@ -260,6 +275,8 @@ int main(void) {
     assert(count == 1U);
     assert(memoserv_db_unread_count(&db, "Bob", &unread) == 0);
     assert(unread == 1U);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 1U);
     assert(memoserv_db_get_sent(&db, "Alice", first, &memo) == 1);
     assert(strcmp(memo.text, "first memo") == 0);
 
@@ -268,6 +285,8 @@ int main(void) {
     assert(memoserv_db_delete_sent(&db, "Mallory", third) == 0);
     assert(memoserv_db_delete_sent(&db, "ALICE", third) == 1);
     assert(raw_memo_row_exists(db.handle, third));
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 1U);
     assert(memoserv_db_get_sent(&db, "Alice", third, &memo) == 0);
     assert(memoserv_db_count(&db, "Dave", &count) == 0);
     assert(count == 1U);
@@ -276,12 +295,18 @@ int main(void) {
     assert(memoserv_db_delete(&db, "Dave", third) == 1);
     assert(memoserv_db_get(&db, "Dave", third, &memo) == 0);
     assert(!raw_memo_row_exists(db.handle, third));
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 1U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
 
     assert(memoserv_db_send(&db, "Alice", "Erin", "another sent memo", &fourth) == 0);
     assert(fourth > third);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 2U);
     assert(memoserv_db_delete_all_sent(&db, "ALICE") == 0);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 2U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
@@ -339,6 +364,8 @@ int main(void) {
     assert(deleted == 2U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
+    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
+    assert(outstanding == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
     assert(memoserv_db_get(&db, "Bob", first, &memo) == 0);
