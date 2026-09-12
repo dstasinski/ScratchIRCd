@@ -241,11 +241,12 @@ static int list_one(const OperatorRecord *record, void *context) {
     ListContext *ctx = context;
     char line[IRCD_OUTPUT_BUFFER_SIZE];
     (void)snprintf(line, sizeof(line),
-                   "OPER %s enabled=%d vhost=%s permissions=%s created=%lld updated=%lld",
+                   "OPER %s enabled=%d vhost=%s permissions=%s created=%lld updated=%lld last_opered=%lld",
                    record->name, record->enabled,
                    record->vhost[0] != '\0' ? record->vhost : "-",
                    record->permissions[0] != '\0' ? record->permissions : "-",
-                   record->created_at, record->updated_at);
+                   record->created_at, record->updated_at,
+                   record->last_opered_at);
     admin_notice(ctx->server, ctx->client, line);
     return ctx->client->output_overflowed ? 1 : 0;
 }
