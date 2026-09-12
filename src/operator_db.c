@@ -23,6 +23,7 @@ static const char *schema_sql =
     "\"enabled\" INTEGER NOT NULL DEFAULT 1,"
     "\"created_at\" INTEGER NOT NULL DEFAULT (unixepoch()),"
     "\"updated_at\" INTEGER NOT NULL DEFAULT (unixepoch()),"
+    "\"last_opered_at\" INTEGER NOT NULL DEFAULT 0,"
     "PRIMARY KEY(\"name\")"
     ");";
 
@@ -50,6 +51,37 @@ static int copy_text_column(sqlite3_stmt *stmt, int column,
         return -1;
     memcpy(destination, text, (size_t)bytes);
     destination[bytes] = '\0';
+    return 0;
+}
+
+static int column_exists(sqlite3 *handle, const char *column) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+    if (handle == NULL || column == NULL) return -1;
+    if (sqlite3_prepare_v2(handle, "PRAGMA table_info(operators)",
+                           -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp((const char *)name, column) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int migrate_schema(sqlite3 *handle) {
+    int exists = column_exists(handle, "last_opered_at");
+    if (exists < 0) return -1;
+    if (exists == 0 &&
+        sqlite3_exec(handle,
+                     "ALTER TABLE operators ADD COLUMN last_opered_at INTEGER NOT NULL DEFAULT 0",
+                     NULL, NULL, NULL) != SQLITE_OK)
+        return -1;
     return 0;
 }
 
@@ -114,7 +146,8 @@ int operator_db_open(OperatorDb *db, const char *path) {
         operator_db_close(db);
         return -1;
     }
-    if (persisted_vhosts_valid(db->handle) != 0) {
+    if (migrate_schema(db->handle) != 0 ||
+        persisted_vhosts_valid(db->handle) != 0) {
         operator_db_close(db);
         return -1;
     }
@@ -142,6 +175,7 @@ static int record_from_stmt(sqlite3_stmt *stmt, OperatorRecord *record) {
     record->enabled = sqlite3_column_int(stmt, 4);
     record->created_at = sqlite3_column_int64(stmt, 5);
     record->updated_at = sqlite3_column_int64(stmt, 6);
+    record->last_opered_at = sqlite3_column_int64(stmt, 7);
     return 0;
 }
 
@@ -151,7 +185,7 @@ static int name_valid(const char *name) {
 
 int operator_db_get(OperatorDb *db, const char *name, OperatorRecord *record) {
     static const char sql[] =
-        "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at "
+        "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at,last_opered_at "
         "FROM operators WHERE name=?1";
     sqlite3_stmt *stmt = NULL;
     int rc;
@@ -260,13 +294,27 @@ int operator_db_set_enabled(OperatorDb *db, const char *name, int enabled) {
     return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
 }
 
+int operator_db_set_last_opered(OperatorDb *db, const char *name, long long when) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !name_valid(name) || when <= 0) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+            "UPDATE operators SET last_opered_at=?1,updated_at=unixepoch() WHERE name=?2",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int64(stmt, 1, (sqlite3_int64)when);
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
+}
+
 int operator_db_list(OperatorDb *db, OperatorDbListCallback callback, void *context) {
     sqlite3_stmt *stmt = NULL;
     int rc;
 
     if (db == NULL || db->handle == NULL || callback == NULL) return -1;
     if (sqlite3_prepare_v2(db->handle,
-            "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at "
+            "SELECT name,password_hash,permissions,vhost,enabled,created_at,updated_at,last_opered_at "
             "FROM operators ORDER BY name COLLATE NOCASE",
             -1, &stmt, NULL) != SQLITE_OK) return -1;
 
