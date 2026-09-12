@@ -11,10 +11,11 @@ MemoServ uses these server configuration values:
 ```text
 memoserv_db = data/memoserv.db
 memoserv_quota = 100
+memoserv_sender_quota = 0
 memoserv_retention_days = 90
 ```
 
-`memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of visible inbox memos for one recipient account. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
+`memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of visible inbox memos for one recipient account. `memoserv_sender_quota` is an optional outstanding sent-memo limit for one sender account; `0` disables the sender-side limit. It counts sent rows that are still visible to the recipient and still inside the retention window. Sender-side capacity returns when recipients delete memos or retention removes them. Hiding a memo from `SENT` with `DELSENT` does not by itself free sender quota. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
 
 Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, sender-side sent-history visibility, and recipient-side inbox visibility. Reading a memo marks it read, but it remains stored until both user-facing sides hide it, retention expiry, or account cleanup.
 
@@ -76,6 +77,12 @@ If the recipient mailbox has reached `memoserv_quota`, MemoServ replies:
 
 ```text
 Recipient memo box is full.
+```
+
+If the sender has reached `memoserv_sender_quota`, MemoServ replies:
+
+```text
+You have reached your outstanding sent-memo limit of 100. Capacity returns when recipients delete memos or retention expires them.
 ```
 
 If the text exceeds the configured MemoServ text limit, MemoServ replies:
@@ -198,7 +205,7 @@ Hide all memos from your sent history:
 /MEMOSERV DELSENT ALL
 ```
 
-`DEL` and `DELETE` remove recipient-side inbox visibility from `LIST`, `READ`, `REPLY`, `FORWARD`, `STATUS`, unread counts, and quota accounting. They do not remove the sender's copy from `SENT`. `DELSENT` removes sender-side visibility from `SENT`; it does not remove the recipient's copy from the inbox. The two sides are independent.
+`DEL` and `DELETE` remove recipient-side inbox visibility from `LIST`, `READ`, `REPLY`, `FORWARD`, `STATUS`, unread counts, quota accounting, and the sender's outstanding sent-memo quota. They do not remove the sender's copy from `SENT`. `DELSENT` removes sender-side visibility from `SENT`; it does not remove the recipient's copy from the inbox and does not by itself free sender quota. The two sides are independent.
 
 Rows hidden from one side remain in storage while the other side can still see the memo. When both the sender and recipient sides are hidden, MemoServ physically removes the row during the delete operation that hides the second side. Retention cleanup or account deletion can also physically remove hidden rows.
 
