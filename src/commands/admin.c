@@ -48,9 +48,14 @@ static int stats_reason_precision(int base_length, const char *reason) {
 
 static const char *stats_param_arg(char *params) {
     char *arg;
+
     if (params == NULL || params[0] == '\0') return NULL;
     arg = params + 1;
     while (*arg == ' ' || *arg == '\t') ++arg;
+    if (*arg == ':') {
+        ++arg;
+        while (*arg == ' ' || *arg == '\t') ++arg;
+    }
     return *arg != '\0' ? arg : NULL;
 }
 
