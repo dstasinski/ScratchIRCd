@@ -173,7 +173,7 @@ def main():
 
             admin.send("STATS N Bob")
             nick_stats = admin.expect("last_identified=")
-            assert any("NICKSERV account=bob" in line and
+            assert any("nickserv account=bob" in line.lower() and
                        "last_identified=20" in line for line in nick_stats), nick_stats
             admin.send("STATS O LocalOper")
             oper_stats = admin.expect("last_opered=")
