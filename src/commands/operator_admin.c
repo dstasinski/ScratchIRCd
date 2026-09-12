@@ -28,6 +28,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/random.h>
+#include <time.h>
 
 static int require_netadmin(Server *server, Client *client) {
     if (!client_mode_has(client->modes, CLIENT_MODE_NETADMIN)) {
@@ -41,6 +42,22 @@ static int require_netadmin(Server *server, Client *client) {
 static void admin_notice(Server *server, Client *client, const char *text) {
     client_sendf(client, ":%s NOTICE %s :%s",
                  server->config.server_name, client->nick, text);
+}
+
+static void format_admin_time(long long when, char *buffer, size_t buffer_size) {
+    time_t timestamp;
+    struct tm utc;
+
+    if (buffer == NULL || buffer_size == 0U) return;
+    if (when <= 0) {
+        (void)snprintf(buffer, buffer_size, "never");
+        return;
+    }
+    timestamp = (time_t)when;
+    if ((long long)timestamp != when || gmtime_r(&timestamp, &utc) == NULL ||
+        strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc) == 0U) {
+        (void)snprintf(buffer, buffer_size, "unknown");
+    }
 }
 
 static int hash_password(const char *password, char *encoded, size_t encoded_size) {
@@ -240,13 +257,19 @@ typedef struct ListContext {
 static int list_one(const OperatorRecord *record, void *context) {
     ListContext *ctx = context;
     char line[IRCD_OUTPUT_BUFFER_SIZE];
+    char created[32];
+    char updated[32];
+    char opered[32];
+
+    format_admin_time(record->created_at, created, sizeof(created));
+    format_admin_time(record->updated_at, updated, sizeof(updated));
+    format_admin_time(record->last_opered_at, opered, sizeof(opered));
     (void)snprintf(line, sizeof(line),
-                   "OPER %s enabled=%d vhost=%s permissions=%s created=%lld updated=%lld last_opered=%lld",
+                   "OPER %s enabled=%d vhost=%s permissions=%s created=%s updated=%s last_opered=%s",
                    record->name, record->enabled,
                    record->vhost[0] != '\0' ? record->vhost : "-",
                    record->permissions[0] != '\0' ? record->permissions : "-",
-                   record->created_at, record->updated_at,
-                   record->last_opered_at);
+                   created, updated, opered);
     admin_notice(ctx->server, ctx->client, line);
     return ctx->client->output_overflowed ? 1 : 0;
 }
