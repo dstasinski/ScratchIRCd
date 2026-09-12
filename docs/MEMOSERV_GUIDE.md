@@ -14,11 +14,11 @@ memoserv_quota = 100
 memoserv_retention_days = 90
 ```
 
-`memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of stored inbox memos for one recipient account. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
+`memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of visible inbox memos for one recipient account. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
 
-Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, and sender-side sent-history visibility. Reading a memo marks it read, but it remains stored until recipient deletion, retention expiry, or account cleanup.
+Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, sender-side sent-history visibility, and recipient-side inbox visibility. Reading a memo marks it read, but it remains stored until both user-facing sides hide it, retention expiry, or account cleanup.
 
-MemoServ can automatically migrate the known legacy table shape that predates sender-side sent-history visibility. The migration adds the sender visibility field and the supporting visible-sent index while keeping existing sent rows visible. If an existing `memos` table is missing required legacy columns, MemoServ rejects that database instead of guessing how to repair it. Operators should restore a valid backup or migrate the table manually before pointing `memoserv_db` at it again.
+MemoServ can automatically migrate the known legacy table shape that predates per-side memo visibility. The migration adds sender and recipient visibility fields plus supporting visible-sent and visible-inbox indexes while keeping existing sent and received rows visible. If an existing `memos` table is missing required legacy columns, MemoServ rejects that database instead of guessing how to repair it. Operators should restore a valid backup or migrate the table manually before pointing `memoserv_db` at it again.
 
 ## Authentication
 
@@ -138,7 +138,7 @@ Read a received memo:
 /MEMOSERV READ 12
 ```
 
-Only the recipient account can read a memo. Reading marks it read. If the memo does not exist or does not belong to the current account, MemoServ replies:
+Only the recipient account can read a memo. Reading marks it read. If the memo does not exist, does not belong to the current account, or has been hidden from that account's inbox, MemoServ replies:
 
 ```text
 No such memo.
@@ -158,7 +158,7 @@ Reply to the sender of a received memo:
 /MEMOSERV REPLY 12 :Thanks, I will look at it today.
 ```
 
-The original memo must be owned by the current account. `REPLY` creates a new memo addressed to the original sender.
+The original memo must be visible in the current account's inbox. `REPLY` creates a new memo addressed to the original sender.
 
 ## FORWARD
 
@@ -168,7 +168,7 @@ Forward a received memo to another enabled NickServ account:
 /MEMOSERV FORWARD 12 Bob
 ```
 
-The forwarded memo is stored as a new memo from the forwarding account. The original memo text is reused.
+The original memo must be visible in the current account's inbox. The forwarded memo is stored as a new memo from the forwarding account. The original memo text is reused.
 
 ## DEL, DELETE, and DELSENT
 
@@ -198,9 +198,11 @@ Hide all memos from your sent history:
 /MEMOSERV DELSENT ALL
 ```
 
-`DEL` and `DELETE` physically delete recipient-owned inbox memos. `DELSENT` only removes sender-side visibility from `SENT`; it does not remove the recipient's copy. The recipient can continue to LIST, READ, REPLY to, FORWARD, or delete the memo normally. Sender-hidden rows remain in storage only while the recipient still owns the memo. Recipient deletion, retention cleanup, or account deletion can physically remove those rows.
+`DEL` and `DELETE` remove recipient-side inbox visibility from `LIST`, `READ`, `REPLY`, `FORWARD`, `STATUS`, unread counts, and quota accounting. They do not remove the sender's copy from `SENT`. `DELSENT` removes sender-side visibility from `SENT`; it does not remove the recipient's copy from the inbox. The two sides are independent.
 
-Existing MemoServ databases are migrated automatically with a sender-history visibility field. Existing memos remain visible in `SENT` unless the sender later uses `DELSENT`.
+Rows hidden from one side remain in storage while the other side can still see the memo. Retention cleanup or account deletion can physically remove those rows. Future maintenance may also physically remove rows after both sender and recipient sides are hidden.
+
+Existing MemoServ databases are migrated automatically with per-side visibility fields. Existing memos remain visible in `LIST` and `SENT` unless the recipient later uses `DEL`/`DELETE` or the sender later uses `DELSENT`.
 
 ## STATUS
 
@@ -210,7 +212,7 @@ Show mailbox status:
 /MEMOSERV STATUS
 ```
 
-The reply reports stored inbox count, configured quota, and unread count:
+The reply reports visible inbox count, configured quota, and unread count:
 
 ```text
 Memos: 4/100 stored, 2 unread.
@@ -239,13 +241,13 @@ Unknown help topics produce a short syntax reminder instead of exposing internal
 
 MemoServ sends only to enabled NickServ accounts. Disabled accounts cannot receive new memos, and users cannot identify to disabled accounts to read existing memos.
 
-When a network administrator disables an account with `NSSET <account> ENABLED 0`, existing MemoServ rows are preserved. If the account is later re-enabled, its owner can identify again and manage its stored memos normally.
+When a network administrator disables an account with `NSSET <account> ENABLED 0`, existing MemoServ rows are preserved. If the account is later re-enabled, its owner can identify again and manage its visible memos normally.
 
-When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient, including sender-hidden rows. This prevents dropped account names from leaving orphaned sent or received memo history behind.
+When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient, including sender-hidden and recipient-hidden rows. This prevents dropped account names from leaving orphaned sent or received memo history behind.
 
 ## Retention
 
-When `memoserv_retention_days` is nonzero, MemoServ removes expired memo rows by creation time, including rows hidden from a sender's `SENT` view. Normal MemoServ activity may trigger retention cleanup, but the cleanup is throttled internally so ordinary commands do not run a global purge every time.
+When `memoserv_retention_days` is nonzero, MemoServ removes expired memo rows by creation time, including rows hidden from one side's view. Normal MemoServ activity may trigger retention cleanup, but the cleanup is throttled internally so ordinary commands do not run a global purge every time.
 
 ## Network-administrator commands
 
@@ -256,7 +258,7 @@ MSINFO <account>
 MSPURGE <account|*>
 ```
 
-`MSINFO` reports stored count, unread count, configured quota, and retention policy for one account. It does not display memo contents.
+`MSINFO` reports visible stored inbox count, visible unread count, configured quota, and retention policy for one account. It does not display memo contents.
 
 Example reply:
 
