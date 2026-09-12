@@ -54,7 +54,7 @@ int memoserv_db_count(MemoServDb *db, const char *recipient, size_t *count) {
     if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || count == NULL) return -1;
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
-        "SELECT COUNT(*) FROM memos WHERE recipient=?1",
+        "SELECT COUNT(*) FROM memos WHERE recipient=?1 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
