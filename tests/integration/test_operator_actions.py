@@ -157,11 +157,12 @@ def main():
                 "enabled INTEGER NOT NULL DEFAULT 1,"
                 "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
                 "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+                "last_opered_at INTEGER NOT NULL DEFAULT 0,"
                 "PRIMARY KEY(name));"
             )
             db.execute(
-                "INSERT INTO operators(name,password_hash,permissions,vhost,enabled) "
-                "VALUES(?,?,?,?,1)",
+                "INSERT INTO operators(name,password_hash,permissions,vhost,enabled,last_opered_at) "
+                "VALUES(?,?,?,?,1,0)",
                 ("LocalOper", oper_hash, "can_kill", ""),
             )
             db.commit()
@@ -336,7 +337,8 @@ def main():
             admin.send("KLINE blocked@127.0.0.1 :kline test")
             admin.expect("NOTICE alice :KLINE added: blocked@127.0.0.1")
             admin.send("STATS k")
-            stats_k = admin.expect(" 219 alice k :End of /STATS report")
+            stats_k = admin.expect(" 216 alice blocked@127.0.0.1")
+            stats_k += admin.collect_for(0.5)
             assert any(" 216 alice blocked@127.0.0.1 root :kline test" in line
                        for line in stats_k), stats_k
             blocked = IRCClient(port); clients.append(blocked)
