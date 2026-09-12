@@ -86,11 +86,19 @@ static int column_exists(sqlite3 *handle, const char *column) {
 
 static int current_schema_valid(sqlite3 *handle) {
     size_t i;
+    int missing = 0;
+
     for (i = 0U; i < sizeof(required_columns) / sizeof(required_columns[0]); ++i) {
         int exists = column_exists(handle, required_columns[i]);
-        if (exists != 1) return -1;
+        if (exists < 0) return -1;
+        if (exists == 0) {
+            fprintf(stderr,
+                    "NickServ database: incompatible nickserv_accounts schema missing %s column\n",
+                    required_columns[i]);
+            missing = 1;
+        }
     }
-    return 0;
+    return missing ? -1 : 0;
 }
 
 static int set_schema_version(sqlite3 *handle) {
