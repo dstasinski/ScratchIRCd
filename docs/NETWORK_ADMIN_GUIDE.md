@@ -423,7 +423,7 @@ history_db = data/history.db
 | `memoserv.db` | Account-to-account memos. |
 | `history.db` | Bounded IRCv3 channel message history. |
 
-The daemon creates missing files and required tables when it opens them and applies its supported schema upgrades. Do not create application tables by hand. All paths and their parent directories must be writable by the service account.
+The daemon creates missing files and required tables when it opens them. ScratchIRCd has not yet been released, so development database schemas are not compatibility contracts. Delete or recreate pre-release development databases when schemas change; incompatible existing tables should fail loudly instead of being upgraded in place. See `DATABASE_SCHEMA_POLICY.md` for the full policy. Do not create application tables by hand. All paths and their parent directories must be writable by the service account.
 
 ScratchIRCd uses SQLite WAL mode. A live database can therefore have `-wal` and `-shm` companions; they are part of its current state and must not be omitted from a raw file copy.
 
@@ -624,7 +624,7 @@ openssl pkey -in /path/to/privkey.pem -check -noout
 
 ### Database errors
 
-Check the configured parent directory, ownership, filesystem free space, and whether stale files were copied incorrectly. Run `PRAGMA quick_check` against a backup or during a maintenance window. Preserve the main file and any WAL/SHM companions before attempting recovery.
+Check the configured parent directory, ownership, filesystem free space, and whether stale files were copied incorrectly. During pre-release development, delete and recreate stale development databases after schema changes instead of expecting in-place upgrades. Run `PRAGMA quick_check` against a backup or during a maintenance window. Preserve the main file and any WAL/SHM companions before attempting recovery.
 
 ### REHASH is rejected
 
