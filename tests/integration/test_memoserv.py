@@ -158,6 +158,29 @@ def main():
             traveler.send(f"MEMOSERV REPLY {first_id} :Reply to Alice"); traveler.expect("Reply memo #")
             traveler.send(f"MEMOSERV FORWARD {first_id} Alice"); traveler.expect("forwarded to Alice")
             traveler.send("MEMOSERV STATUS"); traveler.expect("Memos: 2/2 stored, 0 unread.")
+
+            # Recipient deletion hides only Bob's inbox side. Alice must still
+            # be able to see the original memo in SENT until she uses DELSENT.
+            traveler.send(f"MEMOSERV DEL {first_id}")
+            traveler.expect("Memo deleted.")
+            traveler.send(f"MEMOSERV READ {first_id}")
+            traveler.expect("No such memo.")
+            traveler.send("MEMOSERV STATUS")
+            traveler.expect("Memos: 1/2 stored, 0 unread.")
+            traveler.send("MEMOSERV LIST")
+            list_lines = traveler.collect_for(1.0)
+            assert not any(f"#{first_id} " in line for line in list_lines), list_lines
+            assert any(f"#{second_id} READ from Alice" in line for line in list_lines), list_lines
+            db = sqlite3.connect(memoserv_db)
+            try:
+                first_state = db.execute(
+                    "SELECT sender_deleted,recipient_deleted FROM memos WHERE id=?",
+                    (first_id,),
+                ).fetchone()
+            finally:
+                db.close()
+            assert first_state == (0, 1), first_state
+
             traveler.send("ISON MemoServ"); line = traveler.expect(" 303 Traveler :")
             assert "MemoServ" not in line.split(":", 2)[-1], line
         finally:
@@ -192,7 +215,8 @@ def main():
             alice2.expect("Memos: 2/2 stored, 2 unread.")
 
             # DELSENT hides sender history without deleting the recipient's
-            # copy. Both Alice->Bob rows must still exist for Bob.
+            # copy. The first Alice->Bob row was already hidden by Bob, so it
+            # is purged when Alice hides it too; the second remains for Bob.
             db = sqlite3.connect(memoserv_db)
             try:
                 bob_rows = db.execute(
@@ -204,8 +228,8 @@ def main():
                 ).fetchone()[0]
             finally:
                 db.close()
-            assert bob_rows == 2, bob_rows
-            assert hidden_rows == 2, hidden_rows
+            assert bob_rows == 1, bob_rows
+            assert hidden_rows == 1, hidden_rows
 
             # STATUS above warms the five-minute retention throttle. Insert an
             # already-expired memo directly into persistent storage; another
