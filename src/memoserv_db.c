@@ -189,10 +189,14 @@ int memoserv_db_open(MemoServDb *db, const char *path) {
         "ON memos(recipient,recipient_deleted,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_recipient_unread "
         "ON memos(recipient,recipient_deleted,read_at);"
+        "CREATE INDEX IF NOT EXISTS memos_recipient_visible_unread "
+        "ON memos(recipient,recipient_deleted,read_at);"
         "CREATE INDEX IF NOT EXISTS memos_sender_id "
         "ON memos(sender,id DESC);"
         "CREATE INDEX IF NOT EXISTS memos_sender_visible_id "
-        "ON memos(sender,sender_deleted,id DESC);";
+        "ON memos(sender,sender_deleted,id DESC);"
+        "CREATE INDEX IF NOT EXISTS memos_sender_outstanding_created "
+        "ON memos(sender,recipient_deleted,created_at);";
 
     if (db == NULL || path == NULL || *path == '\0') return -1;
     db->handle = NULL;
