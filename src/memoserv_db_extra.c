@@ -16,6 +16,13 @@ static int account_arg_fits(const char *account) {
            memchr(account, '\n', length) == NULL;
 }
 
+static void purge_fully_deleted_memos(sqlite3 *db) {
+    if (db == NULL) return;
+    (void)sqlite3_exec(db,
+        "DELETE FROM memos WHERE sender_deleted=1 AND recipient_deleted=1",
+        NULL, NULL, NULL);
+}
+
 static int copy_text_column(sqlite3_stmt *stmt, int column,
                             char *destination, size_t destination_size) {
     const unsigned char *text;
@@ -126,7 +133,9 @@ int memoserv_db_delete_sent(MemoServDb *db, const char *sender,
     rc = sqlite3_step(stmt);
     changed = sqlite3_changes(db->handle);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? (changed > 0 ? 1 : 0) : -1;
+    if (rc != SQLITE_DONE) return -1;
+    if (changed > 0) purge_fully_deleted_memos(db->handle);
+    return changed > 0 ? 1 : 0;
 }
 
 int memoserv_db_delete_all_sent(MemoServDb *db, const char *sender) {
@@ -139,7 +148,9 @@ int memoserv_db_delete_all_sent(MemoServDb *db, const char *sender) {
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? 0 : -1;
+    if (rc != SQLITE_DONE) return -1;
+    purge_fully_deleted_memos(db->handle);
+    return 0;
 }
 
 int memoserv_db_delete_account(MemoServDb *db, const char *account,
