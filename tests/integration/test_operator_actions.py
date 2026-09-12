@@ -39,6 +39,25 @@ class IRCClient:
                 pass
         raise AssertionError(f"expected {needle!r}; got {lines!r}")
 
+    def collect_for(self, duration=0.5):
+        deadline = time.monotonic() + duration
+        lines = []
+        while time.monotonic() < deadline:
+            while b"\n" in self.buffer:
+                raw, self.buffer = self.buffer.split(b"\n", 1)
+                lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                data = self.sock.recv(4096)
+                if not data:
+                    break
+                self.buffer += data
+            except socket.timeout:
+                pass
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return lines
+
     def close(self):
         try:
             self.sock.close()
@@ -205,6 +224,7 @@ def main():
             admin.expect("NickServ account updated.")
             admin.send(f"NSINFO {long_account}")
             info_lines = admin.expect(f"NICKSERV {long_account} enabled=1")
+            info_lines += admin.collect_for(0.5)
             prefix = f":{server_name} NOTICE alice :"
             payloads = [line[len(prefix):] for line in info_lines if line.startswith(prefix)]
             assert payloads, info_lines
