@@ -8,7 +8,7 @@ ScratchIRCd persists the last successful account and operator authentication tim
 
 `operators.db` stores the last successful IRC operator authentication time in the `operators.last_opered_at` column. The value is a Unix epoch timestamp and defaults to `0`, which means the operator record has never successfully authenticated with `/OPER`.
 
-ScratchIRCd has not yet been released, so these databases are treated as current-schema development databases. Do not depend on pre-release database shapes being upgraded in place; delete or recreate development databases when the schema changes.
+ScratchIRCd has not yet been released, so these databases are treated as current-schema development databases. Do not depend on pre-release database shapes being upgraded in place; delete or recreate development databases when the schema changes. See [`DATABASE_SCHEMA_POLICY.md`](DATABASE_SCHEMA_POLICY.md) for the broader pre-release database policy.
 
 ## What updates the fields
 
