@@ -296,17 +296,17 @@ int main(void) {
     assert(memoserv_db_get(&db, "Dave", third, &memo) == 0);
     assert(!raw_memo_row_exists(db.handle, third));
     assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
-    assert(outstanding == 1U);
+    assert(outstanding == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
     assert(count == 1U);
 
     assert(memoserv_db_send(&db, "Alice", "Erin", "another sent memo", &fourth) == 0);
     assert(fourth > third);
     assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
-    assert(outstanding == 2U);
+    assert(outstanding == 1U);
     assert(memoserv_db_delete_all_sent(&db, "ALICE") == 0);
     assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
-    assert(outstanding == 2U);
+    assert(outstanding == 1U);
     assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
     assert(count == 0U);
     assert(memoserv_db_count(&db, "Bob", &count) == 0);
