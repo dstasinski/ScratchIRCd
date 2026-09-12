@@ -112,7 +112,7 @@ int main(void) {
     invalid.password_hash[0] = '\0';
     assert(operator_db_add(&db, &invalid) == -1);
 
-    /* Direct legacy/external corruption must fail closed, including LIST. */
+    /* Direct external/manual corruption must fail closed, including LIST. */
     raw_set_text(db.handle, "password_hash", "TestOper", long_hash);
     assert(operator_db_get(&db, "TestOper", &got) == -1);
     seen_count = 0;
