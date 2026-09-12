@@ -128,7 +128,7 @@ int main(void) {
                                            "verifyhash", 2000) == -1);
     assert(nickserv_db_set_reset_token(&db, "Daniel", "reset\nhash", 3000) == -1);
 
-    /* Legacy/external corruption must fail closed instead of being clipped or
+    /* External/manual corruption must fail closed instead of being clipped or
      * allowing multi-line persisted data into live IRC state. */
     raw_set_text(db.handle, "password_hash", "Daniel", long_hash);
     assert(nickserv_db_get(&db, "Daniel", &loaded) == -1);
