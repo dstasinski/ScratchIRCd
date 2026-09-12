@@ -397,17 +397,18 @@ static void command_help(Server *server, Client *client, char *params) {
         else if (strcasecmp(topic, "FORWARD") == 0)
             ms_notice(server, client, "FORWARD <memo-id> <account> - forward memo text to another enabled account.");
         else if (strcasecmp(topic, "DEL") == 0 || strcasecmp(topic, "DELETE") == 0)
-            ms_notice(server, client, "DEL <memo-id>|ALL - delete one or all received memos.");
+            ms_notice(server, client, "DEL <memo-id>|ALL - hide one or all received memos from your inbox.");
         else if (strcasecmp(topic, "DELSENT") == 0)
-            ms_notice(server, client, "DELSENT <memo-id>|ALL - remove one or all memos from your sent history.");
+            ms_notice(server, client, "DELSENT <memo-id>|ALL - hide one or all memos from your sent history.");
         else if (strcasecmp(topic, "STATUS") == 0)
-            ms_notice(server, client, "STATUS - show stored and unread memo counts.");
+            ms_notice(server, client, "STATUS - show visible stored and unread memo counts.");
         else
             ms_notice(server, client, "Unknown MemoServ help topic. Use /MEMOSERV HELP.");
         return;
     }
     ms_notice(server, client, "MemoServ commands require an identified NickServ account.");
     ms_notice(server, client, "Commands: SEND, LIST, SENT, READ, REPLY, FORWARD, DEL, DELSENT, STATUS, HELP");
+    ms_notice(server, client, "DEL hides inbox rows; DELSENT hides sent rows. A row is reclaimed after both sides hide it.");
     ms_notice(server, client, "Use /MEMOSERV HELP <command> for command-specific help.");
     ms_notice(server, client, "You can also use: PRIVMSG MemoServ :<command>.");
 }
