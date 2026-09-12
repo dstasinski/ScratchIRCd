@@ -73,32 +73,6 @@ static int raw_memo_row_exists(sqlite3 *db, long long id) {
     return found;
 }
 
-static void create_legacy_memoserv_db(const char *path) {
-    sqlite3 *legacy = NULL;
-    char *error = NULL;
-    static const char sql[] =
-        "CREATE TABLE memos ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "sender TEXT COLLATE NOCASE NOT NULL,"
-        "recipient TEXT COLLATE NOCASE NOT NULL,"
-        "text TEXT NOT NULL,"
-        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "read_at INTEGER NOT NULL DEFAULT 0"
-        ");"
-        "CREATE INDEX memos_recipient_id ON memos(recipient,id DESC);"
-        "CREATE INDEX memos_recipient_unread ON memos(recipient,read_at);"
-        "CREATE INDEX memos_sender_id ON memos(sender,id DESC);"
-        "INSERT INTO memos(sender,recipient,text,created_at,read_at) "
-        "VALUES('Alice','Bob','legacy memo',12345,0);";
-
-    assert(sqlite3_open(path, &legacy) == SQLITE_OK);
-    assert(sqlite3_exec(legacy, sql, NULL, NULL, &error) == SQLITE_OK);
-    assert(error == NULL);
-    assert(!raw_column_exists(legacy, "sender_deleted"));
-    assert(!raw_column_exists(legacy, "recipient_deleted"));
-    sqlite3_close(legacy);
-}
-
 static void create_incompatible_memoserv_db(const char *path) {
     sqlite3 *legacy = NULL;
     char *error = NULL;
@@ -111,7 +85,7 @@ static void create_incompatible_memoserv_db(const char *path) {
         "created_at INTEGER NOT NULL DEFAULT (unixepoch())"
         ");"
         "INSERT INTO memos(sender,recipient,text,created_at) "
-        "VALUES('Alice','Bob','broken legacy memo',12345);";
+        "VALUES('Alice','Bob','broken memo',12345);";
 
     assert(sqlite3_open(path, &legacy) == SQLITE_OK);
     assert(sqlite3_exec(legacy, sql, NULL, NULL, &error) == SQLITE_OK);
@@ -154,16 +128,14 @@ static void assert_incompatible_schema_rejected(const char *path) {
 static void assert_current_indexes(sqlite3 *db) {
     assert(raw_index_exists(db, "memos_sender_visible_id"));
     assert(raw_index_exists(db, "memos_recipient_visible_id"));
-    assert(raw_index_exists(db, "memos_recipient_visible_unread"));
+    assert(raw_index_exists(db, "memos_recipient_unread"));
     assert(raw_index_exists(db, "memos_sender_outstanding_created"));
 }
 
 int main(void) {
     char path[] = "/tmp/scratchircd-memoserv-XXXXXX";
-    char legacy_path[] = "/tmp/scratchircd-memoserv-legacy-XXXXXX";
     char incompatible_path[] = "/tmp/scratchircd-memoserv-broken-XXXXXX";
     int fd = mkstemp(path);
-    int legacy_fd = mkstemp(legacy_path);
     int incompatible_fd = mkstemp(incompatible_path);
     MemoServDb db = {0};
     MemoServMemo memos[8];
@@ -183,44 +155,15 @@ int main(void) {
     fill_overlong(long_text, IRCD_MEMOSERV_TEXT_MAX, 'M');
 
     assert(fd >= 0);
-    assert(legacy_fd >= 0);
     assert(incompatible_fd >= 0);
     close(fd);
-    close(legacy_fd);
     close(incompatible_fd);
     unlink(path);
-    unlink(legacy_path);
     unlink(incompatible_path);
 
     create_incompatible_memoserv_db(incompatible_path);
     assert_incompatible_schema_rejected(incompatible_path);
     unlink(incompatible_path);
-
-    create_legacy_memoserv_db(legacy_path);
-    assert(memoserv_db_open(&db, legacy_path) == 0);
-    assert(raw_column_exists(db.handle, "sender_deleted"));
-    assert(raw_column_exists(db.handle, "recipient_deleted"));
-    assert_current_indexes(db.handle);
-    assert(memoserv_db_count_sender_outstanding(&db, "alice", 0, &outstanding) == 0);
-    assert(outstanding == 1U);
-    assert(memoserv_db_list_sent(&db, "alice", memos, 8U, &count) == 0);
-    assert(count == 1U);
-    assert(memos[0].id == 1);
-    assert(strcmp(memos[0].recipient, "Bob") == 0);
-    assert(memoserv_db_delete_sent(&db, "Alice", 1) == 1);
-    assert(raw_memo_row_exists(db.handle, 1));
-    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
-    assert(outstanding == 1U);
-    assert(memoserv_db_list_sent(&db, "Alice", memos, 8U, &count) == 0);
-    assert(count == 0U);
-    assert(memoserv_db_get(&db, "Bob", 1, &memo) == 1);
-    assert(strcmp(memo.text, "legacy memo") == 0);
-    assert(memoserv_db_delete(&db, "Bob", 1) == 1);
-    assert(!raw_memo_row_exists(db.handle, 1));
-    assert(memoserv_db_count_sender_outstanding(&db, "Alice", 0, &outstanding) == 0);
-    assert(outstanding == 0U);
-    memoserv_db_close(&db);
-    unlink(legacy_path);
 
     assert(memoserv_db_open(&db, path) == 0);
     assert_current_indexes(db.handle);
@@ -326,8 +269,8 @@ int main(void) {
      * account-purge checks. */
     assert(memoserv_db_send(&db, "Alice", "Dave", "sent memo", &third) == 0);
 
-    /* Legacy/external corruption must fail closed rather than returning a
-     * clipped or multi-line sender, recipient, or memo body. */
+    /* External corruption must fail closed rather than returning a clipped or
+     * multi-line sender, recipient, or memo body. */
     raw_set_memo_text(db.handle, "text", second, long_text);
     assert(memoserv_db_get(&db, "Bob", second, &memo) == -1);
     assert(memoserv_db_list(&db, "Bob", memos, 8U, &count) == -1);
