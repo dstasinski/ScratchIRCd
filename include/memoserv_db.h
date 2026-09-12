@@ -31,6 +31,17 @@ int memoserv_db_send(MemoServDb *db, const char *sender,
 int memoserv_db_unread_count(MemoServDb *db, const char *recipient,
                              size_t *count);
 int memoserv_db_count(MemoServDb *db, const char *recipient, size_t *count);
+
+/** Count sender rows that still consume outstanding sender quota.
+ *
+ * Only rows still visible to their recipient consume this quota. A
+ * created_at_cutoff value greater than zero excludes older rows, matching the
+ * retention window used by the command layer.
+ */
+int memoserv_db_count_sender_outstanding(MemoServDb *db, const char *sender,
+                                         long long created_at_cutoff,
+                                         size_t *count);
+
 int memoserv_db_list(MemoServDb *db, const char *recipient,
                      MemoServMemo *memos, size_t capacity, size_t *count);
 int memoserv_db_list_sent(MemoServDb *db, const char *sender,
