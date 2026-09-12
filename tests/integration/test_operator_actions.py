@@ -179,6 +179,10 @@ def main():
             oper_stats = admin.expect("last_opered=")
             assert any("OPER name=LocalOper" in line and
                        "last_opered=20" in line for line in oper_stats), oper_stats
+            admin.send("OPERLIST LocalOper")
+            oper_list = admin.expect("End of operator list")
+            assert any("OPER LocalOper" in line and
+                       "last_opered=" in line for line in oper_list), oper_list
 
             receiver.send("STATS N Bob")
             receiver.expect(" 481 bob ")
@@ -211,6 +215,7 @@ def main():
             joined_payload = "".join(payloads)
             assert expected_info in joined_payload, payloads
             assert " updated=" in joined_payload, payloads
+            assert " last_identified=" in joined_payload, payloads
             assert all(len(line.encode()) <= 510 for line in info_lines), info_lines
 
             # Netadmin creates the registration, then assigns founder ownership
