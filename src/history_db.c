@@ -50,6 +50,53 @@ static int ensure_parent_directory(const char *path) {
     return mkdir(parent, 0750) == 0 || errno == EEXIST ? 0 : -1;
 }
 
+static int history_column_exists(sqlite3 *db, const char *column) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+
+    if (db == NULL || column == NULL) return -1;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(history)", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp(name, column) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int current_history_schema_valid(sqlite3 *db) {
+    static const char *const columns[] = {
+        "id",
+        "target",
+        "command",
+        "nick",
+        "user",
+        "host",
+        "account",
+        "text",
+        "created_at_ms"
+    };
+    size_t i;
+    int missing = 0;
+
+    if (db == NULL) return -1;
+    for (i = 0U; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        int exists = history_column_exists(db, columns[i]);
+        if (exists != 1) {
+            fprintf(stderr, "History DB: incompatible history schema missing %s column\n",
+                    columns[i]);
+            missing = 1;
+        }
+    }
+    return missing ? -1 : 0;
+}
+
 int history_db_open(HistoryDb *db, const char *path) {
     char *error = NULL;
     if (db == NULL || path == NULL || *path == '\0') return -1;
@@ -65,6 +112,10 @@ int history_db_open(HistoryDb *db, const char *path) {
     }
     if (sqlite3_exec(db->handle, schema_sql, NULL, NULL, &error) != SQLITE_OK) {
         sqlite3_free(error);
+        history_db_close(db);
+        return -1;
+    }
+    if (current_history_schema_valid(db->handle) != 0) {
         history_db_close(db);
         return -1;
     }
