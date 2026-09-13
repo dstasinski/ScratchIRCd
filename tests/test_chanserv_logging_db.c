@@ -70,8 +70,8 @@ int main(void) {
     assert(chanserv_db_logging_queue_add(&db, "#ok", 100, "bad\rbody") != 0);
     assert(chanserv_db_logging_queue_add(&db, "#ok", 100, "bad\nbody") != 0);
 
-    /* Bypass the public write bounds to simulate a corrupt/legacy row. Fetch
-     * must fail instead of clipping the text into ChanServLogQueueRecord. */
+    /* Bypass the public write bounds to simulate a corrupt row. Fetch must
+     * fail instead of clipping the text into ChanServLogQueueRecord. */
     inject_text_row(&db, "#ok", long_body, -1);
     count = 99U;
     assert(chanserv_db_logging_queue_fetch_due(&db, 100, rows, 4, &count) != 0);
@@ -100,7 +100,7 @@ int main(void) {
     assert(chanserv_db_logging_queue_count(&db, &count) == 0 && count == 1U);
     clear_queue(&db);
 
-    /* Legacy list API must never report a successful partial channel list. */
+    /* List API must never report a successful partial channel list. */
     assert(chanserv_db_logging_queue_add(&db, "#a", 100, "one") == 0);
     assert(chanserv_db_logging_queue_add(&db, "#b", 101, "two") == 0);
     memset(list_buffer, 'x', sizeof(list_buffer));
