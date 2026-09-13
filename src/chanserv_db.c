@@ -157,6 +157,7 @@ static int current_schema_valid(sqlite3 *db) {
         "secure_ops",
         "successor",
         "greeting",
+        "logging_enabled",
         "created_at",
         "updated_at"
     };
@@ -220,6 +221,7 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
         "secure_ops INTEGER NOT NULL DEFAULT 0,"
         "successor TEXT NOT NULL DEFAULT '',"
         "greeting TEXT NOT NULL DEFAULT '',"
+        "logging_enabled INTEGER NOT NULL DEFAULT 0,"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
         ");"
