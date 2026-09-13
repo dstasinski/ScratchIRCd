@@ -1,3 +1,4 @@
+#include "ban_db.h"
 #include "chanserv_db.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
@@ -111,15 +112,41 @@ static void create_incomplete_chanserv_db(const char *path) {
     assert(sqlite3_close(db) == SQLITE_OK);
 }
 
+static void create_incomplete_ban_db(const char *path) {
+    sqlite3 *db = NULL;
+
+    assert(sqlite3_open(path, &db) == SQLITE_OK);
+    exec_sql(db,
+        "CREATE TABLE bans ("
+        "type INTEGER NOT NULL,"
+        "mask TEXT COLLATE NOCASE NOT NULL,"
+        "reason TEXT NOT NULL DEFAULT '',"
+        "set_by TEXT NOT NULL DEFAULT '',"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "PRIMARY KEY(type,mask)"
+        ");"
+        "CREATE TABLE exceptions ("
+        "type INTEGER NOT NULL,"
+        "mask TEXT COLLATE NOCASE NOT NULL,"
+        "reason TEXT NOT NULL DEFAULT '',"
+        "set_by TEXT NOT NULL DEFAULT '',"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "PRIMARY KEY(type,mask)"
+        ");");
+    assert(sqlite3_close(db) == SQLITE_OK);
+}
+
 int main(void) {
     char nickserv_path[128];
     char operator_path[128];
     char memoserv_path[128];
     char chanserv_path[128];
+    char ban_path[128];
     NickServDb nickserv = {0};
     OperatorDb operators = {0};
     MemoServDb memoserv = {0};
     ChanServDb chanserv = {0};
+    BanDb ban = {0};
 
     make_temp_path(nickserv_path, sizeof(nickserv_path),
                    "scratchircd-current-nickserv");
@@ -148,6 +175,13 @@ int main(void) {
     assert(chanserv_db_open(&chanserv, chanserv_path) != 0);
     assert(chanserv.db == NULL);
     assert(unlink(chanserv_path) == 0);
+
+    make_temp_path(ban_path, sizeof(ban_path),
+                   "scratchircd-current-ban");
+    create_incomplete_ban_db(ban_path);
+    assert(ban_db_open(&ban, ban_path) != 0);
+    assert(ban.handle == NULL);
+    assert(unlink(ban_path) == 0);
 
     return 0;
 }
