@@ -1,3 +1,4 @@
+#include "chanserv_db.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
@@ -86,13 +87,39 @@ static void create_incomplete_memoserv_db(const char *path) {
     assert(sqlite3_close(db) == SQLITE_OK);
 }
 
+static void create_incomplete_chanserv_db(const char *path) {
+    sqlite3 *db = NULL;
+
+    assert(sqlite3_open(path, &db) == SQLITE_OK);
+    exec_sql(db,
+        "CREATE TABLE channels ("
+        "name TEXT COLLATE NOCASE PRIMARY KEY,"
+        "founder TEXT COLLATE NOCASE NOT NULL,"
+        "description TEXT NOT NULL DEFAULT '',"
+        "enabled INTEGER NOT NULL DEFAULT 1,"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "updated_at INTEGER NOT NULL DEFAULT (unixepoch())"
+        ");"
+        "CREATE TABLE access ("
+        "channel TEXT COLLATE NOCASE NOT NULL,"
+        "account TEXT COLLATE NOCASE NOT NULL,"
+        "level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 4),"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "PRIMARY KEY(channel,account)"
+        ");");
+    assert(sqlite3_close(db) == SQLITE_OK);
+}
+
 int main(void) {
     char nickserv_path[128];
     char operator_path[128];
     char memoserv_path[128];
+    char chanserv_path[128];
     NickServDb nickserv = {0};
     OperatorDb operators = {0};
     MemoServDb memoserv = {0};
+    ChanServDb chanserv = {0};
 
     make_temp_path(nickserv_path, sizeof(nickserv_path),
                    "scratchircd-current-nickserv");
@@ -114,6 +141,13 @@ int main(void) {
     assert(memoserv_db_open(&memoserv, memoserv_path) != 0);
     assert(memoserv.handle == NULL);
     assert(unlink(memoserv_path) == 0);
+
+    make_temp_path(chanserv_path, sizeof(chanserv_path),
+                   "scratchircd-current-chanserv");
+    create_incomplete_chanserv_db(chanserv_path);
+    assert(chanserv_db_open(&chanserv, chanserv_path) != 0);
+    assert(chanserv.db == NULL);
+    assert(unlink(chanserv_path) == 0);
 
     return 0;
 }
