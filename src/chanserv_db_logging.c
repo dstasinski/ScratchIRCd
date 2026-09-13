@@ -38,18 +38,10 @@ int chanserv_db_logging_ensure_schema(ChanServDb *db) {
     if (db == NULL || db->db == NULL) return -1;
     if (db->logging_schema_ready) return 0;
     if (!column_exists(db->db, "logging_enabled")) {
-        rc = sqlite3_exec(db->db,
-            "ALTER TABLE channels ADD COLUMN logging_enabled INTEGER NOT NULL DEFAULT 0",
-            NULL, NULL, &error);
-        if (rc != SQLITE_OK) {
-            if (error != NULL)
-                fprintf(stderr, "ChanServ DB logging migration: %s\n", error);
-            sqlite3_free(error);
-            return -1;
-        }
+        fprintf(stderr, "ChanServ DB logging: incompatible channels schema missing logging_enabled column\n");
+        return -1;
     }
 
-    error = NULL;
     rc = sqlite3_exec(db->db,
         "CREATE TABLE IF NOT EXISTS channel_log_queue ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
