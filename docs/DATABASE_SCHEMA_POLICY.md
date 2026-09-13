@@ -11,7 +11,14 @@ This applies to the current service and policy databases, including:
 - `nickserv.db`
 - `operators.db`
 - `memoserv.db`
+- ChanServ channel/access persistence
+- ChanServ logging state and `channel_log_queue`
+- KLINE/ZLINE/E-LINE ban policy persistence
+- GeoBAN persistence
+- IRCv3 channel history persistence
 - other SQLite-backed policy or service stores while they remain pre-release
+
+The focused `current_schema_only` unit test covers incomplete existing schemas for the main SQLite stores so stale development databases fail loudly instead of being silently upgraded.
 
 ## Why this rule exists
 
@@ -25,6 +32,7 @@ Example:
 
 ```sh
 rm -f data/nickserv.db data/operators.db data/memoserv.db
+rm -f data/chanserv.db data/bans.db data/geoban.db data/history.db
 ```
 
 Only delete databases in a disposable development environment. Back up anything you want to inspect before removal.
