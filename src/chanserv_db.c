@@ -90,42 +90,44 @@ static int account_arg_fits(const char *account) {
     return text_arg_fits(account, IRC_NICK_MAX, 0);
 }
 
-static int column_exists(sqlite3 *db, const char *column) {
+static int table_column_exists(sqlite3 *db, const char *table, const char *column) {
     sqlite3_stmt *stmt = NULL;
+    char sql[96];
+    int rc;
     int found = 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)", -1, &stmt, NULL) != SQLITE_OK)
-        return 0;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    int written;
+
+    if (db == NULL || table == NULL || column == NULL) return -1;
+    written = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (written <= 0 || (size_t)written >= sizeof(sql)) return -1;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const char *name = (const char *)sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp(name, column) == 0) { found = 1; break; }
+        if (name != NULL && strcmp(name, column) == 0) {
+            found = 1;
+            break;
+        }
     }
     sqlite3_finalize(stmt);
-    return found;
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
-static int ensure_channel_columns(sqlite3 *db) {
-    if (!column_exists(db, "mode_lock") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN mode_lock INTEGER NOT NULL DEFAULT 0") != 0)
-        return -1;
-    if (!column_exists(db, "topic") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN topic TEXT NOT NULL DEFAULT ''") != 0)
-        return -1;
-    if (!column_exists(db, "topic_setter") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN topic_setter TEXT NOT NULL DEFAULT ''") != 0)
-        return -1;
-    if (!column_exists(db, "topic_time") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN topic_time INTEGER NOT NULL DEFAULT 0") != 0)
-        return -1;
-    if (!column_exists(db, "secure_ops") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN secure_ops INTEGER NOT NULL DEFAULT 0") != 0)
-        return -1;
-    if (!column_exists(db, "successor") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN successor TEXT NOT NULL DEFAULT ''") != 0)
-        return -1;
-    if (!column_exists(db, "greeting") &&
-        exec_sql(db, "ALTER TABLE channels ADD COLUMN greeting TEXT NOT NULL DEFAULT ''") != 0)
-        return -1;
-    return 0;
+static int validate_table_columns(sqlite3 *db, const char *table,
+                                  const char *const *columns, size_t count) {
+    size_t i;
+    int missing = 0;
+
+    for (i = 0U; i < count; ++i) {
+        int exists = table_column_exists(db, table, columns[i]);
+        if (exists != 1) {
+            fprintf(stderr, "ChanServ DB: incompatible %s schema missing %s column\n",
+                    table, columns[i]);
+            missing = 1;
+        }
+    }
+    return missing ? -1 : 0;
 }
 
 static int access_table_supports_protected(sqlite3 *db) {
@@ -142,25 +144,41 @@ static int access_table_supports_protected(sqlite3 *db) {
     return supported;
 }
 
-static int ensure_access_schema(sqlite3 *db) {
-    static const char migration[] =
-        "BEGIN IMMEDIATE;"
-        "CREATE TABLE access_new ("
-        "channel TEXT COLLATE IRCNOCASE NOT NULL,"
-        "account TEXT COLLATE NOCASE NOT NULL,"
-        "level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 5),"
-        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "PRIMARY KEY(channel,account),"
-        "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
-        ");"
-        "INSERT INTO access_new(channel,account,level,created_at,updated_at) "
-        "SELECT channel,account,level,created_at,updated_at FROM access;"
-        "DROP TABLE access;"
-        "ALTER TABLE access_new RENAME TO access;"
-        "COMMIT;";
-    if (access_table_supports_protected(db)) return 0;
-    return exec_sql(db, migration);
+static int current_schema_valid(sqlite3 *db) {
+    static const char *const channel_columns[] = {
+        "name",
+        "founder",
+        "description",
+        "enabled",
+        "mode_lock",
+        "topic",
+        "topic_setter",
+        "topic_time",
+        "secure_ops",
+        "successor",
+        "greeting",
+        "created_at",
+        "updated_at"
+    };
+    static const char *const access_columns[] = {
+        "channel",
+        "account",
+        "level",
+        "created_at",
+        "updated_at"
+    };
+
+    if (validate_table_columns(db, "channels", channel_columns,
+                               sizeof(channel_columns) / sizeof(channel_columns[0])) != 0)
+        return -1;
+    if (validate_table_columns(db, "access", access_columns,
+                               sizeof(access_columns) / sizeof(access_columns[0])) != 0)
+        return -1;
+    if (!access_table_supports_protected(db)) {
+        fprintf(stderr, "ChanServ DB: incompatible access schema missing protected access level support\n");
+        return -1;
+    }
+    return 0;
 }
 
 static int schema_version(sqlite3 *db, int *version) {
@@ -183,9 +201,8 @@ static int ensure_schema_version(sqlite3 *db) {
                 version, CHANSERV_DB_SCHEMA_VERSION);
         return -1;
     }
+    if (current_schema_valid(db) != 0) return -1;
     if (version == CHANSERV_DB_SCHEMA_VERSION) return 0;
-    if (ensure_channel_columns(db) != 0 || ensure_access_schema(db) != 0)
-        return -1;
     return exec_sql(db, "PRAGMA user_version=2;");
 }
 
