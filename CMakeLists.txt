@@ -164,8 +164,8 @@ target_compile_definitions(test_nickserv_db PRIVATE _POSIX_C_SOURCE=200809L IRCD
 target_link_libraries(test_nickserv_db PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
 add_test(NAME nickserv_database COMMAND test_nickserv_db)
 
-add_executable(test_current_schema_only tests/test_current_schema_only.c src/nickserv_db.c src/operator_db.c src/memoserv_db.c src/memoserv_db_extra.c src/chanserv_db.c src/ban_db.c src/history_db.c)
-target_include_directories(test_current_schema_only PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_executable(test_current_schema_only tests/test_current_schema_only.c src/nickserv_db.c src/operator_db.c src/memoserv_db.c src/memoserv_db_extra.c src/chanserv_db.c src/ban_db.c src/history_db.c src/geoban_db.c)
+target_include_directories(test_current_schema_only PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
 target_compile_definitions(test_current_schema_only PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(test_current_schema_only PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
 add_test(NAME current_schema_only COMMAND test_current_schema_only)
