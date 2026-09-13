@@ -1,5 +1,6 @@
 #include "ban_db.h"
 #include "chanserv_db.h"
+#include "geoban_db.h"
 #include "history_db.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
@@ -155,6 +156,22 @@ static void create_incomplete_history_db(const char *path) {
     assert(sqlite3_close(db) == SQLITE_OK);
 }
 
+static void create_incomplete_geoban_db(const char *path) {
+    sqlite3 *db = NULL;
+
+    assert(sqlite3_open(path, &db) == SQLITE_OK);
+    exec_sql(db,
+        "CREATE TABLE geo_bans ("
+        "type INTEGER NOT NULL CHECK(type BETWEEN 1 AND 4),"
+        "value TEXT COLLATE NOCASE NOT NULL,"
+        "reason TEXT NOT NULL DEFAULT '',"
+        "set_by TEXT NOT NULL DEFAULT '',"
+        "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "PRIMARY KEY(type,value)"
+        ");");
+    assert(sqlite3_close(db) == SQLITE_OK);
+}
+
 int main(void) {
     char nickserv_path[128];
     char operator_path[128];
@@ -162,12 +179,14 @@ int main(void) {
     char chanserv_path[128];
     char ban_path[128];
     char history_path[128];
+    char geoban_path[128];
     NickServDb nickserv = {0};
     OperatorDb operators = {0};
     MemoServDb memoserv = {0};
     ChanServDb chanserv = {0};
     BanDb ban = {0};
     HistoryDb history = {0};
+    GeoBanDb geoban = {0};
 
     make_temp_path(nickserv_path, sizeof(nickserv_path),
                    "scratchircd-current-nickserv");
@@ -210,6 +229,13 @@ int main(void) {
     assert(history_db_open(&history, history_path) != 0);
     assert(history.handle == NULL);
     assert(unlink(history_path) == 0);
+
+    make_temp_path(geoban_path, sizeof(geoban_path),
+                   "scratchircd-current-geoban");
+    create_incomplete_geoban_db(geoban_path);
+    assert(geoban_db_open(&geoban, geoban_path) != 0);
+    assert(geoban.handle == NULL);
+    assert(unlink(geoban_path) == 0);
 
     return 0;
 }
