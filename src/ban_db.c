@@ -41,6 +41,15 @@ static const char *schema_sql =
     "PRIMARY KEY(type,mask)"
     ");";
 
+static const char *policy_required_columns[] = {
+    "type",
+    "mask",
+    "reason",
+    "set_by",
+    "created_at",
+    "expires_at"
+};
+
 static int valid_type(BanType type) {
     return type == BAN_TYPE_KLINE || type == BAN_TYPE_ZLINE;
 }
@@ -276,24 +285,40 @@ static int exception_from_stmt(sqlite3_stmt *stmt, BanExceptionRecord *record) {
     return 0;
 }
 
-static int ensure_expires_column(BanDb *db) {
+static int table_column_exists(sqlite3 *db, const char *table, const char *column) {
     sqlite3_stmt *stmt = NULL;
+    char sql[96];
+    int written;
     int rc;
     int found = 0;
-    if (sqlite3_prepare_v2(db->handle, "PRAGMA table_info(bans)", -1, &stmt, NULL) != SQLITE_OK)
-        return -1;
+
+    if (db == NULL || table == NULL || column == NULL) return -1;
+    written = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (written <= 0 || (size_t)written >= sizeof(sql)) return -1;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const unsigned char *name = sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp((const char *)name, "expires_at") == 0) {
+        if (name != NULL && strcmp((const char *)name, column) == 0) {
             found = 1;
             break;
         }
     }
     sqlite3_finalize(stmt);
-    if (found) return 0;
-    return sqlite3_exec(db->handle,
-        "ALTER TABLE bans ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
-        NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int table_schema_valid(sqlite3 *db, const char *table) {
+    size_t i;
+    for (i = 0U; i < sizeof(policy_required_columns) / sizeof(policy_required_columns[0]); ++i) {
+        int exists = table_column_exists(db, table, policy_required_columns[i]);
+        if (exists != 1) {
+            fprintf(stderr, "Ban database: incompatible %s schema missing %s column\n",
+                    table, policy_required_columns[i]);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int schema_version(sqlite3 *db, int *version) {
@@ -307,12 +332,17 @@ static int schema_version(sqlite3 *db, int *version) {
     return rc == SQLITE_ROW ? 0 : -1;
 }
 
-static int migrate_schema(BanDb *db) {
+static int ensure_schema_version(sqlite3 *db) {
     int version = 0;
-    if (schema_version(db->handle, &version) != 0) return -1;
-    if (version >= BAN_DB_SCHEMA_VERSION) return 0;
-    if (ensure_expires_column(db) != 0) return -1;
-    return sqlite3_exec(db->handle, "PRAGMA user_version=2", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+    if (schema_version(db, &version) != 0) return -1;
+    if (version > BAN_DB_SCHEMA_VERSION) {
+        fprintf(stderr, "Ban database: unsupported schema version %d (server supports %d)\n",
+                version, BAN_DB_SCHEMA_VERSION);
+        return -1;
+    }
+    if (table_schema_valid(db, "bans") != 0 || table_schema_valid(db, "exceptions") != 0)
+        return -1;
+    return sqlite3_exec(db, "PRAGMA user_version=2", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
 int ban_db_purge_expired(BanDb *db) {
@@ -360,7 +390,7 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
-    if (migrate_schema(db) != 0 || purge_expired_due(db, path) != 0) {
+    if (ensure_schema_version(db->handle) != 0 || purge_expired_due(db, path) != 0) {
         ban_db_close(db);
         return -1;
     }
