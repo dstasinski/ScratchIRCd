@@ -28,6 +28,17 @@ static void clear_queue(ChanServDb *db) {
                         NULL, NULL, NULL) == SQLITE_OK);
 }
 
+static void create_incomplete_queue(ChanServDb *db) {
+    assert(db != NULL && db->db != NULL);
+    assert(sqlite3_exec(db->db,
+        "CREATE TABLE channel_log_queue ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "channel TEXT COLLATE IRCNOCASE NOT NULL,"
+        "event_time INTEGER NOT NULL"
+        ");",
+        NULL, NULL, NULL) == SQLITE_OK);
+}
+
 int main(void) {
     char path[128];
     char long_channel[IRC_CHANNEL_NAME_MAX + 2U];
@@ -40,6 +51,12 @@ int main(void) {
 
     (void)snprintf(path, sizeof(path), "/tmp/scratchircd-chanlog-db-%ld.db",
                    (long)getpid());
+    unlink(path);
+
+    assert(chanserv_db_open(&db, path) == 0);
+    create_incomplete_queue(&db);
+    assert(chanserv_db_logging_ensure_schema(&db) != 0);
+    chanserv_db_close(&db);
     unlink(path);
 
     assert(chanserv_db_open(&db, path) == 0);
