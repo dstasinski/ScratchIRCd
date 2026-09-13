@@ -1,5 +1,6 @@
 #include "ban_db.h"
 #include "chanserv_db.h"
+#include "history_db.h"
 #include "memoserv_db.h"
 #include "nickserv_db.h"
 #include "operator_db.h"
@@ -136,17 +137,37 @@ static void create_incomplete_ban_db(const char *path) {
     assert(sqlite3_close(db) == SQLITE_OK);
 }
 
+static void create_incomplete_history_db(const char *path) {
+    sqlite3 *db = NULL;
+
+    assert(sqlite3_open(path, &db) == SQLITE_OK);
+    exec_sql(db,
+        "CREATE TABLE history ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "target TEXT COLLATE NOCASE NOT NULL,"
+        "command TEXT NOT NULL,"
+        "nick TEXT NOT NULL,"
+        "user TEXT NOT NULL,"
+        "host TEXT NOT NULL,"
+        "text TEXT NOT NULL,"
+        "created_at_ms INTEGER NOT NULL"
+        ");");
+    assert(sqlite3_close(db) == SQLITE_OK);
+}
+
 int main(void) {
     char nickserv_path[128];
     char operator_path[128];
     char memoserv_path[128];
     char chanserv_path[128];
     char ban_path[128];
+    char history_path[128];
     NickServDb nickserv = {0};
     OperatorDb operators = {0};
     MemoServDb memoserv = {0};
     ChanServDb chanserv = {0};
     BanDb ban = {0};
+    HistoryDb history = {0};
 
     make_temp_path(nickserv_path, sizeof(nickserv_path),
                    "scratchircd-current-nickserv");
@@ -182,6 +203,13 @@ int main(void) {
     assert(ban_db_open(&ban, ban_path) != 0);
     assert(ban.handle == NULL);
     assert(unlink(ban_path) == 0);
+
+    make_temp_path(history_path, sizeof(history_path),
+                   "scratchircd-current-history");
+    create_incomplete_history_db(history_path);
+    assert(history_db_open(&history, history_path) != 0);
+    assert(history.handle == NULL);
+    assert(unlink(history_path) == 0);
 
     return 0;
 }
