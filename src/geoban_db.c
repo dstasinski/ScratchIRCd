@@ -60,6 +60,50 @@ static int ensure_parent_directory(const char *path) {
     return mkdir(parent, 0750) == 0 || errno == EEXIST ? 0 : -1;
 }
 
+static int table_column_exists(sqlite3 *db, const char *column) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int found = 0;
+
+    if (db == NULL || column == NULL) return -1;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(geo_bans)",
+                           -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const char *name = (const char *)sqlite3_column_text(stmt, 1);
+        if (name != NULL && strcmp(name, column) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int current_schema_valid(sqlite3 *db) {
+    static const char *const columns[] = {
+        "type",
+        "value",
+        "reason",
+        "set_by",
+        "created_at",
+        "expires_at"
+    };
+    size_t i;
+    int missing = 0;
+
+    for (i = 0U; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        int exists = table_column_exists(db, columns[i]);
+        if (exists != 1) {
+            fprintf(stderr, "GeoBAN DB: incompatible geo_bans schema missing %s column\n",
+                    columns[i]);
+            missing = 1;
+        }
+    }
+    return missing ? -1 : 0;
+}
+
 static int purge_expired_now(GeoBanDb *db) {
     char *error = NULL;
     if (sqlite3_exec(db->handle,
@@ -308,7 +352,8 @@ int geoban_db_open(GeoBanDb *db, const char *path) {
         geoban_db_close(db);
         return -1;
     }
-    if (purge_expired_due(db, path) != 0) {
+    if (current_schema_valid(db->handle) != 0 ||
+        purge_expired_due(db, path) != 0) {
         geoban_db_close(db);
         return -1;
     }
