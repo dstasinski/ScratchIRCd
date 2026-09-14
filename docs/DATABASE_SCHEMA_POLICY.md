@@ -37,6 +37,17 @@ rm -f data/chanserv.db data/bans.db data/geoban.db data/history.db
 
 Only delete databases in a disposable development environment. Back up anything you want to inspect before removal.
 
+## Verification
+
+Build and run the focused schema-policy test after touching any SQLite schema creation or validation code:
+
+```sh
+cmake --build build-m3-gcc --target test_current_schema_only -j"$(nproc)"
+ctest --test-dir build-m3-gcc -R '^current_schema_only$' --output-on-failure
+```
+
+For changes that touch an individual database module, also run that module's focused unit test, such as `nickserv_database`, `operator_database`, `memoserv_database`, `chanserv_database`, `chanserv_logging_database`, `ban_database`, `geoban_database`, or `history_database`.
+
 ## After the first release
 
 Once ScratchIRCd ships a release that users may run persistently, schema changes should be handled by explicit, tested migrations. At that point, this policy should be replaced with a release-aware migration policy that documents supported upgrade paths, `PRAGMA user_version` changes, failure modes, and rollback expectations.
