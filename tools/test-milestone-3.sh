@@ -1,16 +1,42 @@
 #!/usr/bin/env sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+
+usage() {
+    cat <<EOF
+usage: $0 [build-dir] [focused|broad|all]
+
+Runs the Milestone 3 local verification gates from the repository root.
+
+Arguments:
+  build-dir        CMake build directory to use. Default: build-m3-gcc
+  focused          Build and run the focused DB/schema closeout tests. Default.
+  broad            Build daemon tools and run the broader Milestone 3 integration tests.
+  all              Run focused first, then broad.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 build_dir=${1:-build-m3-gcc}
 mode=${2:-focused}
 
 case "$mode" in
   focused|broad|all) ;;
   *)
-    echo "usage: $0 [build-dir] [focused|broad|all]" >&2
+    usage >&2
     exit 2
     ;;
 esac
+
+cd "$repo_root"
 
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 
