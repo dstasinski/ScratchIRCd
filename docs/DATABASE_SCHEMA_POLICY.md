@@ -39,7 +39,16 @@ Only delete databases in a disposable development environment. Back up anything 
 
 ## Verification
 
-Build and run the focused schema-policy test after touching any SQLite schema creation or validation code:
+After touching SQLite schema creation or validation code, run the focused Milestone 3 closeout gate:
+
+```sh
+chmod +x tools/test-milestone-3.sh
+./tools/test-milestone-3.sh build-m3-gcc focused
+```
+
+Use `./tools/test-milestone-3.sh --help` for the helper's usage. The focused gate builds and runs `current_schema_only` plus the related database unit tests for NickServ, operators, MemoServ, ChanServ, ChanServ logging, ban policy, GeoBAN, and history.
+
+For a narrower check while iterating on only the combined schema rejection target, the minimal command is:
 
 ```sh
 cmake --build build-m3-gcc --target test_current_schema_only -j"$(nproc)"
