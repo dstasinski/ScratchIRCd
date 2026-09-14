@@ -39,6 +39,15 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+For Milestone 3 closeout verification, use the focused and broad helper gates:
+
+```sh
+chmod +x tools/test-milestone-3.sh
+./tools/test-milestone-3.sh --help
+./tools/test-milestone-3.sh build-m3-gcc focused
+./tools/test-milestone-3.sh build-m3-gcc broad
+```
+
 Create the runtime directories and configuration. Replace the placeholder values in `ircd.conf`, especially the server identity, administrator contact, passwords, listener/TLS paths, and a private `cloak_key` of at least 16 characters.
 
 ```sh
