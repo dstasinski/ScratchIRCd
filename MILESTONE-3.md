@@ -45,7 +45,7 @@ Milestone 3 should finish the remaining polish and lifecycle work.
 - Define exactly what happens to sent and received memos when a NickServ account is dropped or force-dropped.
 - Decide whether dropped-account senders are preserved, anonymized, or deleted.
 - Add integration tests for MemoServ behavior across `NSSET <account> ENABLED 0`, `NSSET <account> ENABLED 1`, `NICKSERV DROP`, and `NSDROP`.
-- Add schema-versioning or an explicit schema migration audit for the MemoServ database.
+- Apply the pre-release current-schema-only policy to the MemoServ database: create the current schema for a missing database and reject an incompatible existing schema rather than migrating it in place.
 - Add defensive tests for corrupted memo rows, invalid stored accounts, embedded line breaks, embedded NULs, and oversized values.
 
 ### MemoServ administration
@@ -195,7 +195,7 @@ Recommended type mapping:
 5 = G  GeoBAN
 ```
 
-The existing bans database schema version must be migrated safely. Existing KLINE/ZLINE rows must survive migration unchanged.
+Because ScratchIRCd is still pre-release, the bans database follows the current-schema-only policy. A missing database is created with the current schema, while an incompatible existing development database is rejected rather than migrated in place. Existing development data that must be preserved should be backed up for inspection before the stale database is removed and recreated.
 
 ### Evaluation order
 
@@ -392,7 +392,7 @@ Rules:
 4. Add reserved nick configuration parsing, `ERR_RESERVEDNICK` reuse, and nickname-use enforcement.
 5. Add NickServ reserved-name registration enforcement and tests.
 6. Add `can_eline` to the operator permission flags, parser, docs, and tests.
-7. Add bans database schema migration for the `exceptions` table.
+7. Apply current-schema-only creation and validation to the bans database after adding the `exceptions` table; reject stale incompatible development schemas instead of migrating them in place.
 8. Add E-LINE database APIs and unit tests, including CIDR matching.
 9. Add `/ELINE` parser, permissions, server notices, list, remove forms, and `STATS e` inspection.
 10. Wire `k`, `z`, `m`, `B`, and `G` evaluation into the correct enforcement points.
@@ -406,7 +406,7 @@ Milestone 3 is complete when:
 
 - MemoServ has complete user and administrator documentation.
 - MemoServ account disable/drop behavior is defined, implemented, and tested.
-- MemoServ persistence and migration behavior is covered by tests.
+- MemoServ persistence and current-schema-only rejection behavior are covered by tests.
 - Configured reserved nicknames are loaded from `ircd.conf` and enforced for ordinary nickname use and registration.
 - Hard-coded service nicknames are server-only and cannot be used or registered by anyone.
 - Ordinary users receive `ERR_RESERVEDNICK` when attempting to use or register configured reserved nicks.
