@@ -81,9 +81,16 @@ To run both gates in order:
 ./tools/test-milestone-3.sh build-m3-gcc all
 ```
 
+## Static closeout pass
+
+Completed on `Genesis`:
+
+- Client, operator, moderation, and presence documentation are aligned with the current `DEAF`, `MUTE`, and `WATCH` syntax.
+- Milestone 3 schema wording is aligned with `docs/DATABASE_SCHEMA_POLICY.md` and no longer requires in-place pre-release schema migration.
+- Local verification results have intentionally not been recorded here yet; they remain pending until the focused and broad gates are run by the maintainer.
+
 ## Remaining closeout work
 
 - Fix any local build or test fallout from the stricter schema validation.
-- Do one final static pass for stale migration or legacy-schema wording.
 - Update release notes or the main project milestone summary after the focused and broader gates pass.
 - Consider tagging the milestone only after the complete selected test set is green.
