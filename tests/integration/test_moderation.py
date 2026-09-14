@@ -140,13 +140,14 @@ def main():
             admin.expect(" 381 Admin :You are now a Network Administrator")
 
             # Ordinary users cannot control +D/+M by command or MODE.
-            carol.send("DEAF +Bob"); carol.expect(" 481 Carol ")
+            carol.send("DEAF Bob"); carol.expect(" 481 Carol ")
             bob.send("MODE Bob +D"); bob.expect(" 481 Bob ")
-            carol.send("MUTE +Bob"); carol.expect(" 481 Carol ")
+            carol.send("MUTE Bob"); carol.expect(" 481 Carol ")
             bob.send("MODE Bob +M"); bob.expect(" 481 Bob ")
 
-            # +D blocks private traffic both ways except with opers.
-            admin.send("DEAF +Bob"); bob.expect(" MODE Bob +D")
+            # +D blocks private traffic both ways except with opers. The + is
+            # optional when enabling through DEAF; disabling still requires -.
+            admin.send("DEAF Bob"); bob.expect(" MODE Bob +D")
             bob.send("MODE Bob"); bob.expect(" 221 Bob +D")
             carol.send("PRIVMSG Bob :hello")
             carol.expect("NOTICE Carol :I cannot send or receive private messages.")
@@ -172,7 +173,8 @@ def main():
             bob.send("JOIN #mute"); bob.expect(" 366 Bob #mute ")
             carol.send("JOIN #mute"); carol.expect(" 366 Carol #mute ")
             dave.send("JOIN #mute"); dave.expect(" 366 Dave #mute ")
-            admin.send("MUTE +Bob"); bob.expect(" MODE Bob +M")
+            # The + is optional when enabling through MUTE.
+            admin.send("MUTE Bob"); bob.expect(" MODE Bob +M")
             bob.send("MODE Bob"); bob.expect(" 221 Bob +M")
 
             # +M blocks only an ordinary/unprivileged channel member.
@@ -197,7 +199,7 @@ def main():
                 carol.expect_not(f"{label} removed")
 
             # IRCops/netadmins are globally immune to +M even without a
-            # channel membership privilege.
+            # channel membership privilege. Keep explicit + covered too.
             admin.send("MODE #mute -q Admin")
             admin.send("MUTE +Admin"); admin.expect(" MODE Admin +M")
             admin.send("PRIVMSG #mute :oper immune")
