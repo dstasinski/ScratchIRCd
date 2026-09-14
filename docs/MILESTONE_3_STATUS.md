@@ -61,28 +61,24 @@ The milestone should not be considered closed until the focused closeout tests p
 cd ~/Projects/ScratchIRCd
 git checkout Genesis
 git pull --ff-only origin Genesis
-
-cmake -S . -B build-m3-gcc
-
-cmake --build build-m3-gcc \
-  --target test_current_schema_only test_chanserv_logging_db \
-           test_geoban_db test_history_db test_ban_db \
-           test_chanserv_db test_memoserv_db test_nickserv_db test_operator_db \
-  -j"$(nproc)"
-
-ctest --test-dir build-m3-gcc \
-  -R 'current_schema_only|chanserv_logging_database|geoban_database|history_database|ban_database|chanserv_database|memoserv_database|nickserv_database|operator_database' \
-  --output-on-failure
+chmod +x tools/test-milestone-3.sh
+./tools/test-milestone-3.sh build-m3-gcc focused
 ```
+
+The focused gate builds and runs the current-schema-only test plus the related database unit tests for ChanServ logging, GeoBAN, history, ban policy, ChanServ, MemoServ, NickServ, and operator persistence.
 
 After that focused set is green, run the broader Milestone 3 integration gate:
 
 ```sh
-cmake --build build-m3-gcc --target scratchircd scratchircd-mkpasswd -j"$(nproc)"
+./tools/test-milestone-3.sh build-m3-gcc broad
+```
 
-ctest --test-dir build-m3-gcc \
-  -R 'memoserv|eline|reserved_nick|nickserv|operator|oper|geoban|history|chanserv' \
-  --output-on-failure
+The broad gate builds `scratchircd` and `scratchircd-mkpasswd`, then runs the selected Milestone 3 integration coverage for MemoServ, E-LINE, reserved nicks, NickServ/operator/admin behavior, GeoBAN, history, and ChanServ.
+
+To run both gates in order:
+
+```sh
+./tools/test-milestone-3.sh build-m3-gcc all
 ```
 
 ## Remaining closeout work
