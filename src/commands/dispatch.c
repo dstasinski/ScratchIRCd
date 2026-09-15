@@ -16,9 +16,6 @@
 #define COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND 40U
 #define COMMAND_THROTTLE_SNOTICE_SECONDS 5
 
-/* General event-loop flood budget. This is intentionally much more generous
- * than the expensive-command bucket: normal IRC bursts should pass, while a
- * sustained cheap-command/message flood is eventually disconnected. */
 #define FLOOD_BUDGET_BURST 80U
 #define FLOOD_BUDGET_REFILL_PER_SECOND 20U
 #define FLOOD_VIOLATION_WINDOW_SECONDS 5
@@ -30,33 +27,19 @@ typedef struct CommandEntry {
     unsigned int cost;
 } CommandEntry;
 
-/*
- * Cost 0 means ordinary traffic/control and is never throttled here.
- * The weighted bucket is reserved for commands that enumerate server state,
- * hit persistent databases, or perform expensive password verification.
- * AUTHENTICATE framing is ordinary control traffic; its final Argon2 verify
- * is independently protected by auth_limit_consume() in NickServ.
- */
 static const CommandEntry command_table[] = {
-{"ADMIN",command_admin,1},{"AUTHENTICATE",command_authenticate,0},{"AWAY",command_away,0},{"CAP",command_cap,0},{"CHANSERV",command_chanserv,2},{"CHATHISTORY",command_chathistory,5},{"CSDROP",command_csdrop,3},{"CSINFO",command_csinfo,3},{"CSSET",command_csset,3},{"DEAF",command_deaf,0},{"DIE",command_die,0},{"ELINE",command_eline,0},{"FLASH",command_flash,0},{"GEOBAN",command_geoban,0},{"GLOBOPS",command_globops,0},{"IDENTIFY",command_identify,5},{"INFO",command_info,2},{"INVITE",command_invite,0},{"ISON",command_ison,1},{"JOIN",command_join,0},{"KICK",command_kick,0},{"KILL",command_kill,0},{"KLINE",command_kline,0},{"KNOCK",command_knock,0},{"LINKS",command_links,2},{"LIST",command_list,5},{"LOCOPS",command_locops,0},{"LUSERS",command_lusers,1},{"MEMOSERV",command_memoserv,2},{"MODE",command_mode,0},{"MOTD",command_motd,1},{"MSINFO",command_msinfo,3},{"MSPURGE",command_mspurge,3},{"MUTE",command_mute,0},{"NAMES",command_names,3},{"NICK",command_nick,0},{"NICKSERV",command_nickserv,2},{"NOTICE",command_notice,0},{"NSDROP",command_nsdrop,3},{"NSINFO",command_nsinfo,3},{"NSSET",command_nsset,3},{"OPER",command_oper,5},{"OPERADD",command_operadd,0},{"OPERDEL",command_operdel,0},{"OPERLIST",command_operlist,2},{"OPERSET",command_operset,0},{"PART",command_part,0},{"PASS",command_pass,0},{"PING",command_ping,0},{"PONG",command_pong,0},{"PRIVMSG",command_privmsg,0},{"QUIT",command_quit,0},{"REHASH",command_rehash,0},{"RESTART",command_restart,0},{"RULES",command_rules,1},{"SAJOIN",command_sajoin,0},{"SAMODE",command_samode,0},{"SAPART",command_sapart,0},{"SETHOST",command_sethost,0},{"SETIDENT",command_setident,0},{"SETNAME",command_setname,0},{"SILENCE",command_silence,1},{"SNOTICE",command_snotice,0},{"STATS",command_stats,1},{"TAGMSG",command_tagmsg,0},{"TIME",command_time,1},{"TOPIC",command_topic,0},{"UNGEOBAN",command_ungeoban,0},{"USER",command_user,0},{"USERHOST",command_userhost,1},{"USERIP",command_userip,1},{"VERSION",command_version,1},{"WALLOPS",command_wallops,0},{"WATCH",command_watch,1},{"WEBIRC",command_webirc,0},{"WHO",command_who,4},{"WHOIS",command_whois,2},{"WHOWAS",command_whowas,2},{"ZLINE",command_zline,0}};
+{"ADMIN",command_admin,1},{"AUTHENTICATE",command_authenticate,0},{"AWAY",command_away,0},{"CAP",command_cap,0},{"CHANSERV",command_chanserv,2},{"CHATHISTORY",command_chathistory,5},{"CSDROP",command_csdrop,3},{"CSINFO",command_csinfo,3},{"CSSET",command_csset,3},{"DEAF",command_deaf,0},{"DIE",command_die,0},{"ELINE",command_eline,0},{"FLASH",command_flash,0},{"GEOBAN",command_geoban,0},{"GLOBOPS",command_globops,0},{"IDENTIFY",command_identify,5},{"INFO",command_info,2},{"INVITE",command_invite,0},{"ISON",command_ison,1},{"JOIN",command_join,0},{"KICK",command_kick,0},{"KILL",command_kill,0},{"KLINE",command_kline,0},{"KNOCK",command_knock,0},{"LINKS",command_links,2},{"LIST",command_list,5},{"LOCOPS",command_locops,0},{"LUSERS",command_lusers,1},{"MEMOSERV",command_memoserv,2},{"MODE",command_mode,0},{"MOTD",command_motd,1},{"MSINFO",command_msinfo,3},{"MSPURGE",command_mspurge,3},{"MUTE",command_mute,0},{"NAMES",command_names,3},{"NICK",command_nick,0},{"NICKSERV",command_nickserv,2},{"NOTICE",command_notice,0},{"NSDROP",command_nsdrop,3},{"NSINFO",command_nsinfo,3},{"NSSET",command_nsset,3},{"OPER",command_oper,5},{"OPERADD",command_operadd,0},{"OPERDEL",command_operdel,0},{"OPERLIST",command_operlist,2},{"OPERSET",command_operset,0},{"PART",command_part,0},{"PASS",command_pass,0},{"PING",command_ping,0},{"PMSTATS",command_pmstats,0},{"PONG",command_pong,0},{"PRIVMSG",command_privmsg,0},{"QUIT",command_quit,0},{"REHASH",command_rehash,0},{"RESTART",command_restart,0},{"RULES",command_rules,1},{"SAJOIN",command_sajoin,0},{"SAMODE",command_samode,0},{"SAPART",command_sapart,0},{"SETHOST",command_sethost,0},{"SETIDENT",command_setident,0},{"SETNAME",command_setname,0},{"SILENCE",command_silence,1},{"SNOTICE",command_snotice,0},{"STATS",command_stats,1},{"TAGMSG",command_tagmsg,0},{"TIME",command_time,1},{"TOPIC",command_topic,0},{"UNGEOBAN",command_ungeoban,0},{"USER",command_user,0},{"USERHOST",command_userhost,1},{"USERIP",command_userip,1},{"VERSION",command_version,1},{"WALLOPS",command_wallops,0},{"WATCH",command_watch,1},{"WEBIRC",command_webirc,0},{"WHO",command_who,4},{"WHOIS",command_whois,2},{"WHOWAS",command_whowas,2},{"ZLINE",command_zline,0}};
 
 static unsigned int general_flood_cost(const char *command) {
     if (command == NULL) return 1U;
-    /* QUIT must always be accepted, and PONG must never be delayed because it
-     * is the client's response to server liveness checks. */
     if (strcasecmp(command, "QUIT") == 0 || strcasecmp(command, "PONG") == 0)
         return 0U;
-
-    /* These commands can fan out to users/channels or cause substantial
-     * membership churn, so charge two ordinary tokens. */
     if (strcasecmp(command, "PRIVMSG") == 0 || strcasecmp(command, "NOTICE") == 0 ||
         strcasecmp(command, "JOIN") == 0 || strcasecmp(command, "PART") == 0 ||
         strcasecmp(command, "NICK") == 0 || strcasecmp(command, "MODE") == 0 ||
         strcasecmp(command, "TOPIC") == 0 || strcasecmp(command, "KICK") == 0 ||
         strcasecmp(command, "INVITE") == 0 || strcasecmp(command, "KNOCK") == 0)
         return 2U;
-
-    /* Unknown commands also reach this function and therefore cost one token. */
     return 1U;
 }
 
@@ -202,10 +185,6 @@ int command_expensive_allow(Server *server, Client *client,
     return 1;
 }
 
-/* A client can submit a syntactically legal <=510-byte MODE line whose
- * source-prefixed server rebroadcast would exceed the IRC 510-byte content
- * limit. Reject such channel MODE changes before command_mode() can mutate
- * channel state; clients can split an oversized batch into smaller commands. */
 static int channel_mode_wire_fits(const Client *client, const char *params) {
     const char *target;
     size_t wire_len;
@@ -214,10 +193,6 @@ static int channel_mode_wire_fits(const Client *client, const char *params) {
     target = params;
     while (*target == ' ') ++target;
     if (*target != '#' && *target != '&') return 1;
-
-    /* :nick!user@host MODE <params> -- CRLF is not part of the 510-byte
-     * content allowance. All identity fields are fixed-size Client members,
-     * so these additions cannot overflow size_t in practice. */
     wire_len = 1U + strlen(client->nick) + 1U + strlen(client->user) + 1U +
                strlen(client->display_host) + 6U + strlen(params);
     return wire_len <= 510U;
@@ -227,10 +202,6 @@ CommandResult command_dispatch(Server *server,Client *client,const char *command
     size_t index;
     int flood_result;
     if(server==NULL||client==NULL||command==NULL)return COMMAND_KEEP_CLIENT;
-    /* Any complete client command is transport activity before a liveness
-     * challenge. WHOIS idle accounting is deliberately separate and is reset
-     * only after a private or channel PRIVMSG is delivered. Once PING is
-     * outstanding, only its matching PONG may clear the deadline. */
     if(!client->ping_pending)client->last_liveness_activity=time(NULL);
     if(server->config.nospoof_enabled&&client->nospoof_started&&!client->nospoof_verified&&time(NULL)>=client->nospoof_deadline){
         snotice_broadcast(server,SNOTICE_SECURITY,"No-spoof timeout: %s [real_ip=%s]",command_reply_nick(client),client->real_ip);
