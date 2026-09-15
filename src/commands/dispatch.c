@@ -15,25 +15,18 @@
 #define COMMAND_GLOBAL_BUDGET_BURST 200U
 #define COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND 40U
 #define COMMAND_THROTTLE_SNOTICE_SECONDS 5
-
 #define FLOOD_BUDGET_BURST 80U
 #define FLOOD_BUDGET_REFILL_PER_SECOND 20U
 #define FLOOD_VIOLATION_WINDOW_SECONDS 5
 #define FLOOD_VIOLATIONS_BEFORE_DISCONNECT 3U
 
-typedef struct CommandEntry {
-    const char *name;
-    CommandHandler handler;
-    unsigned int cost;
-} CommandEntry;
+typedef struct CommandEntry { const char *name; CommandHandler handler; unsigned int cost; } CommandEntry;
 
 CommandResult command_pmstats(Server *server, Client *client, char *params)
 {
     char *value;
     char *tail;
-
     if (server == NULL || client == NULL) return COMMAND_KEEP_CLIENT;
-
     if (!client_mode_has(client->modes, CLIENT_MODE_OPER) ||
         !client_mode_has(client->modes, CLIENT_MODE_BOT) ||
         !oper_permission_has(client->oper_permissions, OPER_PERMISSION_STATS)) {
@@ -41,22 +34,19 @@ CommandResult command_pmstats(Server *server, Client *client, char *params)
                      server->config.server_name, command_reply_nick(client));
         return COMMAND_KEEP_CLIENT;
     }
-
     value = params;
     if (value == NULL) value = "";
     while (*value == ' ') ++value;
     tail = value + strlen(value);
     while (tail > value && tail[-1] == ' ') --tail;
     *tail = '\0';
-
     if (strcasecmp(value, "on") == 0)
-        client->pmstats_enabled = 1;
+        server_pmstats_set_enabled(server, client, 1);
     else if (strcasecmp(value, "off") == 0)
-        client->pmstats_enabled = 0;
+        server_pmstats_set_enabled(server, client, 0);
     else
         client_sendf(client, ":%s 461 %s PMSTATS :Expected ON or OFF",
                      server->config.server_name, command_reply_nick(client));
-
     return COMMAND_KEEP_CLIENT;
 }
 
@@ -65,202 +55,69 @@ static const CommandEntry command_table[] = {
 
 static unsigned int general_flood_cost(const char *command) {
     if (command == NULL) return 1U;
-    if (strcasecmp(command, "QUIT") == 0 || strcasecmp(command, "PONG") == 0)
-        return 0U;
+    if (strcasecmp(command, "QUIT") == 0 || strcasecmp(command, "PONG") == 0) return 0U;
     if (strcasecmp(command, "PRIVMSG") == 0 || strcasecmp(command, "NOTICE") == 0 ||
         strcasecmp(command, "JOIN") == 0 || strcasecmp(command, "PART") == 0 ||
         strcasecmp(command, "NICK") == 0 || strcasecmp(command, "MODE") == 0 ||
         strcasecmp(command, "TOPIC") == 0 || strcasecmp(command, "KICK") == 0 ||
-        strcasecmp(command, "INVITE") == 0 || strcasecmp(command, "KNOCK") == 0)
-        return 2U;
+        strcasecmp(command, "INVITE") == 0 || strcasecmp(command, "KNOCK") == 0) return 2U;
     return 1U;
 }
 
-static void send_bounded_command_numeric(Server *server, Client *client,
-                                         int numeric, const char *command,
-                                         const char *text) {
-    const char *reply_nick;
-    int base_length;
-    size_t length;
+static void send_bounded_command_numeric(Server *server, Client *client, int numeric, const char *command, const char *text) {
+    const char *reply_nick; int base_length; size_t length;
     if (server == NULL || client == NULL || text == NULL) return;
     if (command == NULL || *command == '\0') command = "*";
     reply_nick = command_reply_nick(client);
-    base_length = snprintf(NULL, 0, ":%s %03d %s  :%s",
-                           server->config.server_name, numeric,
-                           reply_nick, text);
+    base_length = snprintf(NULL, 0, ":%s %03d %s  :%s", server->config.server_name, numeric, reply_nick, text);
     if (base_length < 0 || (size_t)base_length > IRC_LINE_CONTENT_MAX) return;
     length = strlen(command);
-    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length)
-        length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
-    client_sendf(client, ":%s %03d %s %.*s :%s",
-                 server->config.server_name, numeric, reply_nick,
-                 (int)length, command, text);
+    if (length > IRC_LINE_CONTENT_MAX - (size_t)base_length) length = IRC_LINE_CONTENT_MAX - (size_t)base_length;
+    client_sendf(client, ":%s %03d %s %.*s :%s", server->config.server_name, numeric, reply_nick, (int)length, command, text);
 }
 
-static int general_flood_allow(Server *server, Client *client,
-                               const char *command, unsigned int cost) {
-    time_t now;
-    time_t elapsed;
-    unsigned long refill;
-
-    if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN))
-        return 1;
-
+static int general_flood_allow(Server *server, Client *client, const char *command, unsigned int cost) {
+    time_t now, elapsed; unsigned long refill;
+    if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) return 1;
     now = time(NULL);
-    if (client->flood_budget_updated == 0) {
-        client->flood_budget_updated = now;
-        client->flood_budget_tokens = FLOOD_BUDGET_BURST;
-    } else if (now > client->flood_budget_updated) {
-        elapsed = now - client->flood_budget_updated;
-        refill = (unsigned long)elapsed * FLOOD_BUDGET_REFILL_PER_SECOND;
-        if (refill >= FLOOD_BUDGET_BURST - client->flood_budget_tokens)
-            client->flood_budget_tokens = FLOOD_BUDGET_BURST;
-        else
-            client->flood_budget_tokens += (unsigned int)refill;
+    if (client->flood_budget_updated == 0) { client->flood_budget_updated = now; client->flood_budget_tokens = FLOOD_BUDGET_BURST; }
+    else if (now > client->flood_budget_updated) {
+        elapsed = now - client->flood_budget_updated; refill = (unsigned long)elapsed * FLOOD_BUDGET_REFILL_PER_SECOND;
+        if (refill >= FLOOD_BUDGET_BURST - client->flood_budget_tokens) client->flood_budget_tokens = FLOOD_BUDGET_BURST;
+        else client->flood_budget_tokens += (unsigned int)refill;
         client->flood_budget_updated = now;
     }
-
-    if (client->flood_budget_tokens >= cost) {
-        client->flood_budget_tokens -= cost;
-        return 1;
-    }
-
-    if (client->flood_violation_window == 0 ||
-        now - client->flood_violation_window >= FLOOD_VIOLATION_WINDOW_SECONDS) {
-        client->flood_violation_window = now;
-        client->flood_violation_count = 1U;
-    } else {
-        ++client->flood_violation_count;
-    }
-
+    if (client->flood_budget_tokens >= cost) { client->flood_budget_tokens -= cost; return 1; }
+    if (client->flood_violation_window == 0 || now - client->flood_violation_window >= FLOOD_VIOLATION_WINDOW_SECONDS) { client->flood_violation_window = now; client->flood_violation_count = 1U; }
+    else ++client->flood_violation_count;
     if (client->flood_violation_count >= FLOOD_VIOLATIONS_BEFORE_DISCONNECT) {
-        snotice_broadcast(server, SNOTICE_FLOOD,
-                          "Client flood disconnected: nick=%s real_ip=%s command=%s",
-                          command_reply_nick(client), client->real_ip,
-                          command != NULL ? command : "-");
-        (void)snprintf(client->quit_reason, sizeof(client->quit_reason),
-                       "Excess flood");
-        client_sendf(client, ":%s ERROR :Excess flood",
-                     server->config.server_name);
-        return 0;
+        snotice_broadcast(server,SNOTICE_FLOOD,"Client flood disconnected: nick=%s real_ip=%s command=%s",command_reply_nick(client),client->real_ip,command != NULL ? command : "-");
+        (void)snprintf(client->quit_reason,sizeof(client->quit_reason),"Excess flood");
+        client_sendf(client,":%s ERROR :Excess flood",server->config.server_name); return 0;
     }
-
-    send_bounded_command_numeric(server, client, 263, command,
-                                 "Flood protection - please slow down");
-    return -1;
+    send_bounded_command_numeric(server,client,263,command,"Flood protection - please slow down"); return -1;
 }
 
-static void refill_weighted_budget(time_t now, time_t *updated,
-                                   unsigned int *tokens, unsigned int burst,
-                                   unsigned int refill_per_second) {
-    time_t elapsed;
-    unsigned long refill;
-    if (*updated == 0) {
-        *updated = now;
-        *tokens = burst;
-        return;
-    }
+static void refill_weighted_budget(time_t now,time_t *updated,unsigned int *tokens,unsigned int burst,unsigned int refill_per_second) {
+    time_t elapsed; unsigned long refill;
+    if (*updated == 0) { *updated = now; *tokens = burst; return; }
     if (now <= *updated) return;
-    elapsed = now - *updated;
-    refill = (unsigned long)elapsed * refill_per_second;
-    if (*tokens >= burst || refill >= (unsigned long)(burst - *tokens))
-        *tokens = burst;
-    else
-        *tokens += (unsigned int)refill;
+    elapsed = now - *updated; refill = (unsigned long)elapsed * refill_per_second;
+    if (*tokens >= burst || refill >= (unsigned long)(burst - *tokens)) *tokens = burst; else *tokens += (unsigned int)refill;
     *updated = now;
 }
 
-int command_expensive_allow(Server *server, Client *client,
-                            const char *command, unsigned int cost) {
+int command_expensive_allow(Server *server,Client *client,const char *command,unsigned int cost) {
     time_t now;
-
-    if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN))
-        return 1;
-
-    now = time(NULL);
-    refill_weighted_budget(now, &client->command_budget_updated,
-                           &client->command_budget_tokens,
-                           COMMAND_BUDGET_BURST,
-                           COMMAND_BUDGET_REFILL_PER_SECOND);
-    refill_weighted_budget(now, &server->command_global_budget_updated,
-                           &server->command_global_budget_tokens,
-                           COMMAND_GLOBAL_BUDGET_BURST,
-                           COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND);
-
-    if (client->command_budget_tokens < cost) {
-        client_sendf(client, ":%s 263 %s %s :Please wait before repeating this command",
-                     server->config.server_name, command_reply_nick(client), command);
-        if (client->command_throttle_notice_time == 0 ||
-            now - client->command_throttle_notice_time >= COMMAND_THROTTLE_SNOTICE_SECONDS) {
-            snotice_broadcast(server, SNOTICE_FLOOD,
-                              "Expensive command throttled: nick=%s real_ip=%s command=%s",
-                              command_reply_nick(client), client->real_ip, command);
-            client->command_throttle_notice_time = now;
-        }
-        return 0;
-    }
-
-    if (server->command_global_budget_tokens < cost) {
-        client_sendf(client, ":%s 263 %s %s :Server busy - please retry this expensive command shortly",
-                     server->config.server_name, command_reply_nick(client), command);
-        if (server->command_global_throttle_notice_time == 0 ||
-            now - server->command_global_throttle_notice_time >= COMMAND_THROTTLE_SNOTICE_SECONDS) {
-            snotice_broadcast(server, SNOTICE_FLOOD,
-                              "Global expensive-command budget exhausted: nick=%s real_ip=%s command=%s",
-                              command_reply_nick(client), client->real_ip, command);
-            server->command_global_throttle_notice_time = now;
-        }
-        return 0;
-    }
-
-    client->command_budget_tokens -= cost;
-    server->command_global_budget_tokens -= cost;
-    return 1;
+    if (cost == 0U || client_mode_has(client->modes, CLIENT_MODE_OPER | CLIENT_MODE_NETADMIN)) return 1;
+    now=time(NULL);
+    refill_weighted_budget(now,&client->command_budget_updated,&client->command_budget_tokens,COMMAND_BUDGET_BURST,COMMAND_BUDGET_REFILL_PER_SECOND);
+    refill_weighted_budget(now,&server->command_global_budget_updated,&server->command_global_budget_tokens,COMMAND_GLOBAL_BUDGET_BURST,COMMAND_GLOBAL_BUDGET_REFILL_PER_SECOND);
+    if(client->command_budget_tokens<cost){client_sendf(client,":%s 263 %s %s :Please wait before repeating this command",server->config.server_name,command_reply_nick(client),command);if(client->command_throttle_notice_time==0||now-client->command_throttle_notice_time>=COMMAND_THROTTLE_SNOTICE_SECONDS){snotice_broadcast(server,SNOTICE_FLOOD,"Expensive command throttled: nick=%s real_ip=%s command=%s",command_reply_nick(client),client->real_ip,command);client->command_throttle_notice_time=now;}return 0;}
+    if(server->command_global_budget_tokens<cost){client_sendf(client,":%s 263 %s %s :Server busy - please retry this expensive command shortly",server->config.server_name,command_reply_nick(client),command);if(server->command_global_throttle_notice_time==0||now-server->command_global_throttle_notice_time>=COMMAND_THROTTLE_SNOTICE_SECONDS){snotice_broadcast(server,SNOTICE_FLOOD,"Global expensive-command budget exhausted: nick=%s real_ip=%s command=%s",command_reply_nick(client),client->real_ip,command);server->command_global_throttle_notice_time=now;}return 0;}
+    client->command_budget_tokens-=cost;server->command_global_budget_tokens-=cost;return 1;
 }
 
-static int channel_mode_wire_fits(const Client *client, const char *params) {
-    const char *target;
-    size_t wire_len;
+static int channel_mode_wire_fits(const Client *client,const char *params){const char *target;size_t wire_len;if(client==NULL||params==NULL)return 1;target=params;while(*target==' ')++target;if(*target!='#'&&*target!='&')return 1;wire_len=1U+strlen(client->nick)+1U+strlen(client->user)+1U+strlen(client->display_host)+6U+strlen(params);return wire_len<=510U;}
 
-    if (client == NULL || params == NULL) return 1;
-    target = params;
-    while (*target == ' ') ++target;
-    if (*target != '#' && *target != '&') return 1;
-    wire_len = 1U + strlen(client->nick) + 1U + strlen(client->user) + 1U +
-               strlen(client->display_host) + 6U + strlen(params);
-    return wire_len <= 510U;
-}
-
-CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){
-    size_t index;
-    int flood_result;
-    if(server==NULL||client==NULL||command==NULL)return COMMAND_KEEP_CLIENT;
-    if(!client->ping_pending)client->last_liveness_activity=time(NULL);
-    if(server->config.nospoof_enabled&&client->nospoof_started&&!client->nospoof_verified&&time(NULL)>=client->nospoof_deadline){
-        snotice_broadcast(server,SNOTICE_SECURITY,"No-spoof timeout: %s [real_ip=%s]",command_reply_nick(client),client->real_ip);
-        client_sendf(client,":%s ERROR :No-spoof PING timeout",server->config.server_name);
-        return COMMAND_DISCONNECT_CLIENT;
-    }
-
-    flood_result = general_flood_allow(server, client, command,
-                                       general_flood_cost(command));
-    if (flood_result == 0) return COMMAND_DISCONNECT_CLIENT;
-    if (flood_result < 0) return COMMAND_KEEP_CLIENT;
-
-    if (strcasecmp(command, "MODE") == 0 && !channel_mode_wire_fits(client, params)) {
-        client_sendf(client,
-                     ":%s 417 %s MODE :MODE change would exceed the IRC line limit; split the change",
-                     server->config.server_name, command_reply_nick(client));
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    for(index=0U;index<sizeof(command_table)/sizeof(command_table[0]);++index){
-        if(strcasecmp(command,command_table[index].name)==0){
-            if(!command_expensive_allow(server,client,command,command_table[index].cost))
-                return COMMAND_KEEP_CLIENT;
-            return command_table[index].handler(server,client,params);
-        }
-    }
-    send_bounded_command_numeric(server, client, 421, command, "Unknown command");
-    return COMMAND_KEEP_CLIENT;
-}
+CommandResult command_dispatch(Server *server,Client *client,const char *command,char *params){size_t index;int flood_result;if(server==NULL||client==NULL||command==NULL)return COMMAND_KEEP_CLIENT;if(!client->ping_pending)client->last_liveness_activity=time(NULL);if(server->config.nospoof_enabled&&client->nospoof_started&&!client->nospoof_verified&&time(NULL)>=client->nospoof_deadline){snotice_broadcast(server,SNOTICE_SECURITY,"No-spoof timeout: %s [real_ip=%s]",command_reply_nick(client),client->real_ip);client_sendf(client,":%s ERROR :No-spoof PING timeout",server->config.server_name);return COMMAND_DISCONNECT_CLIENT;}flood_result=general_flood_allow(server,client,command,general_flood_cost(command));if(flood_result==0)return COMMAND_DISCONNECT_CLIENT;if(flood_result<0)return COMMAND_KEEP_CLIENT;if(strcasecmp(command,"MODE")==0&&!channel_mode_wire_fits(client,params)){client_sendf(client,":%s 417 %s MODE :MODE change would exceed the IRC line limit; split the change",server->config.server_name,command_reply_nick(client));return COMMAND_KEEP_CLIENT;}for(index=0U;index<sizeof(command_table)/sizeof(command_table[0]);++index){if(strcasecmp(command,command_table[index].name)==0){if(!command_expensive_allow(server,client,command,command_table[index].cost))return COMMAND_KEEP_CLIENT;return command_table[index].handler(server,client,params);}}send_bounded_command_numeric(server,client,421,command,"Unknown command");return COMMAND_KEEP_CLIENT;}
