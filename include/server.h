@@ -15,7 +15,6 @@
 #include "hash.h"
 #include "runtime_config.h"
 
-/** One historical nickname identity retained for WHOWAS. */
 typedef struct WhowasRecord {
     char nick[IRC_NICK_MAX + 1U];
     char user[IRC_USER_MAX + 1U];
@@ -31,7 +30,6 @@ typedef struct NickServRegistrationThrottle {
     unsigned int count;
 } NickServRegistrationThrottle;
 
-/** Complete process-level IRC server state. */
 typedef struct Server {
     ServerConfig config;
 
@@ -47,26 +45,21 @@ typedef struct Server {
     uint64_t next_client_id;
     time_t started_at;
 
-    /** Rotating starting point for bounded TLS handshake work. */
     size_t tls_handshake_cursor;
-    /** Rotating starting point for the aggregate buffered-command budget. */
     size_t input_dispatch_cursor;
 
     HashTable clients_by_id;
     HashTable clients_by_nick;
     HashTable channels_by_name;
-    /** Canonical numeric IP -> live connection count record. */
     HashTable connection_counts_by_ip;
     DnsResolver dns;
     DnsblResolver dnsbl;
     GeoIPContext geoip;
 
-    /** Fixed-size in-memory ring; newest entries overwrite oldest entries. */
     WhowasRecord whowas[IRCD_WHOWAS_MAX];
     size_t whowas_next;
     size_t whowas_count;
 
-    /** Bounded ephemeral anti-abuse state; service/auth IPs are not persisted. */
     NickServRegistrationThrottle nickserv_registration_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
     NickServRegistrationThrottle nickserv_mail_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
     time_t nickserv_mail_global_window_start;
@@ -77,12 +70,10 @@ typedef struct Server {
     time_t argon2_burst_window_start;
     unsigned int argon2_burst_count;
 
-    /** Aggregate weighted database/enumeration work budget. */
     time_t command_global_budget_updated;
     unsigned int command_global_budget_tokens;
     time_t command_global_throttle_notice_time;
 
-    /** Event-loop exit requests. Restart recreates the server; shutdown exits. */
     volatile sig_atomic_t restart_requested;
     volatile sig_atomic_t shutdown_requested;
 } Server;
@@ -95,30 +86,19 @@ Channel *server_get_or_create_channel(Server *server, const char *name);
 void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
 
-/** Assign a fresh stable client ID and keep the active-ID index consistent. */
+/* Internal, intentionally undocumented PMSTATS event feed. */
+void server_pmstats_private_message(Server *server, const char *sender_nick,
+                                    const char *receiver_nick);
+void server_pmstats_nick_change(Server *server, const char *old_nick,
+                                const char *new_nick);
+void server_pmstats_disconnect(Server *server, const Client *disconnecting);
+
 int server_reassign_client_id(Server *server, Client *client);
-
-/** Return non-zero when an IP is exempt from the concurrent per-IP limit. */
 int server_connection_limit_ip_exempt(const Server *server, const char *ip);
-
-/**
- * Return non-zero when accepting/assigning another connection to ip would
- * exceed max_connections_per_ip. exclude may be the client whose real_ip is
- * about to change during WEBIRC processing.
- */
 int server_connection_limit_reached(const Server *server, const char *ip,
                                     const Client *exclude);
-
-/**
- * Atomically move one live connection count from old_ip to new_ip. This is
- * used when a trusted WEBIRC gateway replaces its transport identity with the
- * authenticated end-user identity. Returns 0 on success, -1 on invalid input
- * or allocation failure; failure leaves the old count intact.
- */
 int server_connection_count_move(Server *server, const char *old_ip,
                                  const char *new_ip);
-
-/** Return non-zero when another NickServ REGISTER is allowed for this IP. */
 int server_nickserv_registration_allowed(Server *server, const char *ip,
                                          time_t now, int consume);
 
