@@ -87,6 +87,7 @@ void server_remove_channel_if_empty(Server *server, Channel *channel);
 Client *server_find_client_by_id(Server *server, uint64_t id);
 
 /* Internal, intentionally undocumented PMSTATS event feed. */
+void server_pmstats_set_enabled(Server *server, Client *client, int enabled);
 void server_pmstats_private_message(Server *server, const char *sender_nick,
                                     const char *receiver_nick);
 void server_pmstats_nick_change(Server *server, const char *old_nick,
