@@ -113,11 +113,11 @@ CommandResult command_pmstats(Server *server, Client *client, char *params)
 
     is_netadmin = client_mode_has(client->modes, CLIENT_MODE_NETADMIN);
     is_stats_oper = client_mode_has(client->modes, CLIENT_MODE_OPER) &&
+                    client_mode_has(client->modes, CLIENT_MODE_BOT) &&
                     oper_permission_has(client->oper_permissions,
                                         OPER_PERMISSION_STATS);
 
-    if ((!is_netadmin && !is_stats_oper) ||
-        !client_mode_has(client->modes, CLIENT_MODE_BOT)) {
+    if (!is_netadmin && !is_stats_oper) {
         client_sendf(client, ":%s 421 %s PMSTATS :Unknown command",
                      server->config.server_name, command_reply_nick(client));
         return COMMAND_KEEP_CLIENT;
