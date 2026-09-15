@@ -11,10 +11,6 @@
 #include "ircv3.h"
 #include "numerics.h"
 
-/* PMSTATS is intentionally private and small; compile its internal event
- * support into the command module without adding it to public documentation. */
-#include "../pmstats.c"
-
 #include <stdio.h>
 
 CommandResult command_away(Server *server, Client *client, char *params) {
