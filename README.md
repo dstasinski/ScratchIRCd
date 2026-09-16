@@ -2,7 +2,7 @@
 
 ## Introduction
 
-ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally single-server and never links to other IRC servers. Active development happens on the `Genesis` branch, with supported behavior qualified through [Milestone 1](MILESTONE-1.md) and [Milestone 2](MILESTONE-2.md).
+ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally single-server and never links to other IRC servers. Active development happens on the `Genesis` branch, with supported behavior qualified through [Milestone 1](MILESTONE-1.md), [Milestone 2](MILESTONE-2.md), and [Milestone 3](MILESTONE-3.md).
 
 ## Features
 
