@@ -206,7 +206,8 @@ CommandResult command_whois(Server *server,Client *client,char *params){
         const char *real_host=target->real_host[0]!='\0'?target->real_host:target->real_ip;
         client_sendf(client,RPL_WHOISHOST,server->config.server_name,client->nick,
                      target->nick,real_host,target->real_ip);
-        send_whois_geoip(server,client,target);
+        if(visibility_is_oper(client))
+            send_whois_geoip(server,client,target);
         if(target->version_received)
             client_sendf(client,RPL_WHOISVERSION,server->config.server_name,
                          client->nick,target->nick,target->client_version);
