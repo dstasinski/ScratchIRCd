@@ -714,7 +714,7 @@ int server_init(Server *server, const ServerConfig *config) {
     memset(server, 0, sizeof(*server)); server->config = *config;
     server->dns.request_read_fd = server->dns.request_write_fd = -1; server->dns.result_read_fd = server->dns.result_write_fd = -1;
     server->dnsbl.request_read_fd = server->dnsbl.request_write_fd = -1; server->dnsbl.result_read_fd = server->dnsbl.result_write_fd = -1;
-    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->connection_counts_by_ip, IRCD_CLIENT_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
+    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0 || hash_init(&server->connection_counts_by_ip, IRCD_CLIENT_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
     if (channel_log_init(server) != 0 || init_tls(server) != 0 || dns_resolver_init(&server->dns) != 0 || dnsbl_resolver_init(&server->dnsbl) != 0 || geoip_init(&server->geoip, server->config.geoip_city_db, server->config.geoip_asn_db) != 0 || make_listeners(server) != 0) { server_destroy(server); return -1; }
     return 0;
 }
