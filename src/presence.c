@@ -38,7 +38,8 @@ static int rfc1459_equal(const char *left, const char *right) {
 }
 
 static void presence_on_client_free(Client *client) {
-    if (active_server == NULL || client == NULL || !client->registered) return;
+    if (active_server == NULL || client == NULL ||
+        client->signon_time == 0 || client->nick[0] == '\0') return;
     presence_whowas_record(active_server, client, NULL);
     presence_watch_offline(active_server, client, NULL);
 }
@@ -161,7 +162,8 @@ void presence_whowas_record(Server *server, const Client *client,
     WhowasRecord *record;
     const char *nick;
     char server_name[IRC_SERVER_NAME_MAX + 1U];
-    if (server == NULL || client == NULL || !client->registered) return;
+    if (server == NULL || client == NULL ||
+        (!client->registered && client->signon_time == 0)) return;
     nick = nick_override != NULL && *nick_override != '\0' ? nick_override : client->nick;
     if (*nick == '\0') return;
     (void)snprintf(server_name, sizeof(server_name), "%s",
