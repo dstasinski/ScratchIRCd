@@ -4,9 +4,32 @@
 #include "oper.h"
 #include "server.h"
 
+#include <argon2.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+
+/**
+ * Perform normal-cost Argon2id work when no real password hash is available.
+ *
+ * The result is deliberately discarded. This keeps unavailable identities
+ * from creating a cheap authentication path or an obvious timing oracle.
+ * Call auth_limit_consume() before invoking this function.
+ */
+static inline void auth_password_dummy_work(const char *password) {
+    static const uint8_t salt[IRCD_ARGON2_SALT_BYTES] = {0};
+    uint8_t output[IRCD_ARGON2_HASH_BYTES];
+
+    if (password == NULL) return;
+
+    (void)argon2id_hash_raw(IRCD_ARGON2_TIME_COST,
+                            IRCD_ARGON2_MEMORY_COST_KIB,
+                            IRCD_ARGON2_PARALLELISM,
+                            password, strlen(password),
+                            salt, sizeof(salt),
+                            output, sizeof(output));
+}
 
 /**
  * Consume one client-triggered password-hashing/verification work unit.

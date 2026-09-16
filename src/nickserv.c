@@ -300,12 +300,24 @@ int nickserv_identify(Server *server, Client *client,
     if (client->account_name[0] != '\0' &&
         strcasecmp(client->account_name, account_name) != 0) return 0;
 
+    /*
+     * Consume the work budget before account existence is distinguished.
+     * Unknown and disabled accounts receive equivalent-cost dummy Argon2 work.
+     */
+    if (!auth_limit_consume(server, client, "NickServ IDENTIFY")) return 0;
+
     if (nickserv_db_open(&db, server->config.nickserv_db) != 0) return 0;
     found = nickserv_db_get(&db, account_name, &account);
     nickserv_db_close(&db);
-    if (found != 1 || !account.enabled) return 0;
-    if (!auth_limit_consume(server, client, "NickServ IDENTIFY")) return 0;
-    if (argon2id_verify(account.password_hash, password, strlen(password)) != ARGON2_OK) return 0;
+
+    if (found != 1 || !account.enabled) {
+        auth_password_dummy_work(password);
+        return 0;
+    }
+
+    if (argon2id_verify(account.password_hash, password,
+                        strlen(password)) != ARGON2_OK)
+        return 0;
 
     record_successful_identify(server, account.name);
     apply_account(server, client, &account);
@@ -414,7 +426,7 @@ static void command_identify(Server *server, Client *client, char *params) {
     nickserv_notice(server, client,
         nickserv_identify(server, client, account, password)
             ? "Password accepted - you are now identified."
-            : "Password incorrect, account unavailable, or authentication throttled.");
+            : "Password incorrect or account unavailable.");
 }
 
 static void command_set_password(Server *server, Client *client, char *password) {

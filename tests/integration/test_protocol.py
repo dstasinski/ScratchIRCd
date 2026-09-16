@@ -227,8 +227,10 @@ def run_unprotected(binary, mkpasswd, tempdir):
         a.expect("NOTICE alice :Operator updated")
         d = IRCClient("127.0.0.1", port); clients.append(d)
         register(d, "delta")
+        # Disabled operator identities must not be distinguishable from
+        # ordinary credential failures.
         d.send("OPER helper helperpass")
-        d.expect(" 491 delta ")
+        d.expect(" 464 delta ")
 
         # Re-enable and edit password/permissions/vhost.
         a.send("OPERSET helper ENABLED 1")
@@ -251,8 +253,16 @@ def run_unprotected(binary, mkpasswd, tempdir):
         a.expect("NOTICE alice :Operator deleted")
         e = IRCClient("127.0.0.1", port); clients.append(e)
         register(e, "echo")
+        # Deleted/unknown operator identities use the same public failure.
         e.send("OPER helper newpass")
-        e.expect(" 491 echo ")
+        e.expect(" 464 echo ")
+
+        # A name that never existed is indistinguishable from the deleted
+        # operator identity above.
+        unknown_oper = IRCClient("127.0.0.1", port); clients.append(unknown_oper)
+        register(unknown_oper, "foxtrot")
+        unknown_oper.send("OPER does-not-exist boguspass")
+        unknown_oper.expect(" 464 foxtrot ")
 
         # Existing protocol behavior remains covered.
         a.send("JOIN #test"); a.expect(" JOIN #test")

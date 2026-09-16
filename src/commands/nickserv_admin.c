@@ -4,6 +4,7 @@
  */
 
 #include "commands.h"
+#include "auth_limit.h"
 #include "chanserv.h"
 #include "chanserv_db.h"
 #include "ircv3.h"
@@ -534,6 +535,14 @@ CommandResult command_nsset(Server *server, Client *client, char *params) {
     }
     if (strcasecmp(field, "PASSWORD") == 0) {
         char encoded[IRCD_OPER_HASH_MAX + 1U];
+
+        if (!auth_limit_consume(server, client, "NSSET PASSWORD")) {
+            nickserv_db_close(&db);
+            notice(server, client,
+                   "Password hashing rate limit reached; try again later.");
+            return COMMAND_KEEP_CLIENT;
+        }
+
         if (hash_password(value, encoded, sizeof(encoded)) == 0)
             rc = nickserv_db_set_password(&db, name, encoded);
     } else if (strcasecmp(field, "VHOST") == 0) {

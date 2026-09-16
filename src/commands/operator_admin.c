@@ -16,6 +16,7 @@
  */
 
 #include "commands.h"
+#include "auth_limit.h"
 #include "modes.h"
 #include "numerics.h"
 #include "oper.h"
@@ -148,6 +149,12 @@ CommandResult command_operadd(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
+    if (!auth_limit_consume(server, client, "OPERADD password")) {
+        admin_notice(server, client,
+                     "Password hashing rate limit reached; try again later.");
+        return COMMAND_KEEP_CLIENT;
+    }
+
     memset(&record, 0, sizeof(record));
     (void)snprintf(record.name, sizeof(record.name), "%s", name);
     (void)snprintf(record.permissions, sizeof(record.permissions), "%s", permissions);
@@ -229,6 +236,14 @@ CommandResult command_operset(Server *server, Client *client, char *params) {
             rc = operator_db_set_name(&db, name, value);
     } else if (strcasecmp(field, "PASSWORD") == 0) {
         char encoded[IRCD_OPER_HASH_MAX + 1U];
+
+        if (!auth_limit_consume(server, client, "OPERSET PASSWORD")) {
+            operator_db_close(&db);
+            admin_notice(server, client,
+                         "Password hashing rate limit reached; try again later.");
+            return COMMAND_KEEP_CLIENT;
+        }
+
         if (hash_password(value, encoded, sizeof(encoded)) == 0)
             rc = operator_db_set_password(&db, name, encoded);
     } else if (strcasecmp(field, "PERMISSIONS") == 0) {

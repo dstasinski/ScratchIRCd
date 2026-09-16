@@ -86,7 +86,7 @@ static int handle_identify_alias(Server *server, Client *client, char *params) {
                               "Password accepted - you are now identified.");
     } else {
         nickserv_alias_notice(server, client,
-                              "Password incorrect, account unavailable, or authentication throttled.");
+                              "Password incorrect or account unavailable.");
     }
     return 1;
 }

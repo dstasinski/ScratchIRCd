@@ -123,6 +123,14 @@ def main():
             bad.send("AUTHENTICATE "+plain("Alice","wrong")); bad.expect(" 904 Bad ")
             bad.send("CAP END"); bad.expect(" 001 Bad ")
 
+            # Unknown and existing NickServ identities are indistinguishable
+            # through SASL PLAIN as well.
+            unknown=IRCClient(port); clients.append(unknown)
+            begin_sasl(unknown,"UnknownAccount")
+            unknown.send("AUTHENTICATE "+plain("DoesNotExist","wrong"))
+            unknown.expect(" 904 UnknownAccount ")
+            finish_unauthenticated(unknown,"UnknownAccount")
+
             chunked=IRCClient(port); clients.append(chunked); begin_sasl(chunked,"Framed")
             chunked_payload=plain("Chunked",long_password)
             assert 400<len(chunked_payload)<=800,len(chunked_payload)

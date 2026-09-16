@@ -308,6 +308,14 @@ def main():
             requester.expect("Password reset complete.")
             requester.send("IDENTIFY Alice secondpass")
             requester.expect("Password incorrect or account unavailable.")
+
+            # A nonexistent account must expose the same public failure as a
+            # bad password for an existing account.
+            unknown = IRCClient(port); clients.append(unknown)
+            register(unknown, "Unknown")
+            unknown.send("IDENTIFY DoesNotExist boguspass")
+            unknown.expect("Password incorrect or account unavailable.")
+
             requester.send("IDENTIFY Alice thirdpass")
             requester.expect("Password accepted - you are now identified.")
             requester.send("WHOIS Requester")
