@@ -481,7 +481,126 @@ static void command_set_email(Server *server, Client *client, char *address) {
         nickserv_notice(server, client, "Unable to queue verification email.");
         return;
     }
-    nickserv_notice(server, client, "Verification email queued. Use NICKSERV VERIFY <token> when it arrives.");
+    nickserv_notice(server, client, "Verification email queued. Use NICKSERV VERIFY <code> when it arrives.");
+}
+
+/**
+ * Find or allocate a bounded NickServ code-attempt throttle slot.
+ *
+ * Account keys are compared case-insensitively. IP keys are compared
+ * literally. Expired slots may be reused.
+ */
+static NickServCodeThrottle *code_throttle_slot(
+    NickServCodeThrottle *slots, const char *key, time_t now,
+    unsigned int window, int case_insensitive) {
+    NickServCodeThrottle *free_slot = NULL;
+    size_t i;
+
+    if (slots == NULL || key == NULL || *key == '\0' || window == 0U)
+        return NULL;
+
+    for (i = 0U; i < IRCD_NICKSERV_CODE_THROTTLE_SLOTS; ++i) {
+        NickServCodeThrottle *slot = &slots[i];
+        int matches = 0;
+
+        if (slot->key[0] != '\0') {
+            matches = case_insensitive
+                ? strcasecmp(slot->key, key) == 0
+                : strcmp(slot->key, key) == 0;
+        }
+
+        if (matches) {
+            if (slot->window_start == 0 ||
+                now < slot->window_start ||
+                now - slot->window_start >= (time_t)window) {
+                slot->window_start = now;
+                slot->count = 0U;
+            }
+            return slot;
+        }
+
+        if (slot->key[0] == '\0' ||
+            slot->window_start == 0 ||
+            now < slot->window_start ||
+            now - slot->window_start >= (time_t)window) {
+            if (free_slot == NULL)
+                free_slot = slot;
+        }
+    }
+
+    if (free_slot == NULL)
+        return NULL;
+
+    memset(free_slot, 0, sizeof(*free_slot));
+    (void)snprintf(free_slot->key, sizeof(free_slot->key), "%s", key);
+    free_slot->window_start = now;
+    return free_slot;
+}
+
+/**
+ * Consume one syntactically valid NickServ email-code attempt.
+ *
+ * Both the source IP and target account limits are checked before either
+ * counter is incremented. A zero limit disables that dimension.
+ */
+static int nickserv_code_attempt_allowed(
+    Server *server, Client *client, const char *account_name,
+    NickServCodeThrottle *ip_throttles,
+    NickServCodeThrottle *account_throttles) {
+    NickServCodeThrottle *ip_slot = NULL;
+    NickServCodeThrottle *account_slot = NULL;
+    unsigned int per_ip;
+    unsigned int per_account;
+    unsigned int window;
+    time_t now;
+
+    if (server == NULL || client == NULL ||
+        client->real_ip[0] == '\0' ||
+        account_name == NULL || *account_name == '\0' ||
+        ip_throttles == NULL || account_throttles == NULL)
+        return 0;
+
+    per_ip = server->config.nickserv_code_attempts_per_ip;
+    per_account = server->config.nickserv_code_attempts_per_account;
+    window = server->config.nickserv_code_attempt_window_seconds;
+
+    if (per_ip == 0U && per_account == 0U)
+        return 1;
+
+    now = time(NULL);
+
+    if (per_ip != 0U) {
+        ip_slot = code_throttle_slot(
+            ip_throttles, client->real_ip, now, window, 0);
+        if (ip_slot == NULL || ip_slot->count >= per_ip) {
+            snotice_broadcast(
+                server, SNOTICE_SECURITY | SNOTICE_FLOOD,
+                "NickServ code attempt throttled: nick=%s real_ip=%s dimension=ip limit=%u/%us",
+                client->nick[0] != '\0' ? client->nick : "*",
+                client->real_ip, per_ip, window);
+            return 0;
+        }
+    }
+
+    if (per_account != 0U) {
+        account_slot = code_throttle_slot(
+            account_throttles, account_name, now, window, 1);
+        if (account_slot == NULL || account_slot->count >= per_account) {
+            snotice_broadcast(
+                server, SNOTICE_SECURITY | SNOTICE_FLOOD,
+                "NickServ code attempt throttled: nick=%s real_ip=%s dimension=account limit=%u/%us",
+                client->nick[0] != '\0' ? client->nick : "*",
+                client->real_ip, per_account, window);
+            return 0;
+        }
+    }
+
+    if (ip_slot != NULL)
+        ++ip_slot->count;
+    if (account_slot != NULL)
+        ++account_slot->count;
+
+    return 1;
 }
 
 static void command_verify(Server *server, Client *client, char *token) {
@@ -495,11 +614,19 @@ static void command_verify(Server *server, Client *client, char *token) {
         return;
     }
     if (token == NULL || *token == '\0') {
-        nickserv_notice(server, client, "Syntax: VERIFY <token>");
+        nickserv_notice(server, client, "Syntax: VERIFY <code>");
         return;
     }
     if (normalize_token(token, normalized_token,
                         sizeof(normalized_token)) != 0) {
+        nickserv_notice(server, client,
+                        "Verification code is invalid or expired.");
+        return;
+    }
+    if (!nickserv_code_attempt_allowed(
+            server, client, client->account_name,
+            server->nickserv_verify_ip_throttles,
+            server->nickserv_verify_account_throttles)) {
         nickserv_notice(server, client,
                         "Verification code is invalid or expired.");
         return;
@@ -602,7 +729,7 @@ static void command_reset(Server *server, Client *client, char *params) {
 
     if (account_name == NULL) {
         nickserv_notice(server, client,
-            "Syntax: RESET <nick>  OR  RESET <nick> <token> <new-password>");
+            "Syntax: RESET <nick>  OR  RESET <nick> <code> <new-password>");
         return;
     }
 
@@ -633,7 +760,7 @@ static void command_reset(Server *server, Client *client, char *params) {
     }
 
     if (new_password == NULL || *new_password == '\0') {
-        nickserv_notice(server, client, "Syntax: RESET <nick> <token> <new-password>");
+        nickserv_notice(server, client, "Syntax: RESET <nick> <code> <new-password>");
         return;
     }
     while (*new_password == ' ') ++new_password;
@@ -646,6 +773,14 @@ static void command_reset(Server *server, Client *client, char *params) {
 
         if (normalize_token(token, normalized_token,
                             sizeof(normalized_token)) != 0) {
+            nickserv_notice(server, client,
+                            "Reset code is invalid or expired.");
+            return;
+        }
+        if (!nickserv_code_attempt_allowed(
+                server, client, account_name,
+                server->nickserv_reset_ip_throttles,
+                server->nickserv_reset_account_throttles)) {
             nickserv_notice(server, client,
                             "Reset code is invalid or expired.");
             return;

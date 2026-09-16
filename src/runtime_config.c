@@ -125,6 +125,10 @@ void runtime_config_defaults(ServerConfig *config) {
     config->nickserv_mail_requests_per_ip = IRCD_DEFAULT_NICKSERV_MAIL_REQUESTS_PER_IP;
     config->nickserv_mail_window_seconds = IRCD_DEFAULT_NICKSERV_MAIL_WINDOW_SECONDS;
     config->nickserv_mail_global_per_minute = IRCD_DEFAULT_NICKSERV_MAIL_GLOBAL_PER_MINUTE;
+    config->nickserv_code_attempts_per_ip = IRCD_DEFAULT_NICKSERV_CODE_ATTEMPTS_PER_IP;
+    config->nickserv_code_attempts_per_account = IRCD_DEFAULT_NICKSERV_CODE_ATTEMPTS_PER_ACCOUNT;
+    config->nickserv_code_attempt_window_seconds =
+        IRCD_DEFAULT_NICKSERV_CODE_ATTEMPT_WINDOW_SECONDS;
     config->argon2_ops_per_ip = IRCD_DEFAULT_ARGON2_OPS_PER_IP;
     config->argon2_window_seconds = IRCD_DEFAULT_ARGON2_WINDOW_SECONDS;
     config->argon2_global_ops_per_minute = IRCD_DEFAULT_ARGON2_GLOBAL_OPS_PER_MINUTE;
@@ -420,6 +424,23 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
         if (number == 0UL || number > IRCD_NICKSERV_MAIL_GLOBAL_PER_MINUTE_HARD_MAX)
             return -1;
         config->nickserv_mail_global_per_minute = (unsigned int)number;
+        return 0;
+    }
+    if (strcmp(key, "nickserv_code_attempts_per_ip") == 0) {
+        if (number > IRCD_NICKSERV_CODE_ATTEMPTS_HARD_MAX) return -1;
+        config->nickserv_code_attempts_per_ip = (unsigned int)number;
+        return 0;
+    }
+    if (strcmp(key, "nickserv_code_attempts_per_account") == 0) {
+        if (number > IRCD_NICKSERV_CODE_ATTEMPTS_HARD_MAX) return -1;
+        config->nickserv_code_attempts_per_account = (unsigned int)number;
+        return 0;
+    }
+    if (strcmp(key, "nickserv_code_attempt_window_seconds") == 0) {
+        if (number < 60UL ||
+            number > IRCD_NICKSERV_CODE_ATTEMPT_WINDOW_HARD_MAX_SECONDS)
+            return -1;
+        config->nickserv_code_attempt_window_seconds = (unsigned int)number;
         return 0;
     }
     if (strcmp(key, "argon2_ops_per_ip") == 0) {

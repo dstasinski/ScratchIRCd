@@ -15,20 +15,50 @@ class IRCClient:
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=3.0)
         self.sock.settimeout(0.25)
         self.buffer = b""
+        self.last_command = None
 
     def send(self, line):
+        self.last_command = line
         self.sock.sendall((line + "\r\n").encode())
 
     def expect(self, needle, duration=5.0):
         deadline = time.monotonic() + duration
         got = []
+        throttle_retries = 0
+
         while time.monotonic() < deadline:
             while b"\n" in self.buffer:
                 raw, self.buffer = self.buffer.split(b"\n", 1)
                 line = raw.rstrip(b"\r").decode(errors="replace")
                 got.append(line)
+
                 if needle in line:
                     return got
+
+                expensive_throttle = (
+                    " 263 " in line and
+                    (
+                        "Please wait before repeating this command" in line or
+                        "Server busy - please retry this expensive command shortly" in line
+                    )
+                )
+
+                if expensive_throttle:
+                    if self.last_command is None or throttle_retries >= 3:
+                        raise AssertionError(
+                            f"expensive command remained throttled; got {got!r}"
+                        )
+
+                    throttle_retries += 1
+
+                    # Expensive commands refill at four tokens per second.
+                    # Sleeping past the next whole time() tick provides at
+                    # least four tokens, enough for the commands used here.
+                    time.sleep(1.1)
+                    self.sock.sendall(
+                        (self.last_command + "\r\n").encode()
+                    )
+
             try:
                 data = self.sock.recv(4096)
                 if not data:
@@ -36,6 +66,7 @@ class IRCClient:
                 self.buffer += data
             except socket.timeout:
                 pass
+
         raise AssertionError(f"expected {needle!r}; got {got!r}")
 
     def expect_closed(self, duration=3.0):
@@ -138,6 +169,9 @@ def main():
             f.write("mail_from = services@test.local\n")
             f.write("nickserv_reset_seconds = 60\n")
             f.write("nickserv_verify_seconds = 60\n")
+            f.write("nickserv_code_attempts_per_ip = 5\n")
+            f.write("nickserv_code_attempts_per_account = 5\n")
+            f.write("nickserv_code_attempt_window_seconds = 60\n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\n")
             f.write("netadmin_hostmask = *!*@*\n")
@@ -174,6 +208,27 @@ def main():
             assert verify_token[3] == "-"
             assert verify_token[:3].isdigit()
             assert verify_token[4:].isdigit()
+
+            # Malformed codes must not consume the code-attempt budget.
+            for malformed in ("ABC-1234", "12-34567", "123-45678"):
+                alice.send(f"NICKSERV VERIFY {malformed}")
+                alice.expect("Verification code is invalid or expired.")
+
+            # Four valid-format wrong guesses consume four attempts.
+            # The genuine code is therefore the fifth allowed attempt.
+            real_verify_code = verify_token.replace("-", "")
+            wrong_verify_codes = []
+            for n in range(4):
+                value = (int(real_verify_code) + n + 1) % 10000000
+                wrong = f"{value:07d}"
+                if wrong == real_verify_code:
+                    wrong = f"{(value + 1) % 10000000:07d}"
+                wrong_verify_codes.append(wrong)
+
+            for wrong in wrong_verify_codes:
+                alice.send(f"NICKSERV VERIFY {wrong}")
+                alice.expect("Verification code is invalid or expired.")
+
             alice.send(f"NICKSERV VERIFY {verify_token}")
             alice.expect("Email address verified.")
 
@@ -246,6 +301,9 @@ def main():
             reset_code = reset_token.replace("-", "")
             assert len(reset_code) == 7
             assert reset_code.isdigit()
+
+            # VERIFY exhausted its five-attempt IP/account budget above.
+            # RESET uses independent pools, so its first attempt must work.
             requester.send(f"NICKSERV RESET Alice {reset_code} thirdpass")
             requester.expect("Password reset complete.")
             requester.send("IDENTIFY Alice secondpass")

@@ -100,6 +100,9 @@ typedef struct ServerConfig {
     unsigned int nickserv_mail_requests_per_ip;
     unsigned int nickserv_mail_window_seconds;
     unsigned int nickserv_mail_global_per_minute;
+    unsigned int nickserv_code_attempts_per_ip;
+    unsigned int nickserv_code_attempts_per_account;
+    unsigned int nickserv_code_attempt_window_seconds;
     unsigned int argon2_ops_per_ip;
     unsigned int argon2_window_seconds;
     unsigned int argon2_global_ops_per_minute;

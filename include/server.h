@@ -30,6 +30,12 @@ typedef struct NickServRegistrationThrottle {
     unsigned int count;
 } NickServRegistrationThrottle;
 
+typedef struct NickServCodeThrottle {
+    char key[IRC_HOST_MAX + 1U];
+    time_t window_start;
+    unsigned int count;
+} NickServCodeThrottle;
+
 typedef struct Server {
     ServerConfig config;
 
@@ -64,6 +70,10 @@ typedef struct Server {
     NickServRegistrationThrottle nickserv_mail_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
     time_t nickserv_mail_global_window_start;
     unsigned int nickserv_mail_global_count;
+    NickServCodeThrottle nickserv_verify_ip_throttles[IRCD_NICKSERV_CODE_THROTTLE_SLOTS];
+    NickServCodeThrottle nickserv_verify_account_throttles[IRCD_NICKSERV_CODE_THROTTLE_SLOTS];
+    NickServCodeThrottle nickserv_reset_ip_throttles[IRCD_NICKSERV_CODE_THROTTLE_SLOTS];
+    NickServCodeThrottle nickserv_reset_account_throttles[IRCD_NICKSERV_CODE_THROTTLE_SLOTS];
     NickServRegistrationThrottle argon2_throttles[IRCD_NICKSERV_REGISTRATION_THROTTLE_SLOTS];
     time_t argon2_global_window_start;
     unsigned int argon2_global_count;
