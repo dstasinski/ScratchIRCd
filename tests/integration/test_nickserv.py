@@ -92,7 +92,7 @@ def assert_current_nick(client, nick):
 
 
 def wait_mail_token(mailbox, marker, start=0, duration=5.0):
-    pattern = re.compile(rf"{re.escape(marker)}: ([0-9a-f]{{32}})")
+    pattern = re.compile(rf"{re.escape(marker)}: ([0-9]{{3}}-[0-9]{{4}})")
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
         if os.path.exists(mailbox):
@@ -169,7 +169,11 @@ def main():
 
             alice.send("NICKSERV SET EMAIL alice@example.test")
             alice.expect("Verification email queued.")
-            verify_token, mail_offset = wait_mail_token(mailbox, "Verification token")
+            verify_token, mail_offset = wait_mail_token(mailbox, "Verification code")
+            assert len(verify_token) == 8
+            assert verify_token[3] == "-"
+            assert verify_token[:3].isdigit()
+            assert verify_token[4:].isdigit()
             alice.send(f"NICKSERV VERIFY {verify_token}")
             alice.expect("Email address verified.")
 
@@ -234,8 +238,15 @@ def main():
             register(requester, "Requester")
             requester.send("NICKSERV RESET Alice")
             requester.expect("If that account exists and has a verified email address")
-            reset_token, mail_offset = wait_mail_token(mailbox, "Reset token", mail_offset)
-            requester.send(f"NICKSERV RESET Alice {reset_token} thirdpass")
+            reset_token, mail_offset = wait_mail_token(mailbox, "Reset code", mail_offset)
+            assert len(reset_token) == 8
+            assert reset_token[3] == "-"
+            assert reset_token[:3].isdigit()
+            assert reset_token[4:].isdigit()
+            reset_code = reset_token.replace("-", "")
+            assert len(reset_code) == 7
+            assert reset_code.isdigit()
+            requester.send(f"NICKSERV RESET Alice {reset_code} thirdpass")
             requester.expect("Password reset complete.")
             requester.send("IDENTIFY Alice secondpass")
             requester.expect("Password incorrect or account unavailable.")
