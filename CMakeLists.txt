@@ -256,6 +256,8 @@ add_test(NAME zline_cidr_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(zline_cidr_integration PROPERTIES TIMEOUT 60)
 add_test(NAME nickserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_nickserv.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(nickserv_integration PROPERTIES TIMEOUT 120)
+add_test(NAME nickserv_code_throttle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_nickserv_code_throttle.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(nickserv_code_throttle_integration PROPERTIES TIMEOUT 60)
 add_test(NAME sasl_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_sasl.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(sasl_integration PROPERTIES TIMEOUT 60)
 add_test(NAME ircv3_cap_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_ircv3_cap.py $<TARGET_FILE:scratchircd>)
