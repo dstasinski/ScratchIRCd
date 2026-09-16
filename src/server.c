@@ -607,7 +607,8 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
                        (int)SERVER_DNSBL_REASON_ZONE_MAX, zone);
         (void)snprintf(set_by, sizeof(set_by), "DNSBL:%.*s",
                        (int)SERVER_DNSBL_SET_BY_NAME_MAX, name);
-        if (eline_policy_match_server(&server->config, BAN_EXCEPTION_DNSBL,
+        if (eline_policy_match_server(&server->config,
+                                      BAN_EXCEPTION_DNSBL,
                                       client->real_ip, NULL)) {
             client->dnsbl_state = CLIENT_DNSBL_CLEAR;
             snotice_broadcast(server, SNOTICE_DNS | SNOTICE_BANS,
@@ -713,7 +714,7 @@ int server_init(Server *server, const ServerConfig *config) {
     memset(server, 0, sizeof(*server)); server->config = *config;
     server->dns.request_read_fd = server->dns.request_write_fd = -1; server->dns.result_read_fd = server->dns.result_write_fd = -1;
     server->dnsbl.request_read_fd = server->dnsbl.request_write_fd = -1; server->dnsbl.result_read_fd = server->dnsbl.result_write_fd = -1;
-    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CHANNEL_HASH_BUCKETS) != 0 || hash_init(&server->connection_counts_by_ip, IRCD_CLIENT_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
+    if (hash_init(&server->clients_by_id, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->clients_by_nick, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->channels_by_name, IRCD_CLIENT_HASH_BUCKETS) != 0 || hash_init(&server->connection_counts_by_ip, IRCD_CLIENT_HASH_BUCKETS) != 0) { server_destroy(server); return -1; }
     if (channel_log_init(server) != 0 || init_tls(server) != 0 || dns_resolver_init(&server->dns) != 0 || dnsbl_resolver_init(&server->dnsbl) != 0 || geoip_init(&server->geoip, server->config.geoip_city_db, server->config.geoip_asn_db) != 0 || make_listeners(server) != 0) { server_destroy(server); return -1; }
     return 0;
 }
@@ -755,6 +756,8 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     size_t index;
     int fd;
     if (server == NULL || client == NULL) return;
+    if (client->registered)
+        server_pmstats_disconnect(server, client);
     snotice_broadcast(server, SNOTICE_CONNECTIONS, "Client disconnect: nick=%s user=%s display_host=%s real_ip=%s real_host=%s registered=%s reason=%s", client->nick[0] != '\0' ? client->nick : "*", client->user[0] != '\0' ? client->user : "*", client->display_host[0] != '\0' ? client->display_host : client->real_ip, client->real_ip, client->real_host[0] != '\0' ? client->real_host : "-", client->registered ? "yes" : "no", quit_reason);
     if (client->registered) {
         (void)snprintf(quit_message, sizeof(quit_message), ":%s!%s@%s QUIT :%s", client->nick, client->user, client->display_host, quit_reason);
@@ -776,6 +779,7 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     connection_count_remove(server, client->real_ip);
     fd = client->fd;
     for (index = 0U; index < server->client_count; ++index) if (server->clients[index] == client) { server->clients[index] = server->clients[server->client_count - 1U]; --server->client_count; break; }
+    client->registered = 0;
     client_free(client); close(fd);
 }
 
