@@ -53,21 +53,22 @@ Covered SQLite persistence areas include:
 - GeoBAN persistence.
 - IRCv3 channel history persistence.
 
-## Current verification gate
+## Verification gate
 
-The milestone should not be considered closed until the focused closeout tests pass locally.
+The focused and broad Milestone 3 gates have passed locally on `Genesis`. The complete CTest suite was subsequently run after the final closeout fixes and passed all 80 tests with zero failures.
+
+The focused gate is:
 
 ```sh
 cd ~/Projects/ScratchIRCd
 git checkout Genesis
 git pull --ff-only origin Genesis
-chmod +x tools/test-milestone-3.sh
 ./tools/test-milestone-3.sh build-m3-gcc focused
 ```
 
 The focused gate builds and runs the current-schema-only test plus the related database unit tests for ChanServ logging, GeoBAN, history, ban policy, ChanServ, MemoServ, NickServ, and operator persistence.
 
-After that focused set is green, run the broader Milestone 3 integration gate:
+The broader Milestone 3 integration gate is:
 
 ```sh
 ./tools/test-milestone-3.sh build-m3-gcc broad
@@ -81,16 +82,22 @@ To run both gates in order:
 ./tools/test-milestone-3.sh build-m3-gcc all
 ```
 
+For a final complete regression check:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
 ## Static closeout pass
 
 Completed on `Genesis`:
 
 - Client, operator, moderation, and presence documentation are aligned with the current `DEAF`, `MUTE`, and `WATCH` syntax.
 - Milestone 3 schema wording is aligned with `docs/DATABASE_SCHEMA_POLICY.md` and no longer requires in-place pre-release schema migration.
-- Local verification results have intentionally not been recorded here yet; they remain pending until the focused and broad gates are run by the maintainer.
+- Focused Milestone 3 verification passed locally.
+- Broad Milestone 3 verification passed locally.
+- The complete 80-test CTest suite passed locally with zero failures after the final closeout fixes.
 
-## Remaining closeout work
+## Closeout state
 
-- Fix any local build or test fallout from the stricter schema validation.
-- Update release notes or the main project milestone summary after the focused and broader gates pass.
-- Consider tagging the milestone only after the complete selected test set is green.
+The planned Milestone 3 implementation and verification work is complete on `Genesis`. No known Milestone 3 test failures remain. A milestone tag may be created after maintainer approval.
