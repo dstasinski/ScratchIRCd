@@ -7,10 +7,13 @@
 #include "commands.h"
 #include "config.h"
 #include "geoban_db.h"
+#include "nickserv_db.h"
 #include "numerics.h"
+#include "operator_db.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 typedef struct StatsBanContext {
@@ -24,6 +27,11 @@ typedef struct StatsGeoBanContext {
     Client *client;
 } StatsGeoBanContext;
 
+typedef struct StatsElineContext {
+    Server *server;
+    Client *client;
+} StatsElineContext;
+
 static int stats_reason_precision(int base_length, const char *reason) {
     size_t available;
     size_t length;
@@ -36,6 +44,45 @@ static int stats_reason_precision(int base_length, const char *reason) {
     length = strlen(reason);
     if (length > available) length = available;
     return (int)length;
+}
+
+static const char *stats_param_arg(char *params) {
+    char *arg;
+
+    if (params == NULL || params[0] == '\0') return NULL;
+    arg = params + 1;
+    while (*arg == ' ' || *arg == '\t') ++arg;
+    if (*arg == ':') {
+        ++arg;
+        while (*arg == ' ' || *arg == '\t') ++arg;
+    }
+    return *arg != '\0' ? arg : NULL;
+}
+
+static void format_stats_time(long long when, char *buffer, size_t buffer_size) {
+    time_t timestamp;
+    struct tm utc;
+    if (buffer == NULL || buffer_size == 0U) return;
+    if (when <= 0) {
+        (void)snprintf(buffer, buffer_size, "never");
+        return;
+    }
+    timestamp = (time_t)when;
+    if ((long long)timestamp != when || gmtime_r(&timestamp, &utc) == NULL ||
+        strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc) == 0U) {
+        (void)snprintf(buffer, buffer_size, "unknown");
+    }
+}
+
+static char stats_eline_type_letter(BanExceptionType type) {
+    switch (type) {
+        case BAN_EXCEPTION_KLINE: return 'k';
+        case BAN_EXCEPTION_ZLINE: return 'z';
+        case BAN_EXCEPTION_CONNECTION_LIMIT: return 'm';
+        case BAN_EXCEPTION_DNSBL: return 'B';
+        case BAN_EXCEPTION_GEOBAN: return 'G';
+    }
+    return '?';
 }
 
 static int stats_ban_row(const BanRecord *record, void *context) {
@@ -95,11 +142,105 @@ static int stats_geoban_row(const GeoBanRecord *record, void *context) {
     return stats->client->output_overflowed ? 1 : 0;
 }
 
+static int stats_eline_row(const BanExceptionRecord *record, void *context) {
+    StatsElineContext *stats = context;
+    char type_letter;
+    int base_length;
+    int reason_precision;
+
+    if (record == NULL || stats == NULL || stats->server == NULL || stats->client == NULL)
+        return -1;
+
+    type_letter = stats_eline_type_letter(record->type);
+    base_length = snprintf(NULL, 0,
+                           ":%s 210 %s :ELINE %c %s set-by=%s expires=%lld reason=",
+                           stats->server->config.server_name,
+                           stats->client->nick, type_letter, record->mask,
+                           record->set_by, record->expires_at);
+    reason_precision = stats_reason_precision(base_length, record->reason);
+    client_sendf(stats->client,
+                 ":%s 210 %s :ELINE %c %s set-by=%s expires=%lld reason=%.*s",
+                 stats->server->config.server_name, stats->client->nick,
+                 type_letter, record->mask, record->set_by, record->expires_at,
+                 reason_precision, record->reason);
+    return stats->client->output_overflowed ? 1 : 0;
+}
+
 static int stats_require_oper(Server *server, Client *client) {
     if (client->oper_permissions != 0U) return 1;
     client_sendf(client, ERR_NOPRIVILEGES,
                  server->config.server_name, client->nick);
     return 0;
+}
+
+static void stats_nickserv_account(Server *server, Client *client,
+                                   const char *account_name) {
+    NickServDb db = {0};
+    NickServAccount account;
+    char created[32];
+    char updated[32];
+    char identified[32];
+    int found;
+
+    if (account_name == NULL) {
+        client_sendf(client, ":%s 210 %s :NICKSERV syntax: STATS N <account>",
+                     server->config.server_name, client->nick);
+        return;
+    }
+    if (nickserv_db_open(&db, server->config.nickserv_db) != 0) {
+        client_sendf(client, ":%s 210 %s :NICKSERV account database unavailable",
+                     server->config.server_name, client->nick);
+        return;
+    }
+    found = nickserv_db_get(&db, account_name, &account);
+    nickserv_db_close(&db);
+    if (found != 1) {
+        client_sendf(client, ":%s 210 %s :NICKSERV account=%s not-found",
+                     server->config.server_name, client->nick, account_name);
+        return;
+    }
+    format_stats_time(account.created_at, created, sizeof(created));
+    format_stats_time(account.updated_at, updated, sizeof(updated));
+    format_stats_time(account.last_identified_at, identified, sizeof(identified));
+    client_sendf(client,
+                 ":%s 210 %s :NICKSERV account=%s enabled=%d created=%s updated=%s last_identified=%s",
+                 server->config.server_name, client->nick, account_name,
+                 account.enabled ? 1 : 0, created, updated, identified);
+}
+
+static void stats_operator_account(Server *server, Client *client,
+                                   const char *oper_name) {
+    OperatorDb db = {0};
+    OperatorRecord record;
+    char created[32];
+    char updated[32];
+    char opered[32];
+    int found;
+
+    if (oper_name == NULL) {
+        client_sendf(client, ":%s 210 %s :OPER syntax: STATS O <oper>",
+                     server->config.server_name, client->nick);
+        return;
+    }
+    if (operator_db_open(&db, server->config.operators_db) != 0) {
+        client_sendf(client, ":%s 210 %s :OPER operator database unavailable",
+                     server->config.server_name, client->nick);
+        return;
+    }
+    found = operator_db_get(&db, oper_name, &record);
+    operator_db_close(&db);
+    if (found != 1) {
+        client_sendf(client, ":%s 210 %s :OPER name=%s not-found",
+                     server->config.server_name, client->nick, oper_name);
+        return;
+    }
+    format_stats_time(record.created_at, created, sizeof(created));
+    format_stats_time(record.updated_at, updated, sizeof(updated));
+    format_stats_time(record.last_opered_at, opered, sizeof(opered));
+    client_sendf(client,
+                 ":%s 210 %s :OPER name=%s enabled=%d created=%s updated=%s last_opered=%s",
+                 server->config.server_name, client->nick, record.name,
+                 record.enabled ? 1 : 0, created, updated, opered);
 }
 
 CommandResult command_admin(Server *server, Client *client, char *params) {
@@ -197,6 +338,7 @@ CommandResult command_links(Server *server, Client *client, char *params) {
 
 CommandResult command_stats(Server *server, Client *client, char *params) {
     char selector = params != NULL && params[0] != '\0' ? params[0] : '?';
+    const char *arg = stats_param_arg(params);
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
 
@@ -229,6 +371,15 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
             ban_db_close(&db);
         }
         selector = 'z';
+    } else if (selector == 'e' || selector == 'E') {
+        BanDb db = {0};
+        StatsElineContext context = {server, client};
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        if (ban_db_open(&db, server->config.bans_db) == 0) {
+            (void)ban_exception_db_list_all(&db, stats_eline_row, &context);
+            ban_db_close(&db);
+        }
+        selector = 'e';
     } else if (selector == 'g' || selector == 'G') {
         GeoBanDb db = {0};
         StatsGeoBanContext context = {server, client};
@@ -238,6 +389,14 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
             geoban_db_close(&db);
         }
         selector = 'g';
+    } else if (selector == 'n' || selector == 'N') {
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        stats_nickserv_account(server, client, arg);
+        selector = 'N';
+    } else if (selector == 'o' || selector == 'O') {
+        if (!stats_require_oper(server, client)) return COMMAND_KEEP_CLIENT;
+        stats_operator_account(server, client, arg);
+        selector = 'O';
     } else if (selector == '?' || selector == 'h' || selector == 'H') {
         client_sendf(client, RPL_STATSHELP,
                      server->config.server_name, client->nick,
@@ -250,7 +409,16 @@ CommandResult command_stats(Server *server, Client *client, char *params) {
                      "STATS z - persistent ZLINEs (IRCops only)");
         client_sendf(client, RPL_STATSHELP,
                      server->config.server_name, client->nick,
+                     "STATS e - persistent E-LINE exceptions (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
                      "STATS g - persistent GeoBAN policies (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS N <account> - NickServ account last successful identify (IRCops only)");
+        client_sendf(client, RPL_STATSHELP,
+                     server->config.server_name, client->nick,
+                     "STATS O <oper> - operator account last successful OPER (IRCops only)");
         selector = '?';
     }
 

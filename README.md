@@ -2,7 +2,7 @@
 
 ## Introduction
 
-ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally single-server and never links to other IRC servers. Active development happens on the `Genesis` branch, with supported behavior qualified through [Milestone 1](MILESTONE-1.md) and [Milestone 2](MILESTONE-2.md).
+ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally single-server and never links to other IRC servers. Active development happens on the `Genesis` branch, with supported behavior qualified through [Milestone 1](MILESTONE-1.md), [Milestone 2](MILESTONE-2.md), and [Milestone 3](MILESTONE-3.md).
 
 ## Features
 
@@ -14,9 +14,10 @@ ScratchIRCd is a Linux IRC daemon written from scratch in C. It is intentionally
 - MemoServ inboxes and IRCv3 CAP, account/away notifications, extended JOIN, message tags, labeled responses, server time, and channel history.
 - Channel and user modes, WATCH/SILENCE/WHOWAS presence features, persistent KLINE/ZLINE/GeoBAN policy, operator management, and server-authority moderation.
 - IRCop/admin `FLASH` announcements to channels, nickname lists, or all registered clients through server numeric 343.
+- Persistent authentication audit timestamps for NickServ identifies and operator logins, visible to authorized operators and network administrators.
 - CMake builds, strict-warning CI, unit and TCP integration tests, sanitizer coverage, and an operational soak runner.
 
-Detailed client, service, operator, configuration, security, and release documentation is maintained in [`docs/`](docs/).
+Detailed client, service, operator, configuration, security, database, and release documentation is maintained in [`docs/`](docs/). Milestone 3 closeout status is tracked in [`docs/MILESTONE_3_STATUS.md`](docs/MILESTONE_3_STATUS.md). Authentication timestamp persistence is documented in [`docs/AUTH_TIMESTAMPS.md`](docs/AUTH_TIMESTAMPS.md). The pre-release database schema policy is documented in [`docs/DATABASE_SCHEMA_POLICY.md`](docs/DATABASE_SCHEMA_POLICY.md).
 
 ## Installation instructions
 
@@ -36,6 +37,15 @@ git checkout Genesis
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSCRATCHIRCD_WARNINGS_AS_ERRORS=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
+```
+
+For Milestone 3 closeout verification, use the focused and broad helper gates:
+
+```sh
+chmod +x tools/test-milestone-3.sh
+./tools/test-milestone-3.sh --help
+./tools/test-milestone-3.sh build-m3-gcc focused
+./tools/test-milestone-3.sh build-m3-gcc broad
 ```
 
 Create the runtime directories and configuration. Replace the placeholder values in `ircd.conf`, especially the server identity, administrator contact, passwords, listener/TLS paths, and a private `cloak_key` of at least 16 characters.

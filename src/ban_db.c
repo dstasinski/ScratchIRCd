@@ -1,6 +1,6 @@
 /**
  * @file ban_db.c
- * @brief SQLite persistence for KLINE and ZLINE records.
+ * @brief SQLite persistence for KLINE/ZLINE records and E-LINE exceptions.
  */
 
 #include "ban_db.h"
@@ -15,7 +15,7 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#define BAN_DB_SCHEMA_VERSION 1
+#define BAN_DB_SCHEMA_VERSION 2
 #define BAN_PURGE_INTERVAL_SECONDS 300
 
 static time_t ban_last_purge;
@@ -30,10 +30,34 @@ static const char *schema_sql =
     "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
     "expires_at INTEGER NOT NULL DEFAULT 0,"
     "PRIMARY KEY(type,mask)"
+    ");"
+    "CREATE TABLE IF NOT EXISTS exceptions ("
+    "type INTEGER NOT NULL,"
+    "mask TEXT COLLATE NOCASE NOT NULL,"
+    "reason TEXT NOT NULL DEFAULT '',"
+    "set_by TEXT NOT NULL DEFAULT '',"
+    "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+    "expires_at INTEGER NOT NULL DEFAULT 0,"
+    "PRIMARY KEY(type,mask)"
     ");";
+
+static const char *policy_required_columns[] = {
+    "type",
+    "mask",
+    "reason",
+    "set_by",
+    "created_at",
+    "expires_at"
+};
 
 static int valid_type(BanType type) {
     return type == BAN_TYPE_KLINE || type == BAN_TYPE_ZLINE;
+}
+
+static int valid_exception_type(BanExceptionType type) {
+    return type == BAN_EXCEPTION_KLINE || type == BAN_EXCEPTION_ZLINE ||
+           type == BAN_EXCEPTION_CONNECTION_LIMIT || type == BAN_EXCEPTION_DNSBL ||
+           type == BAN_EXCEPTION_GEOBAN;
 }
 
 static int has_line_break(const char *text) {
@@ -132,6 +156,54 @@ static int cidr_match(const char *cidr, const char *address) {
     return 1;
 }
 
+static int cidr_identity_match(const char *pattern, const char *identity) {
+    char pattern_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char identity_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char *pattern_at;
+    char *identity_at;
+
+    if (pattern == NULL || identity == NULL || strchr(pattern, '/') == NULL) return 0;
+    if (strlen(pattern) >= sizeof(pattern_copy) || strlen(identity) >= sizeof(identity_copy))
+        return 0;
+    (void)snprintf(pattern_copy, sizeof(pattern_copy), "%s", pattern);
+    (void)snprintf(identity_copy, sizeof(identity_copy), "%s", identity);
+
+    pattern_at = strrchr(pattern_copy, '@');
+    identity_at = strrchr(identity_copy, '@');
+    if (pattern_at != NULL) {
+        if (identity_at == NULL) return 0;
+        *pattern_at++ = '\0';
+        *identity_at++ = '\0';
+        if (!wildcard_match(pattern_copy, identity_copy)) return 0;
+        return cidr_match(pattern_at, identity_at);
+    }
+    return cidr_match(pattern_copy, identity_at != NULL ? identity_at + 1 : identity_copy);
+}
+
+static int exact_ip_identity_equal(const char *pattern, const char *identity) {
+    char pattern_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char identity_copy[IRC_CHANNEL_MASK_MAX + 1U];
+    char *pattern_at;
+    char *identity_at;
+
+    if (pattern == NULL || identity == NULL) return 0;
+    if (strlen(pattern) >= sizeof(pattern_copy) || strlen(identity) >= sizeof(identity_copy))
+        return 0;
+    (void)snprintf(pattern_copy, sizeof(pattern_copy), "%s", pattern);
+    (void)snprintf(identity_copy, sizeof(identity_copy), "%s", identity);
+
+    pattern_at = strrchr(pattern_copy, '@');
+    identity_at = strrchr(identity_copy, '@');
+    if (pattern_at != NULL) {
+        if (identity_at == NULL) return 0;
+        *pattern_at++ = '\0';
+        *identity_at++ = '\0';
+        return wildcard_match(pattern_copy, identity_copy) &&
+               numeric_ip_equal(pattern_at, identity_at);
+    }
+    return numeric_ip_equal(pattern_copy, identity_at != NULL ? identity_at + 1 : identity_copy);
+}
+
 int ban_record_matches(const BanRecord *record, const char *identity1,
                        const char *identity2) {
     if (record == NULL) return 0;
@@ -144,6 +216,21 @@ int ban_record_matches(const BanRecord *record, const char *identity1,
         return (identity1 != NULL && numeric_ip_equal(record->mask, identity1)) ||
                (identity2 != NULL && numeric_ip_equal(record->mask, identity2));
     }
+    return (identity1 != NULL && wildcard_match(record->mask, identity1)) ||
+           (identity2 != NULL && wildcard_match(record->mask, identity2));
+}
+
+int ban_exception_record_matches(const BanExceptionRecord *record,
+                                 const char *identity1, const char *identity2) {
+    if (record == NULL) return 0;
+    if (strchr(record->mask, '/') != NULL) {
+        return (identity1 != NULL && cidr_identity_match(record->mask, identity1)) ||
+               (identity2 != NULL && cidr_identity_match(record->mask, identity2));
+    }
+    if (strchr(record->mask, '*') == NULL && strchr(record->mask, '?') == NULL &&
+        exact_ip_identity_equal(record->mask, identity1)) return 1;
+    if (strchr(record->mask, '*') == NULL && strchr(record->mask, '?') == NULL &&
+        exact_ip_identity_equal(record->mask, identity2)) return 1;
     return (identity1 != NULL && wildcard_match(record->mask, identity1)) ||
            (identity2 != NULL && wildcard_match(record->mask, identity2));
 }
@@ -181,24 +268,57 @@ static int record_from_stmt(sqlite3_stmt *stmt, BanRecord *record) {
     return 0;
 }
 
-static int ensure_expires_column(BanDb *db) {
+static int exception_from_stmt(sqlite3_stmt *stmt, BanExceptionRecord *record) {
+    BanExceptionType type;
+    if (stmt == NULL || record == NULL) return -1;
+    memset(record, 0, sizeof(*record));
+    type = (BanExceptionType)sqlite3_column_int(stmt, 0);
+    if (!valid_exception_type(type) ||
+        copy_stmt_text(stmt, 1, record->mask, sizeof(record->mask)) != 0 ||
+        record->mask[0] == '\0' ||
+        copy_stmt_text(stmt, 2, record->reason, sizeof(record->reason)) != 0 ||
+        copy_stmt_text(stmt, 3, record->set_by, sizeof(record->set_by)) != 0)
+        return -1;
+    record->type = type;
+    record->created_at = sqlite3_column_int64(stmt, 4);
+    record->expires_at = sqlite3_column_int64(stmt, 5);
+    return 0;
+}
+
+static int table_column_exists(sqlite3 *db, const char *table, const char *column) {
     sqlite3_stmt *stmt = NULL;
+    char sql[96];
+    int written;
     int rc;
     int found = 0;
-    if (sqlite3_prepare_v2(db->handle, "PRAGMA table_info(bans)", -1, &stmt, NULL) != SQLITE_OK)
-        return -1;
+
+    if (db == NULL || table == NULL || column == NULL) return -1;
+    written = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (written <= 0 || (size_t)written >= sizeof(sql)) return -1;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const unsigned char *name = sqlite3_column_text(stmt, 1);
-        if (name != NULL && strcmp((const char *)name, "expires_at") == 0) {
+        if (name != NULL && strcmp((const char *)name, column) == 0) {
             found = 1;
             break;
         }
     }
     sqlite3_finalize(stmt);
-    if (found) return 0;
-    return sqlite3_exec(db->handle,
-        "ALTER TABLE bans ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
-        NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int table_schema_valid(sqlite3 *db, const char *table) {
+    size_t i;
+    for (i = 0U; i < sizeof(policy_required_columns) / sizeof(policy_required_columns[0]); ++i) {
+        int exists = table_column_exists(db, table, policy_required_columns[i]);
+        if (exists != 1) {
+            fprintf(stderr, "Ban database: incompatible %s schema missing %s column\n",
+                    table, policy_required_columns[i]);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int schema_version(sqlite3 *db, int *version) {
@@ -212,18 +332,24 @@ static int schema_version(sqlite3 *db, int *version) {
     return rc == SQLITE_ROW ? 0 : -1;
 }
 
-static int migrate_schema(BanDb *db) {
+static int ensure_schema_version(sqlite3 *db) {
     int version = 0;
-    if (schema_version(db->handle, &version) != 0) return -1;
-    if (version >= BAN_DB_SCHEMA_VERSION) return 0;
-    if (ensure_expires_column(db) != 0) return -1;
-    return sqlite3_exec(db->handle, "PRAGMA user_version=1", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+    if (schema_version(db, &version) != 0) return -1;
+    if (version > BAN_DB_SCHEMA_VERSION) {
+        fprintf(stderr, "Ban database: unsupported schema version %d (server supports %d)\n",
+                version, BAN_DB_SCHEMA_VERSION);
+        return -1;
+    }
+    if (table_schema_valid(db, "bans") != 0 || table_schema_valid(db, "exceptions") != 0)
+        return -1;
+    return sqlite3_exec(db, "PRAGMA user_version=2", NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
 int ban_db_purge_expired(BanDb *db) {
     if (db == NULL || db->handle == NULL) return -1;
     return sqlite3_exec(db->handle,
-        "DELETE FROM bans WHERE expires_at > 0 AND expires_at <= unixepoch()",
+        "DELETE FROM bans WHERE expires_at > 0 AND expires_at <= unixepoch();"
+        "DELETE FROM exceptions WHERE expires_at > 0 AND expires_at <= unixepoch();",
         NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
 }
 
@@ -264,7 +390,7 @@ int ban_db_open(BanDb *db, const char *path) {
         ban_db_close(db);
         return -1;
     }
-    if (migrate_schema(db) != 0 || purge_expired_due(db, path) != 0) {
+    if (ensure_schema_version(db->handle) != 0 || purge_expired_due(db, path) != 0) {
         ban_db_close(db);
         return -1;
     }
@@ -374,6 +500,153 @@ int ban_db_match(BanDb *db, BanType type, const char *identity1,
             return -1;
         }
         if (ban_record_matches(&candidate, identity1, identity2)) {
+            *record = candidate;
+            sqlite3_finalize(stmt);
+            return 1;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int ban_exception_db_add_internal(BanDb *db, BanExceptionType type,
+                                         const char *mask, const char *reason,
+                                         const char *set_by,
+                                         unsigned int duration_seconds) {
+    static const char sql[] =
+        "INSERT OR REPLACE INTO exceptions(type,mask,reason,set_by,created_at,expires_at) "
+        "VALUES(?1,?2,?3,?4,unixepoch(),CASE WHEN ?5=0 THEN 0 ELSE unixepoch()+?5 END)";
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !valid_exception_type(type) ||
+        mask == NULL || *mask == '\0' || strlen(mask) > IRC_CHANNEL_MASK_MAX ||
+        has_line_break(mask) ||
+        (reason != NULL && (strlen(reason) > IRC_QUIT_REASON_MAX || has_line_break(reason))) ||
+        (set_by != NULL && (strlen(set_by) > IRCD_OPER_NAME_MAX || has_line_break(set_by))))
+        return -1;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)type);
+    sqlite3_bind_text(stmt, 2, mask, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, reason != NULL ? reason : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, set_by != NULL ? set_by : "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 5, (sqlite3_int64)duration_seconds);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int ban_exception_db_add(BanDb *db, BanExceptionType type, const char *mask,
+                         const char *reason, const char *set_by) {
+    return ban_exception_db_add_internal(db, type, mask, reason, set_by, 0U);
+}
+
+int ban_exception_db_add_timed(BanDb *db, BanExceptionType type, const char *mask,
+                               const char *reason, const char *set_by,
+                               unsigned int duration_seconds) {
+    if (duration_seconds == 0U) return -1;
+    return ban_exception_db_add_internal(db, type, mask, reason, set_by,
+                                         duration_seconds);
+}
+
+int ban_exception_db_delete(BanDb *db, BanExceptionType type, const char *mask) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !valid_exception_type(type) ||
+        mask == NULL || *mask == '\0' || strlen(mask) > IRC_CHANNEL_MASK_MAX ||
+        has_line_break(mask))
+        return -1;
+    if (sqlite3_prepare_v2(db->handle,
+            "DELETE FROM exceptions WHERE type=?1 AND mask=?2", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_int(stmt, 1, (int)type);
+    sqlite3_bind_text(stmt, 2, mask, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
+}
+
+int ban_exception_db_delete_mask(BanDb *db, const char *mask) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL ||
+        mask == NULL || *mask == '\0' || strlen(mask) > IRC_CHANNEL_MASK_MAX ||
+        has_line_break(mask))
+        return -1;
+    if (sqlite3_prepare_v2(db->handle,
+            "DELETE FROM exceptions WHERE mask=?1", -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(stmt, 1, mask, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE && sqlite3_changes(db->handle) > 0 ? 0 : -1;
+}
+
+static int ban_exception_db_list_stmt(sqlite3_stmt *stmt, BanExceptionType type,
+                                      int filter_type,
+                                      BanExceptionDbListCallback callback,
+                                      void *context) {
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        BanExceptionRecord record;
+        if (exception_from_stmt(stmt, &record) != 0 ||
+            (filter_type && record.type != type)) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        if (callback(&record, context) != 0) {
+            sqlite3_finalize(stmt);
+            return 0;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int ban_exception_db_list(BanDb *db, BanExceptionType type,
+                          BanExceptionDbListCallback callback, void *context) {
+    static const char sql[] =
+        "SELECT type,mask,reason,set_by,created_at,expires_at FROM exceptions "
+        "WHERE type=?1 AND (expires_at=0 OR expires_at>unixepoch()) "
+        "ORDER BY created_at,mask COLLATE NOCASE";
+    sqlite3_stmt *stmt = NULL;
+    if (db == NULL || db->handle == NULL || !valid_exception_type(type) || callback == NULL)
+        return -1;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)type);
+    return ban_exception_db_list_stmt(stmt, type, 1, callback, context);
+}
+
+int ban_exception_db_list_all(BanDb *db, BanExceptionDbListCallback callback,
+                              void *context) {
+    static const char sql[] =
+        "SELECT type,mask,reason,set_by,created_at,expires_at FROM exceptions "
+        "WHERE expires_at=0 OR expires_at>unixepoch() "
+        "ORDER BY type,created_at,mask COLLATE NOCASE";
+    sqlite3_stmt *stmt = NULL;
+    if (db == NULL || db->handle == NULL || callback == NULL) return -1;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    return ban_exception_db_list_stmt(stmt, (BanExceptionType)0, 0, callback, context);
+}
+
+int ban_exception_db_match(BanDb *db, BanExceptionType type,
+                           const char *identity1, const char *identity2,
+                           BanExceptionRecord *record) {
+    static const char sql[] =
+        "SELECT type,mask,reason,set_by,created_at,expires_at FROM exceptions "
+        "WHERE type=?1 AND (expires_at=0 OR expires_at>unixepoch())";
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !valid_exception_type(type) || record == NULL)
+        return -1;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_int(stmt, 1, (int)type);
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        BanExceptionRecord candidate;
+        if (exception_from_stmt(stmt, &candidate) != 0 || candidate.type != type) {
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        if (ban_exception_record_matches(&candidate, identity1, identity2)) {
             *record = candidate;
             sqlite3_finalize(stmt);
             return 1;

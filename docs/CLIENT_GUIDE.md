@@ -492,12 +492,18 @@ VERSION
 
 ### WATCH
 
-Lists or changes the bounded nickname watch list and reports watched users' presence changes.
+Manages the bounded nickname watch list and reports watched users' presence changes.
 
 ```text
 WATCH
-WATCH +alice +bob -carol
+WATCH +alice +bob
+WATCH -alice
+WATCH s
+WATCH l
+WATCH c
 ```
+
+`WATCH` with no parameters lists every nickname in your watch list. `WATCH +nick` adds a nickname and immediately reports whether it is online. `WATCH -nick` removes that nickname from your list. `WATCH s` shows your watch-list status, including how many nicknames you watch and how many other clients are watching your current nickname. `WATCH l` lists only watched nicknames that are currently online. `WATCH c` clears your entire watch list.
 
 ### WEBIRC
 

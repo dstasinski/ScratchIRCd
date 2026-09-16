@@ -34,15 +34,20 @@ A client may store up to 64 SILENCE masks. Numeric `271` lists masks and `272` e
 
 ## WATCH
 
-WATCH provides server-side nickname presence notifications.
+WATCH provides server-side nickname presence notifications and bounded watch-list management.
 
 ```text
 WATCH +Nick1 +Nick2
 WATCH -Nick1
 WATCH
+WATCH s
+WATCH l
+WATCH c
 ```
 
-Adding an entry immediately reports whether that nickname is currently online (`604`) or offline (`605`). Once watched, ScratchIRCd sends:
+`WATCH +nick` adds a nickname and immediately reports whether it is currently online (`604`) or offline (`605`). `WATCH -nick` removes that nickname from the list. `WATCH` with no parameters lists every configured watch entry. `WATCH s` reports watch-list status, including how many nicknames the client is watching and how many other clients are watching its current nickname. `WATCH l` lists only watched nicknames that are currently online. `WATCH c` clears the entire watch list.
+
+Once watched, ScratchIRCd sends:
 
 ```text
 600  nickname logged online
@@ -51,7 +56,7 @@ Adding an entry immediately reports whether that nickname is currently online (`
 
 Nick changes are represented as the old watched nickname going offline and the new watched nickname going online, if both are on the watching client's list.
 
-WATCH nick matching follows the server's advertised RFC1459 casemapping. Each client may watch up to 128 nicknames; numeric `512` reports a full list. Numeric `606` lists the configured watch entries and `607` terminates the listing.
+WATCH nick matching follows the server's advertised RFC1459 casemapping. Each client may watch up to 128 nicknames; numeric `512` reports a full list. Numeric `606` lists watch entries and `607` terminates a listing.
 
 WATCH state lasts only for the current connection. It is not associated with a NickServ account and is not persisted across reconnects or daemon restarts.
 

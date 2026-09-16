@@ -82,6 +82,11 @@ int main(void) {
     assert(got.enabled == 1);
     assert(got.created_at > 0);
     assert(got.updated_at > 0);
+    assert(got.last_opered_at == 0);
+    assert(operator_db_set_last_opered(&db, "TESTOPER", 123456) == 0);
+    assert(operator_db_get(&db, "testoper", &got) == 1);
+    assert(got.last_opered_at == 123456);
+    assert(operator_db_set_last_opered(&db, "TestOper", 0) == -1);
 
     /* Public write/query APIs reject fields that cannot round-trip through
      * OperatorRecord instead of relying on SQLite to accept them. */
@@ -107,7 +112,7 @@ int main(void) {
     invalid.password_hash[0] = '\0';
     assert(operator_db_add(&db, &invalid) == -1);
 
-    /* Direct legacy/external corruption must fail closed, including LIST. */
+    /* Direct external/manual corruption must fail closed, including LIST. */
     raw_set_text(db.handle, "password_hash", "TestOper", long_hash);
     assert(operator_db_get(&db, "TestOper", &got) == -1);
     seen_count = 0;
@@ -138,6 +143,7 @@ int main(void) {
     assert(strcmp(got.permissions, "can_kill") == 0);
     assert(strcmp(got.vhost, "new.oper.test") == 0);
     assert(got.enabled == 0);
+    assert(got.last_opered_at == 123456);
 
     seen_count = 0;
     assert(operator_db_list(&db, count_record, NULL) == 0);

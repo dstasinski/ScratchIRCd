@@ -72,6 +72,7 @@ typedef struct Client {
     OperPermissionSet oper_permissions;
     char oper_name[IRCD_OPER_NAME_MAX + 1U];
     SnoticeMask snotice_mask;
+    int pmstats_enabled;
 
     char nick[IRC_NICK_MAX + 1U];
     char user[IRC_USER_MAX + 1U];

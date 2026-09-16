@@ -24,6 +24,7 @@ static CommandResult set_control_mode(Server *server, Client *client, char *para
                                       const char *command, char mode,
                                       ClientModeSet bit) {
     char *spec;
+    const char *target_name;
     Client *target;
     int adding;
     char line[IRCD_MESSAGE_BUFFER_SIZE];
@@ -34,8 +35,7 @@ static CommandResult set_control_mode(Server *server, Client *client, char *para
                      server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
-    if (params == NULL || (spec = strtok(params, " \t")) == NULL ||
-        (spec[0] != '+' && spec[0] != '-') || spec[1] == '\0') {
+    if (params == NULL || (spec = strtok(params, " \t")) == NULL || spec[0] == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, command);
         return COMMAND_KEEP_CLIENT;
@@ -46,11 +46,27 @@ static CommandResult set_control_mode(Server *server, Client *client, char *para
         return COMMAND_KEEP_CLIENT;
     }
 
-    adding = spec[0] == '+';
-    target = hash_get(&server->clients_by_nick, spec + 1);
+    /* Bare nickname means enable; disabling intentionally requires '-'. */
+    if (spec[0] == '+') {
+        adding = 1;
+        target_name = spec + 1;
+    } else if (spec[0] == '-') {
+        adding = 0;
+        target_name = spec + 1;
+    } else {
+        adding = 1;
+        target_name = spec;
+    }
+    if (target_name[0] == '\0') {
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, command);
+        return COMMAND_KEEP_CLIENT;
+    }
+
+    target = hash_get(&server->clients_by_nick, target_name);
     if (target == NULL) {
         client_sendf(client, ERR_NOSUCHNICK,
-                     server->config.server_name, client->nick, spec + 1);
+                     server->config.server_name, client->nick, target_name);
         return COMMAND_KEEP_CLIENT;
     }
 

@@ -2,6 +2,7 @@
 """End-to-end coverage for virtual MemoServ persistence and restart lifecycle."""
 
 import os
+import re
 import socket
 import sqlite3
 import subprocess
@@ -68,6 +69,48 @@ def stop(proc):
         try: proc.wait(timeout=3.0)
         except subprocess.TimeoutExpired: proc.kill(); proc.wait(timeout=3.0)
 
+def assert_utc_timestamp(text):
+    assert re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", text), text
+
+def oper_as_netadmin(client, nick):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        client.send("OPER root adminpass")
+        lines = client.collect_for(1.0)
+        last_lines = lines
+        if any(f" 381 {nick} :You are now a Network Administrator" in line for line in lines):
+            return
+        if any(f" 263 {nick} OPER " in line for line in lines):
+            time.sleep(1.0)
+            continue
+        break
+    raise AssertionError(f"expected OPER success for {nick!r}; got {last_lines!r}")
+
+def memoserv_lines(client, command, nick, duration=1.0):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        client.send(command)
+        lines = client.collect_for(duration)
+        last_lines = lines
+        if any(f" 263 {nick} MEMOSERV " in line for line in lines):
+            time.sleep(1.0)
+            continue
+        return lines
+    raise AssertionError(f"MEMOSERV throttled too long for {command!r}; got {last_lines!r}")
+
+def memoserv_expect(client, command, nick, needle, duration=1.0):
+    deadline = time.monotonic() + 8.0
+    last_lines = []
+    while time.monotonic() < deadline:
+        lines = memoserv_lines(client, command, nick, duration)
+        last_lines = lines
+        for line in lines:
+            if needle in line:
+                return line
+    raise AssertionError(f"expected {needle!r} from {command!r}; got {last_lines!r}")
+
 def main():
     if len(sys.argv) != 2: raise SystemExit("usage: test_memoserv.py scratchircd")
     binary = os.path.abspath(sys.argv[1])
@@ -83,7 +126,7 @@ def main():
             f.write(f"port = {port}\nmax_clients = 32\ndns_timeout_seconds = 1\n")
             for name in ("operators", "bans", "nickserv", "chanserv", "memoserv", "history"):
                 f.write(f"{name}_db = {td}/{name}.db\n")
-            f.write("memoserv_quota = 2\nmemoserv_retention_days = 90\n")
+            f.write("memoserv_quota = 2\nmemoserv_sender_quota = 2\nmemoserv_retention_days = 90\n")
             f.write("geoip_city_db = \ngeoip_asn_db = \n")
             f.write("netadmin_name = root\n")
             f.write(f"netadmin_password_hash = {admin_hash}\n")
@@ -92,6 +135,7 @@ def main():
         proc = subprocess.Popen([binary, conf], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         bob = alice = None
         long_text = "X" * 400
+        replacement_id = 0
         try:
             wait_listen(port, proc)
             bob = IRCClient(port); register(bob, "Bob")
@@ -104,8 +148,12 @@ def main():
             first_line = alice.expect("sent to Bob"); first_id = int(first_line.split("#",1)[1].split(" ",1)[0])
             alice.send(f"MEMOSERV SEND Bob :{long_text}")
             second_line = alice.expect("sent to Bob"); second_id = int(second_line.split("#",1)[1].split(" ",1)[0])
-            alice.send("MEMOSERV SEND Bob :Third memo"); alice.expect("Recipient memo box is full.")
-            alice.send("MEMOSERV SENT"); alice.expect("TO Bob")
+            alice.send("MEMOSERV SEND Bob :Third memo")
+            alice.expect("You have reached your outstanding sent-memo limit of 2.")
+            alice.send("MEMOSERV SENT")
+            sent_unread_line = alice.expect("TO Bob UNREAD sent ")
+            assert " read " not in sent_unread_line, sent_unread_line
+            assert_utc_timestamp(sent_unread_line)
             alice.send("MEMOSERV STATUS"); alice.expect("Memos: 0/2 stored, 0 unread.")
         finally:
             if bob is not None: bob.close()
@@ -136,6 +184,25 @@ def main():
             traveler.send(f"MEMOSERV REPLY {first_id} :Reply to Alice"); traveler.expect("Reply memo #")
             traveler.send(f"MEMOSERV FORWARD {first_id} Alice"); traveler.expect("forwarded to Alice")
             traveler.send("MEMOSERV STATUS"); traveler.expect("Memos: 2/2 stored, 0 unread.")
+
+            # Recipient deletion hides only Bob's inbox side. Alice must still
+            # be able to see the original memo in SENT until she uses DELSENT.
+            memoserv_expect(traveler, f"MEMOSERV DEL {first_id}", "Traveler", "Memo deleted.")
+            memoserv_expect(traveler, f"MEMOSERV READ {first_id}", "Traveler", "No such memo.")
+            memoserv_expect(traveler, "MEMOSERV STATUS", "Traveler", "Memos: 1/2 stored, 0 unread.")
+            list_lines = memoserv_lines(traveler, "MEMOSERV LIST", "Traveler")
+            assert not any(f"#{first_id} " in line for line in list_lines), list_lines
+            assert any(f"#{second_id} READ from Alice" in line for line in list_lines), list_lines
+            db = sqlite3.connect(memoserv_db)
+            try:
+                first_state = db.execute(
+                    "SELECT sender_deleted,recipient_deleted FROM memos WHERE id=?",
+                    (first_id,),
+                ).fetchone()
+            finally:
+                db.close()
+            assert first_state == (0, 1), first_state
+
             traveler.send("ISON MemoServ"); line = traveler.expect(" 303 Traveler :")
             assert "MemoServ" not in line.split(":", 2)[-1], line
         finally:
@@ -150,6 +217,52 @@ def main():
             alice2.send("IDENTIFY Alice alicepass"); alice2.expect("Password accepted - you are now identified.")
             alice2.send("MEMOSERV STATUS"); alice2.expect("Memos: 2/2 stored, 2 unread.")
             alice2.send("MEMOSERV LIST"); alice2.expect("UNREAD from Bob")
+            alice2.send("MEMOSERV SENT")
+            sent_read_line = alice2.expect("TO Bob READ sent ")
+            assert " read " in sent_read_line, sent_read_line
+            assert len(re.findall(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", sent_read_line)) == 2, sent_read_line
+
+            # Bob hiding one inbox memo releases one outstanding-sender slot.
+            replacement_line = memoserv_expect(
+                alice2,
+                "MEMOSERV SEND Bob :Replacement after recipient delete",
+                "AliceAgain",
+                "sent to Bob",
+            )
+            replacement_id = int(replacement_line.split("#", 1)[1].split(" ", 1)[0])
+            sent_lines = memoserv_lines(alice2, "MEMOSERV SENT", "AliceAgain")
+            assert any(f"#{replacement_id} TO Bob UNREAD sent " in line for line in sent_lines), sent_lines
+            assert any(f"#{second_id} TO Bob READ sent " in line for line in sent_lines), sent_lines
+            assert any(f"#{first_id} TO Bob READ sent " in line for line in sent_lines), sent_lines
+
+            memoserv_expect(alice2, f"MEMOSERV DELSENT {first_id}", "AliceAgain",
+                            "Sent memo removed from sent history.")
+            sent_lines = memoserv_lines(alice2, "MEMOSERV SENT", "AliceAgain")
+            assert not any(f"#{first_id} TO Bob" in line for line in sent_lines), sent_lines
+            assert any(f"#{second_id} TO Bob READ sent " in line for line in sent_lines), sent_lines
+            assert any(f"#{replacement_id} TO Bob UNREAD sent " in line for line in sent_lines), sent_lines
+
+            memoserv_expect(alice2, "MEMOSERV DELSENT ALL", "AliceAgain",
+                            "All sent memos removed from sent history.")
+            memoserv_expect(alice2, "MEMOSERV SENT", "AliceAgain", "You have no sent memos.")
+            memoserv_expect(alice2, "MEMOSERV STATUS", "AliceAgain", "Memos: 2/2 stored, 2 unread.")
+
+            # DELSENT hides sender history without deleting the recipient's
+            # copy. The first Alice->Bob row was already hidden by Bob, so it
+            # is purged when Alice hides it too; the other two remain for Bob.
+            db = sqlite3.connect(memoserv_db)
+            try:
+                bob_rows = db.execute(
+                    "SELECT COUNT(*) FROM memos WHERE recipient='Bob' AND sender='Alice'"
+                ).fetchone()[0]
+                hidden_rows = db.execute(
+                    "SELECT COUNT(*) FROM memos WHERE recipient='Bob' AND sender='Alice' "
+                    "AND sender_deleted=1"
+                ).fetchone()[0]
+            finally:
+                db.close()
+            assert bob_rows == 2, bob_rows
+            assert hidden_rows == 2, hidden_rows
 
             # STATUS above warms the five-minute retention throttle. Insert an
             # already-expired memo directly into persistent storage; another
@@ -167,13 +280,12 @@ def main():
             finally:
                 db.close()
 
-            alice2.send("MEMOSERV STATUS"); alice2.expect("Memos: 3/2 stored, 3 unread.")
+            memoserv_expect(alice2, "MEMOSERV STATUS", "AliceAgain", "Memos: 3/2 stored, 3 unread.")
 
             # An in-process RESTART must clear the process-local maintenance
             # throttle. The first MemoServ access afterward should therefore
             # purge the expired row immediately, matching a clean process start.
-            alice2.send("OPER root adminpass")
-            alice2.expect(" 381 AliceAgain :You are now a Network Administrator")
+            oper_as_netadmin(alice2, "AliceAgain")
             alice2.send("RESTART")
             alice2.expect("NOTICE AliceAgain :Restarting ScratchIRCd")
             alice2.close(); alice2 = None

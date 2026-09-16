@@ -4,7 +4,11 @@
  *
  * Syntax:
  *   WATCH +nick [-nick ...]
- *   WATCH                  - list watched nicknames
+ *   WATCH -nick           - remove one watched nickname
+ *   WATCH s               - show watch status and current list
+ *   WATCH l               - list watched nicknames currently online
+ *   WATCH c               - clear the watch list
+ *   WATCH                 - list watched nicknames
  */
 
 #include "commands.h"
@@ -13,6 +17,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -88,6 +93,47 @@ static void list_watch(Server *server, Client *client) {
                  client->nick, 'L');
 }
 
+static size_t count_watchers(Server *server, Client *client) {
+    size_t index;
+    size_t count = 0U;
+    if (server == NULL || client == NULL || client->nick[0] == '\0') return 0U;
+    for (index = 0U; index < server->client_count; ++index) {
+        Client *watcher = server->clients[index];
+        if (watcher == NULL || !watcher->registered) continue;
+        if (presence_watch_contains(watcher, client->nick)) ++count;
+    }
+    return count;
+}
+
+static void status_watch(Server *server, Client *client) {
+    list_watch(server, client);
+    client_sendf(client, RPL_WATCHSTAT, server->config.server_name, client->nick,
+                 (int)client->watch_count, (int)count_watchers(server, client));
+}
+
+static void list_online_watch(Server *server, Client *client) {
+    ClientWatchEntry *entry;
+    for (entry = client->watch_list; entry != NULL; entry = entry->next) {
+        Client *subject = hash_get(&server->clients_by_nick, entry->nick);
+        if (subject == NULL || !subject->registered) continue;
+        client_sendf(client, RPL_NOWON, server->config.server_name, client->nick,
+                     subject->nick, subject->user, subject->display_host,
+                     (long)subject->signon_time);
+    }
+    client_sendf(client, RPL_ENDOFWATCHLIST, server->config.server_name,
+                 client->nick, 'L');
+}
+
+static void clear_watch(Client *client) {
+    if (client == NULL) return;
+    while (client->watch_list != NULL) {
+        ClientWatchEntry *next = client->watch_list->next;
+        free(client->watch_list);
+        client->watch_list = next;
+    }
+    client->watch_count = 0U;
+}
+
 CommandResult command_watch(Server *server, Client *client, char *params) {
     char *token;
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
@@ -98,6 +144,23 @@ CommandResult command_watch(Server *server, Client *client, char *params) {
 
     for (token = strtok(params, " "); token != NULL; token = strtok(NULL, " ")) {
         const char *nick;
+        if (token[1] == '\0') {
+            switch (tolower((unsigned char)token[0])) {
+                case 's':
+                    status_watch(server, client);
+                    continue;
+                case 'l':
+                    list_online_watch(server, client);
+                    continue;
+                case 'c':
+                    clear_watch(client);
+                    client_sendf(client, RPL_ENDOFWATCHLIST,
+                                 server->config.server_name, client->nick, 'C');
+                    continue;
+                default:
+                    continue;
+            }
+        }
         if ((token[0] != '+' && token[0] != '-') || token[1] == '\0') continue;
         nick = token + 1;
         if (!valid_watch_nick(nick)) continue;

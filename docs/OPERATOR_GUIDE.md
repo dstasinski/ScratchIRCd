@@ -61,9 +61,12 @@ CSSET #chat ENABLED 1
 Any authenticated IRC operator or network administrator may set or clear `+D` on a client. A `+D` client cannot exchange direct `PRIVMSG` or `NOTICE` traffic with ordinary users; operators and network administrators are exempt.
 
 ```text
+DEAF trouble
 DEAF +trouble
 DEAF -trouble
 ```
+
+A bare nickname enables `+D`; disabling requires the `-` form.
 
 #### DIE
 
@@ -151,9 +154,12 @@ MSPURGE *
 Any authenticated IRC operator or network administrator may set or clear `+M`. It blocks channel messages from an ordinary member; channel privileges and IRC operator status provide immunity.
 
 ```text
+MUTE trouble
 MUTE +trouble
 MUTE -trouble
 ```
+
+A bare nickname enables `+M`; disabling requires the `-` form.
 
 #### NSDROP
 
@@ -434,7 +440,7 @@ This section contains the complete ordinary client command set. Operator status 
 | `USER` | Supply username and real name during registration. | `USER alice 0 * :Alice Example` |
 | `USERHOST` | Show displayed hostnames for online nicknames. | `USERHOST alice bob` |
 | `VERSION` | Show the server version. | `VERSION` |
-| `WATCH` | Query or change a nickname watch list. | `WATCH`<br>`WATCH +alice +bob -carol` |
+| `WATCH` | Query or change a nickname watch list. | `WATCH`<br>`WATCH +alice +bob`<br>`WATCH -carol`<br>`WATCH s`<br>`WATCH l`<br>`WATCH c` |
 | `WEBIRC` | Supply end-user identity from an authorized gateway before registration. | `WEBIRC password gateway.example client.example 203.0.113.25` |
 | `WHO` | Show visible users matching a channel or nickname, or perform a general query. | `WHO #chat`<br>`WHO alice`<br>`WHO 0` |
 | `WHOIS` | Show information about an online user. | `WHOIS alice` |

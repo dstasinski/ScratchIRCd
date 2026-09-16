@@ -27,6 +27,7 @@ typedef struct NickServAccount {
     long long reset_expires_at;
     long long created_at;
     long long updated_at;
+    long long last_identified_at;
 } NickServAccount;
 
 int nickserv_db_open(NickServDb *db, const char *path);
@@ -37,6 +38,7 @@ int nickserv_db_delete(NickServDb *db, const char *name);
 int nickserv_db_set_password(NickServDb *db, const char *name, const char *password_hash);
 int nickserv_db_set_vhost(NickServDb *db, const char *name, const char *vhost);
 int nickserv_db_set_enabled(NickServDb *db, const char *name, int enabled);
+int nickserv_db_set_last_identified(NickServDb *db, const char *name, long long when);
 
 /** Begin verification of a newly supplied email address. */
 int nickserv_db_set_email_challenge(NickServDb *db, const char *name,

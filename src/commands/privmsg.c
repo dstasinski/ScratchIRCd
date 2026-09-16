@@ -1,12 +1,4 @@
-/**
- * @file privmsg.c
- * @brief Implementation of IRC PRIVMSG.
- *
- * Channel delivery enforces membership/speaking policy plus +c/+S color
- * policy. Direct delivery enforces SILENCE/+R/+T. Public prefixes always use
- * display_host, and accepted channel text is persisted after filtering.
- */
-
+/** @file privmsg.c @brief Implementation of IRC PRIVMSG. */
 #include "commands.h"
 #include "channel_log.h"
 #include "channel_policy.h"
@@ -20,185 +12,50 @@
 #include "nospoof.h"
 #include "numerics.h"
 #include "presence.h"
-
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
 
-static void store_channel_history(Server *server, Client *client,
-                                  const char *target, const char *command,
-                                  const char *text) {
-    HistoryDb *db;
-    HistoryRecord record;
-    struct timespec now;
-    size_t text_length;
+static void store_channel_history(Server *server,Client *client,const char *target,const char *command,const char *text){HistoryDb *db;HistoryRecord record;struct timespec now;size_t text_length;if(server==NULL||client==NULL||target==NULL||text==NULL)return;text_length=strlen(text);if(text_length>IRCD_HISTORY_TEXT_MAX)return;memset(&record,0,sizeof(record));(void)snprintf(record.target,sizeof(record.target),"%s",target);(void)snprintf(record.command,sizeof(record.command),"%s",command);(void)snprintf(record.nick,sizeof(record.nick),"%s",client->nick);(void)snprintf(record.user,sizeof(record.user),"%s",client->user);(void)snprintf(record.host,sizeof(record.host),"%s",client->display_host);(void)snprintf(record.account,sizeof(record.account),"%s",client->account_name);memcpy(record.text,text,text_length+1U);if(clock_gettime(CLOCK_REALTIME,&now)==0)record.created_at_ms=(int64_t)now.tv_sec*1000+now.tv_nsec/1000000;else record.created_at_ms=(int64_t)time(NULL)*1000;db=history_db_shared(server->config.history_db);if(db!=NULL&&history_db_add(db,&record)==0)(void)history_db_shared_maintain(server->config.history_db,server->config.history_retention_days,server->config.history_max_rows,record.created_at_ms);}
+static int privmsg_wire_fits(Server *server,Client *client,const char *target,const char *text){if(ircv3_message_wire_fits(client,"PRIVMSG",target,text))return 1;client_sendf(client,":%s 417 %s PRIVMSG :Message would exceed the IRC relay line limit",server->config.server_name,client->nick);return 0;}
 
-    if (server == NULL || client == NULL || target == NULL || text == NULL) return;
-    text_length = strlen(text);
-    if (text_length > IRCD_HISTORY_TEXT_MAX) return;
-    memset(&record, 0, sizeof(record));
-    (void)snprintf(record.target, sizeof(record.target), "%s", target);
-    (void)snprintf(record.command, sizeof(record.command), "%s", command);
-    (void)snprintf(record.nick, sizeof(record.nick), "%s", client->nick);
-    (void)snprintf(record.user, sizeof(record.user), "%s", client->user);
-    (void)snprintf(record.host, sizeof(record.host), "%s", client->display_host);
-    (void)snprintf(record.account, sizeof(record.account), "%s", client->account_name);
-    memcpy(record.text, text, text_length + 1U);
-    if (clock_gettime(CLOCK_REALTIME, &now) == 0)
-        record.created_at_ms = (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
-    else
-        record.created_at_ms = (int64_t)time(NULL) * 1000;
-
-    db = history_db_shared(server->config.history_db);
-    if (db != NULL && history_db_add(db, &record) == 0)
-        (void)history_db_shared_maintain(server->config.history_db,
-                                        server->config.history_retention_days,
-                                        server->config.history_max_rows,
-                                        record.created_at_ms);
-}
-
-static int privmsg_wire_fits(Server *server, Client *client,
-                             const char *target, const char *text) {
-    if (ircv3_message_wire_fits(client, "PRIVMSG", target, text)) return 1;
-    client_sendf(client,
-                 ":%s 417 %s PRIVMSG :Message would exceed the IRC relay line limit",
-                 server->config.server_name, client->nick);
-    return 0;
-}
-
-CommandResult command_privmsg(Server *server, Client *client, char *params) {
-    char *target;
-    char *text;
-
-    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
-    if (params == NULL) {
-        client_sendf(client, ERR_NORECIPIENT, server->config.server_name,
-                     client->nick, "PRIVMSG");
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    target = strtok(params, " ");
-    text = strtok(NULL, "");
-    if (target == NULL || *target == '\0') {
-        client_sendf(client, ERR_NORECIPIENT, server->config.server_name,
-                     client->nick, "PRIVMSG");
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (strchr(target, ',') != NULL) {
-        client_sendf(client, ERR_TOOMANYTARGETS, server->config.server_name,
-                     client->nick, target);
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (text == NULL || *text == '\0' || (text[0] == ':' && text[1] == '\0')) {
-        client_sendf(client, ERR_NOTEXTTOSEND, server->config.server_name, client->nick);
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (*text == ':') ++text;
-
-    if (strcasecmp(target, "NickServ") == 0) {
-        if (command_expensive_allow(server, client, "NICKSERV", 2U))
-            command_nickserv_message(server, client, text);
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (strcasecmp(target, "ChanServ") == 0) {
-        if (command_expensive_allow(server, client, "CHANSERV", 2U))
-            (void)command_chanserv(server, client, text);
-        return COMMAND_KEEP_CLIENT;
-    }
-    if (strcasecmp(target, "MemoServ") == 0) {
-        if (command_expensive_allow(server, client, "MEMOSERV", 2U))
-            command_memoserv_message(server, client, text);
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    if (strchr(IRC_CHANNEL_PREFIXES, target[0]) != NULL) {
-        Channel *channel = hash_get(&server->channels_by_name, target);
-        ChannelMember *member;
-        int banned;
-        char stripped[IRCD_MESSAGE_BUFFER_SIZE];
-        const char *delivered_text = text;
-
-        if (channel == NULL) {
-            client_sendf(client, ERR_NOSUCHCHANNEL, server->config.server_name,
-                         client->nick, target);
-            return COMMAND_KEEP_CLIENT;
-        }
-        member = channel_find_member(channel, client);
-        if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_OWNER))
-            banned = 0;
-        else if (member != NULL && channel_privilege_has(member->privileges, CHANNEL_PRIV_PROTECTED))
-            banned = channel_client_is_banned_protected(channel, client);
-        else
-            banned = channel_client_is_banned(channel, client);
-        if (banned) {
-            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
-                         client->nick, channel->name, "banned from channel (+b)");
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_NO_EXTERNAL) && member == NULL) {
-            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
-                         client->nick, channel->name, "no external messages (+n)");
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_REGONLY_SPEAK) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
-            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
-                         client->nick, channel->name, "registered nickname required (+M)");
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_MODERATED) &&
-            (member == NULL || !channel_privilege_has(member->privileges,
-             CHANNEL_PRIV_VOICE | CHANNEL_PRIV_HALFOP | CHANNEL_PRIV_OPERATOR |
-             CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OWNER))) {
-            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
-                         client->nick, channel->name, "moderated channel (+m)");
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_NO_COLOR) &&
-            message_contains_color(text)) {
-            client_sendf(client, ERR_CANNOTSENDTOCHAN, server->config.server_name,
-                         client->nick, channel->name, "colors are not permitted (+c)");
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (channel_mode_has(channel->modes, CHANNEL_MODE_STRIP_COLOR)) {
-            message_strip_color(text, stripped, sizeof(stripped));
-            delivered_text = stripped;
-        }
-        if (!privmsg_wire_fits(server, client, channel->name, delivered_text))
-            return COMMAND_KEEP_CLIENT;
-
-        store_channel_history(server, client, channel->name, "PRIVMSG", delivered_text);
-        channel_log_message(server, channel, client, delivered_text, 0);
-        ircv3_broadcast_message(channel, client, client, "PRIVMSG",
-                                channel->name, delivered_text);
-        client->last_activity = time(NULL);
-    } else {
-        Client *destination = hash_get(&server->clients_by_nick, target);
-        if (destination == NULL) {
-            client_sendf(client, ERR_NOSUCHNICK, server->config.server_name,
-                         client->nick, target);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (presence_silence_matches(destination, client)) return COMMAND_KEEP_CLIENT;
-        if (client_mode_has(destination->modes, CLIENT_MODE_REGONLY_MSG) &&
-            !client_mode_has(client->modes, CLIENT_MODE_REGISTERED)) {
-            client_sendf(client, ERR_NONONREG, server->config.server_name,
-                         client->nick, destination->nick);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (client_mode_has(destination->modes, CLIENT_MODE_NO_CTCP) && text[0] == '\001') {
-            client_sendf(client, ERR_NOCTCP, server->config.server_name,
-                         client->nick, destination->nick);
-            return COMMAND_KEEP_CLIENT;
-        }
-        if (!privmsg_wire_fits(server, client, destination->nick, text))
-            return COMMAND_KEEP_CLIENT;
-        ircv3_send_message(destination, client, "PRIVMSG", destination->nick, text);
-        client->last_activity = time(NULL);
-        if (destination->away[0] != '\0')
-            client_sendf(client, RPL_AWAY, server->config.server_name,
-                         client->nick, destination->nick, destination->away);
+CommandResult command_privmsg(Server *server,Client *client,char *params){
+    char *target,*text;
+    if(command_require_registered(client))return COMMAND_KEEP_CLIENT;
+    if(params==NULL){client_sendf(client,ERR_NORECIPIENT,server->config.server_name,client->nick,"PRIVMSG");return COMMAND_KEEP_CLIENT;}
+    target=strtok(params," ");text=strtok(NULL,"");
+    if(target==NULL||*target=='\0'){client_sendf(client,ERR_NORECIPIENT,server->config.server_name,client->nick,"PRIVMSG");return COMMAND_KEEP_CLIENT;}
+    if(strchr(target,',')!=NULL){client_sendf(client,ERR_TOOMANYTARGETS,server->config.server_name,client->nick,target);return COMMAND_KEEP_CLIENT;}
+    if(text==NULL||*text=='\0'||(text[0]==':'&&text[1]=='\0')){client_sendf(client,ERR_NOTEXTTOSEND,server->config.server_name,client->nick);return COMMAND_KEEP_CLIENT;}
+    if(*text==':')++text;
+    if(strcasecmp(target,"NickServ")==0){if(command_expensive_allow(server,client,"NICKSERV",2U))command_nickserv_message(server,client,text);return COMMAND_KEEP_CLIENT;}
+    if(strcasecmp(target,"ChanServ")==0){if(command_expensive_allow(server,client,"CHANSERV",2U))(void)command_chanserv(server,client,text);return COMMAND_KEEP_CLIENT;}
+    if(strcasecmp(target,"MemoServ")==0){if(command_expensive_allow(server,client,"MEMOSERV",2U))command_memoserv_message(server,client,text);return COMMAND_KEEP_CLIENT;}
+    if(strchr(IRC_CHANNEL_PREFIXES,target[0])!=NULL){
+        Channel *channel=hash_get(&server->channels_by_name,target);ChannelMember *member;int banned;char stripped[IRCD_MESSAGE_BUFFER_SIZE];const char *delivered_text=text;
+        if(channel==NULL){client_sendf(client,ERR_NOSUCHCHANNEL,server->config.server_name,client->nick,target);return COMMAND_KEEP_CLIENT;}
+        member=channel_find_member(channel,client);
+        if(member!=NULL&&channel_privilege_has(member->privileges,CHANNEL_PRIV_OWNER))banned=0;else if(member!=NULL&&channel_privilege_has(member->privileges,CHANNEL_PRIV_PROTECTED))banned=channel_client_is_banned_protected(channel,client);else banned=channel_client_is_banned(channel,client);
+        if(banned){client_sendf(client,ERR_CANNOTSENDTOCHAN,server->config.server_name,client->nick,channel->name,"banned from channel (+b)");return COMMAND_KEEP_CLIENT;}
+        if(channel_mode_has(channel->modes,CHANNEL_MODE_NO_EXTERNAL)&&member==NULL){client_sendf(client,ERR_CANNOTSENDTOCHAN,server->config.server_name,client->nick,channel->name,"no external messages (+n)");return COMMAND_KEEP_CLIENT;}
+        if(channel_mode_has(channel->modes,CHANNEL_MODE_REGONLY_SPEAK)&&!client_mode_has(client->modes,CLIENT_MODE_REGISTERED)){client_sendf(client,ERR_CANNOTSENDTOCHAN,server->config.server_name,client->nick,channel->name,"registered nickname required (+M)");return COMMAND_KEEP_CLIENT;}
+        if(channel_mode_has(channel->modes,CHANNEL_MODE_MODERATED)&&(member==NULL||!channel_privilege_has(member->privileges,CHANNEL_PRIV_VOICE|CHANNEL_PRIV_HALFOP|CHANNEL_PRIV_OPERATOR|CHANNEL_PRIV_PROTECTED|CHANNEL_PRIV_OWNER))){client_sendf(client,ERR_CANNOTSENDTOCHAN,server->config.server_name,client->nick,channel->name,"moderated channel (+m)");return COMMAND_KEEP_CLIENT;}
+        if(channel_mode_has(channel->modes,CHANNEL_MODE_NO_COLOR)&&message_contains_color(text)){client_sendf(client,ERR_CANNOTSENDTOCHAN,server->config.server_name,client->nick,channel->name,"colors are not permitted (+c)");return COMMAND_KEEP_CLIENT;}
+        if(channel_mode_has(channel->modes,CHANNEL_MODE_STRIP_COLOR)){message_strip_color(text,stripped,sizeof(stripped));delivered_text=stripped;}
+        if(!privmsg_wire_fits(server,client,channel->name,delivered_text))return COMMAND_KEEP_CLIENT;
+        store_channel_history(server,client,channel->name,"PRIVMSG",delivered_text);channel_log_message(server,channel,client,delivered_text,0);ircv3_broadcast_message(channel,client,client,"PRIVMSG",channel->name,delivered_text);client->last_activity=time(NULL);
+    }else{
+        Client *destination=hash_get(&server->clients_by_nick,target);
+        if(destination==NULL){client_sendf(client,ERR_NOSUCHNICK,server->config.server_name,client->nick,target);return COMMAND_KEEP_CLIENT;}
+        if(presence_silence_matches(destination,client))return COMMAND_KEEP_CLIENT;
+        if(client_mode_has(destination->modes,CLIENT_MODE_REGONLY_MSG)&&!client_mode_has(client->modes,CLIENT_MODE_REGISTERED)){client_sendf(client,ERR_NONONREG,server->config.server_name,client->nick,destination->nick);return COMMAND_KEEP_CLIENT;}
+        if(client_mode_has(destination->modes,CLIENT_MODE_NO_CTCP)&&text[0]=='\001'){client_sendf(client,ERR_NOCTCP,server->config.server_name,client->nick,destination->nick);return COMMAND_KEEP_CLIENT;}
+        if(!privmsg_wire_fits(server,client,destination->nick,text))return COMMAND_KEEP_CLIENT;
+        ircv3_send_message(destination,client,"PRIVMSG",destination->nick,text);
+        server_pmstats_private_message(server,client->nick,destination->nick);
+        client->last_activity=time(NULL);
+        if(destination->away[0]!='\0')client_sendf(client,RPL_AWAY,server->config.server_name,client->nick,destination->nick,destination->away);
     }
     return COMMAND_KEEP_CLIENT;
 }

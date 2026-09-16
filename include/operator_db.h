@@ -27,6 +27,7 @@ typedef struct OperatorRecord {
     int enabled;
     long long created_at;
     long long updated_at;
+    long long last_opered_at;
 } OperatorRecord;
 
 typedef int (*OperatorDbListCallback)(const OperatorRecord *record, void *context);
@@ -41,6 +42,7 @@ int operator_db_set_password(OperatorDb *db, const char *name, const char *passw
 int operator_db_set_permissions(OperatorDb *db, const char *name, const char *permissions);
 int operator_db_set_vhost(OperatorDb *db, const char *name, const char *vhost);
 int operator_db_set_enabled(OperatorDb *db, const char *name, int enabled);
+int operator_db_set_last_opered(OperatorDb *db, const char *name, long long when);
 int operator_db_list(OperatorDb *db, OperatorDbListCallback callback, void *context);
 
 #endif /* IRCD_OPERATOR_DB_H */

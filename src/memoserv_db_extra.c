@@ -16,6 +16,13 @@ static int account_arg_fits(const char *account) {
            memchr(account, '\n', length) == NULL;
 }
 
+static void purge_fully_deleted_memos(sqlite3 *db) {
+    if (db == NULL) return;
+    (void)sqlite3_exec(db,
+        "DELETE FROM memos WHERE sender_deleted=1 AND recipient_deleted=1",
+        NULL, NULL, NULL);
+}
+
 static int copy_text_column(sqlite3_stmt *stmt, int column,
                             char *destination, size_t destination_size) {
     const unsigned char *text;
@@ -54,9 +61,35 @@ int memoserv_db_count(MemoServDb *db, const char *recipient, size_t *count) {
     if (db == NULL || db->handle == NULL || !account_arg_fits(recipient) || count == NULL) return -1;
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
-        "SELECT COUNT(*) FROM memos WHERE recipient=?1",
+        "SELECT COUNT(*) FROM memos WHERE recipient=?1 AND recipient_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, recipient, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) *count = (size_t)sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+
+int memoserv_db_count_sender_outstanding(MemoServDb *db, const char *sender,
+                                         long long created_at_cutoff,
+                                         size_t *count) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(sender) || count == NULL) return -1;
+    *count = 0U;
+    if (created_at_cutoff > 0) {
+        if (sqlite3_prepare_v2(db->handle,
+            "SELECT COUNT(*) FROM memos "
+            "WHERE sender=?1 AND recipient_deleted=0 AND created_at>=?2",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 2, (sqlite3_int64)created_at_cutoff);
+    } else {
+        if (sqlite3_prepare_v2(db->handle,
+            "SELECT COUNT(*) FROM memos WHERE sender=?1 AND recipient_deleted=0",
+            -1, &stmt, NULL) != SQLITE_OK) return -1;
+        sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+    }
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) *count = (size_t)sqlite3_column_int64(stmt, 0);
     sqlite3_finalize(stmt);
@@ -73,7 +106,7 @@ int memoserv_db_list_sent(MemoServDb *db, const char *sender,
     *count = 0U;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE sender=?1 ORDER BY id DESC LIMIT ?2",
+        "WHERE sender=?1 AND sender_deleted=0 ORDER BY id DESC LIMIT ?2",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)capacity);
@@ -98,7 +131,7 @@ int memoserv_db_get_sent(MemoServDb *db, const char *sender,
         memo == NULL || memo_id <= 0) return -1;
     if (sqlite3_prepare_v2(db->handle,
         "SELECT id,sender,recipient,text,created_at,read_at FROM memos "
-        "WHERE sender=?1 AND id=?2",
+        "WHERE sender=?1 AND id=?2 AND sender_deleted=0",
         -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, memo_id);
@@ -109,6 +142,56 @@ int memoserv_db_get_sent(MemoServDb *db, const char *sender,
     }
     sqlite3_finalize(stmt);
     return rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
+}
+
+int memoserv_db_delete_sent(MemoServDb *db, const char *sender,
+                            long long memo_id) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    int changed;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(sender) || memo_id <= 0) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+        "UPDATE memos SET sender_deleted=1 "
+        "WHERE sender=?1 AND id=?2 AND sender_deleted=0",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)memo_id);
+    rc = sqlite3_step(stmt);
+    changed = sqlite3_changes(db->handle);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return -1;
+    if (changed > 0) purge_fully_deleted_memos(db->handle);
+    return changed > 0 ? 1 : 0;
+}
+
+int memoserv_db_delete_all_sent(MemoServDb *db, const char *sender) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(sender)) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+        "UPDATE memos SET sender_deleted=1 WHERE sender=?1 AND sender_deleted=0",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_text(stmt, 1, sender, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return -1;
+    purge_fully_deleted_memos(db->handle);
+    return 0;
+}
+
+int memoserv_db_delete_account(MemoServDb *db, const char *account,
+                               size_t *deleted) {
+    sqlite3_stmt *stmt = NULL;
+    int rc;
+    if (db == NULL || db->handle == NULL || !account_arg_fits(account)) return -1;
+    if (sqlite3_prepare_v2(db->handle,
+        "DELETE FROM memos WHERE sender=?1 OR recipient=?1",
+        -1, &stmt, NULL) != SQLITE_OK) return -1;
+    sqlite3_bind_text(stmt, 1, account, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    if (deleted != NULL) *deleted = rc == SQLITE_DONE ? (size_t)sqlite3_changes(db->handle) : 0U;
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 int memoserv_db_purge_before(MemoServDb *db, const char *recipient,

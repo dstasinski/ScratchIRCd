@@ -43,6 +43,7 @@ if(NOT MAXMINDDB_INCLUDE_DIR OR NOT MAXMINDDB_LIBRARY)
 endif()
 
 enable_testing()
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/data)
 
 add_executable(scratchircd
     src/main.c src/server.c src/client.c src/cloak.c src/channel.c src/channel_policy.c src/channel_log.c
@@ -116,6 +117,11 @@ target_include_directories(test_runtime_config PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_compile_definitions(test_runtime_config PRIVATE _POSIX_C_SOURCE=200809L)
 add_test(NAME runtime_config COMMAND test_runtime_config ${CMAKE_CURRENT_SOURCE_DIR}/ircd.conf.example)
 
+add_executable(test_reserved_nick_config tests/test_reserved_nick_config.c src/runtime_config.c)
+target_include_directories(test_reserved_nick_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(test_reserved_nick_config PRIVATE _POSIX_C_SOURCE=200809L)
+add_test(NAME reserved_nick_config COMMAND test_reserved_nick_config)
+
 add_executable(test_modes tests/test_modes.c src/modes.c)
 target_include_directories(test_modes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME modes COMMAND test_modes)
@@ -157,6 +163,12 @@ target_include_directories(test_nickserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_definitions(test_nickserv_db PRIVATE _POSIX_C_SOURCE=200809L IRCD_NICKSERV_ACCOUNT_HARD_MAX=2U)
 target_link_libraries(test_nickserv_db PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
 add_test(NAME nickserv_database COMMAND test_nickserv_db)
+
+add_executable(test_current_schema_only tests/test_current_schema_only.c src/nickserv_db.c src/operator_db.c src/memoserv_db.c src/memoserv_db_extra.c src/chanserv_db.c src/ban_db.c src/history_db.c src/geoban_db.c)
+target_include_directories(test_current_schema_only PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${MAXMINDDB_INCLUDE_DIR})
+target_compile_definitions(test_current_schema_only PRIVATE _POSIX_C_SOURCE=200809L)
+target_link_libraries(test_current_schema_only PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
+add_test(NAME current_schema_only COMMAND test_current_schema_only)
 
 add_executable(test_chanserv_db tests/test_chanserv_db.c src/chanserv_db.c)
 target_include_directories(test_chanserv_db PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -266,6 +278,8 @@ add_test(NAME chanserv_restore_fail_closed_integration COMMAND ${Python3_EXECUTA
 set_tests_properties(chanserv_restore_fail_closed_integration PROPERTIES TIMEOUT 60)
 add_test(NAME memoserv_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(memoserv_integration PROPERTIES TIMEOUT 60)
+add_test(NAME memoserv_admin_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_memoserv_admin.py $<TARGET_FILE:scratchircd>)
+set_tests_properties(memoserv_admin_integration PROPERTIES TIMEOUT 60)
 add_test(NAME presence_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_presence.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(presence_integration PROPERTIES TIMEOUT 60)
 add_test(NAME user_modes_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_user_modes.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
@@ -282,6 +296,16 @@ add_test(NAME moderation_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRE
 set_tests_properties(moderation_integration PROPERTIES TIMEOUT 60)
 add_test(NAME geoban_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_geoban.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(geoban_integration PROPERTIES TIMEOUT 60)
+add_test(NAME eline_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_eline.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(eline_integration PROPERTIES TIMEOUT 60)
+add_test(NAME eline_enforcement_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_eline_enforcement.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(eline_enforcement_integration PROPERTIES TIMEOUT 60)
+add_test(NAME eline_connection_limit_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_eline_connection_limit.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(eline_connection_limit_integration PROPERTIES TIMEOUT 60)
+add_test(NAME eline_exact_identity_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_eline_exact_identity.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(eline_exact_identity_integration PROPERTIES TIMEOUT 60)
+add_test(NAME reserved_nicks_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_reserved_nicks.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(reserved_nicks_integration PROPERTIES TIMEOUT 60)
 add_test(NAME channel_authority_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_channel_authority.py $<TARGET_FILE:scratchircd>)
 set_tests_properties(channel_authority_integration PROPERTIES TIMEOUT 60)
 add_test(NAME kick_lifecycle_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_kick_lifecycle.py $<TARGET_FILE:scratchircd>)

@@ -4,6 +4,7 @@
 import os
 import re
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,25 @@ class IRCClient:
             except socket.timeout:
                 pass
         raise AssertionError(f"expected {needle!r}; got {lines!r}")
+
+    def collect_for(self, duration=0.5):
+        deadline = time.monotonic() + duration
+        lines = []
+        while time.monotonic() < deadline:
+            while b"\n" in self.buffer:
+                raw, self.buffer = self.buffer.split(b"\n", 1)
+                lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                data = self.sock.recv(4096)
+                if not data:
+                    break
+                self.buffer += data
+            except socket.timeout:
+                pass
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return lines
 
     def close(self):
         try:
@@ -100,6 +120,7 @@ def main():
         motd = os.path.join(tmp, "motd.txt")
         rules = os.path.join(tmp, "rules.txt")
         admin_hash = subprocess.check_output([mkpasswd, "adminpass"], text=True).strip()
+        oper_hash = subprocess.check_output([mkpasswd, "operpass"], text=True).strip()
         server_name = "s" * 63
 
         open(motd, "w", encoding="utf-8").write("test\n")
@@ -124,6 +145,30 @@ def main():
             f.write(f"netadmin_password_hash = {admin_hash}\n")
             f.write("netadmin_hostmask = *!*@127.0.0.1\n")
 
+        operators_db = os.path.join(data_dir, "operators.db")
+        db = sqlite3.connect(operators_db)
+        try:
+            db.executescript(
+                "CREATE TABLE operators ("
+                "name TEXT COLLATE NOCASE,"
+                "password_hash TEXT NOT NULL,"
+                "permissions TEXT NOT NULL DEFAULT '',"
+                "vhost TEXT NOT NULL,"
+                "enabled INTEGER NOT NULL DEFAULT 1,"
+                "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+                "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+                "last_opered_at INTEGER NOT NULL DEFAULT 0,"
+                "PRIMARY KEY(name));"
+            )
+            db.execute(
+                "INSERT INTO operators(name,password_hash,permissions,vhost,enabled,last_opered_at) "
+                "VALUES(?,?,?,?,1,0)",
+                ("LocalOper", oper_hash, "can_kill", ""),
+            )
+            db.commit()
+        finally:
+            db.close()
+
         proc = subprocess.Popen([binary, config], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, cwd=tmp)
         clients = []
@@ -141,6 +186,29 @@ def main():
             admin.send("OPER root adminpass")
             admin.expect(" 381 alice :You are now a Network Administrator")
 
+            local_oper = IRCClient(port); clients.append(local_oper)
+            register(local_oper, "localoper")
+            local_oper.send("OPER LocalOper operpass")
+            local_oper.expect(" 381 localoper :You are now an IRC operator")
+
+            admin.send("STATS N Bob")
+            nick_stats = admin.expect("last_identified=")
+            assert any("nickserv account=bob" in line.lower() and
+                       "last_identified=20" in line for line in nick_stats), nick_stats
+            admin.send("STATS O LocalOper")
+            oper_stats = admin.expect("last_opered=")
+            assert any("OPER name=LocalOper" in line and
+                       "last_opered=20" in line for line in oper_stats), oper_stats
+            admin.send("OPERLIST LocalOper")
+            oper_list = admin.expect("End of operator list")
+            assert any("OPER LocalOper" in line and
+                       "last_opered=" in line for line in oper_list), oper_list
+
+            receiver.send("STATS N Bob")
+            receiver.expect(" 481 bob ")
+            receiver.send("STATS O LocalOper")
+            receiver.expect(" 481 bob ")
+
             # NSINFO must not silently disappear when every persisted identity
             # field is at its legal maximum and the rendered NOTICE is large.
             long_account = "n" * 15
@@ -157,6 +225,7 @@ def main():
             admin.expect("NickServ account updated.")
             admin.send(f"NSINFO {long_account}")
             info_lines = admin.expect(f"NICKSERV {long_account} enabled=1")
+            info_lines += admin.collect_for(0.5)
             prefix = f":{server_name} NOTICE alice :"
             payloads = [line[len(prefix):] for line in info_lines if line.startswith(prefix)]
             assert payloads, info_lines
@@ -167,6 +236,7 @@ def main():
             joined_payload = "".join(payloads)
             assert expected_info in joined_payload, payloads
             assert " updated=" in joined_payload, payloads
+            assert " last_identified=" in joined_payload, payloads
             assert all(len(line.encode()) <= 510 for line in info_lines), info_lines
 
             # Netadmin creates the registration, then assigns founder ownership
@@ -242,6 +312,8 @@ def main():
             stats_help = receiver.expect(" 219 bob ? :End of /STATS report")
             assert any("STATS u - server uptime" in line for line in stats_help), stats_help
             assert any("STATS g - persistent GeoBAN policies" in line for line in stats_help), stats_help
+            assert any("STATS N <account>" in line for line in stats_help), stats_help
+            assert any("STATS O <oper>" in line for line in stats_help), stats_help
 
             receiver.send("STATS k")
             receiver.expect(" 481 bob ")
@@ -265,7 +337,8 @@ def main():
             admin.send("KLINE blocked@127.0.0.1 :kline test")
             admin.expect("NOTICE alice :KLINE added: blocked@127.0.0.1")
             admin.send("STATS k")
-            stats_k = admin.expect(" 219 alice k :End of /STATS report")
+            stats_k = admin.expect(" 216 alice blocked@127.0.0.1")
+            stats_k += admin.collect_for(0.5)
             assert any(" 216 alice blocked@127.0.0.1 root :kline test" in line
                        for line in stats_k), stats_k
             blocked = IRCClient(port); clients.append(blocked)

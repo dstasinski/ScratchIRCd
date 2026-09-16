@@ -8,16 +8,21 @@
 #include <stdio.h>
 #include <string.h>
 
-static int column_exists(sqlite3 *db, const char *column) {
+static int table_column_exists(sqlite3 *db, const char *table,
+                               const char *column) {
     sqlite3_stmt *stmt = NULL;
+    char sql[96];
+    int rc;
     int found = 0;
+    int written;
 
-    if (db == NULL || column == NULL) return 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(channels)",
-                           -1, &stmt, NULL) != SQLITE_OK)
-        return 0;
+    if (db == NULL || table == NULL || column == NULL) return -1;
+    written = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (written <= 0 || (size_t)written >= sizeof(sql)) return -1;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const unsigned char *name = sqlite3_column_text(stmt, 1);
         int bytes = sqlite3_column_bytes(stmt, 1);
         if (name != NULL && bytes >= 0 &&
@@ -28,28 +33,46 @@ static int column_exists(sqlite3 *db, const char *column) {
         }
     }
     sqlite3_finalize(stmt);
-    return found;
+    if (found) return 1;
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int validate_table_columns(sqlite3 *db, const char *table,
+                                  const char *const *columns, size_t count) {
+    size_t i;
+    int missing = 0;
+
+    for (i = 0U; i < count; ++i) {
+        int exists = table_column_exists(db, table, columns[i]);
+        if (exists != 1) {
+            fprintf(stderr,
+                    "ChanServ DB logging: incompatible %s schema missing %s column\n",
+                    table, columns[i]);
+            missing = 1;
+        }
+    }
+    return missing ? -1 : 0;
 }
 
 int chanserv_db_logging_ensure_schema(ChanServDb *db) {
+    static const char *const channel_columns[] = {
+        "logging_enabled"
+    };
+    static const char *const queue_columns[] = {
+        "id",
+        "channel",
+        "event_time",
+        "body"
+    };
     char *error = NULL;
     int rc;
 
     if (db == NULL || db->db == NULL) return -1;
     if (db->logging_schema_ready) return 0;
-    if (!column_exists(db->db, "logging_enabled")) {
-        rc = sqlite3_exec(db->db,
-            "ALTER TABLE channels ADD COLUMN logging_enabled INTEGER NOT NULL DEFAULT 0",
-            NULL, NULL, &error);
-        if (rc != SQLITE_OK) {
-            if (error != NULL)
-                fprintf(stderr, "ChanServ DB logging migration: %s\n", error);
-            sqlite3_free(error);
-            return -1;
-        }
-    }
+    if (validate_table_columns(db->db, "channels", channel_columns,
+                               sizeof(channel_columns) / sizeof(channel_columns[0])) != 0)
+        return -1;
 
-    error = NULL;
     rc = sqlite3_exec(db->db,
         "CREATE TABLE IF NOT EXISTS channel_log_queue ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -68,6 +91,9 @@ int chanserv_db_logging_ensure_schema(ChanServDb *db) {
         sqlite3_free(error);
         return -1;
     }
+    if (validate_table_columns(db->db, "channel_log_queue", queue_columns,
+                               sizeof(queue_columns) / sizeof(queue_columns[0])) != 0)
+        return -1;
     db->logging_schema_ready = 1;
     return 0;
 }

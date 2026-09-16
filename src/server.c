@@ -2,6 +2,7 @@
 #include "ban_db.h"
 #include "channel_log.h"
 #include "commands.h"
+#include "eline_policy.h"
 #include "irc.h"
 #include "message_policy.h"
 #include "modes.h"
@@ -135,6 +136,10 @@ int server_connection_limit_ip_exempt(const Server *server, const char *ip) {
         if (numeric_ip_equal(ip, server->config.connection_limit_exempt_ips[index])) return 1;
     for (index = 0U; index < server->config.webirc_gateway_count; ++index)
         if (numeric_ip_equal(ip, server->config.webirc_gateways[index].ip)) return 1;
+    if (eline_policy_match_server(&server->config,
+                                  BAN_EXCEPTION_CONNECTION_LIMIT,
+                                  ip, NULL))
+        return 1;
     return 0;
 }
 
@@ -602,6 +607,18 @@ static void handle_dnsbl_result(Server *server, const DnsblResult *result) {
                        (int)SERVER_DNSBL_REASON_ZONE_MAX, zone);
         (void)snprintf(set_by, sizeof(set_by), "DNSBL:%.*s",
                        (int)SERVER_DNSBL_SET_BY_NAME_MAX, name);
+        if (eline_policy_match_server(&server->config,
+                                      BAN_EXCEPTION_DNSBL,
+                                      client->real_ip, NULL)) {
+            client->dnsbl_state = CLIENT_DNSBL_CLEAR;
+            snotice_broadcast(server, SNOTICE_DNS | SNOTICE_BANS,
+                              "DNSBL listed %s in %s (%s); exempted by ELINE",
+                              client->real_ip,
+                              result->zone[0] != '\0' ? result->zone : "unknown",
+                              result->name[0] != '\0' ? result->name : "listed");
+            command_maybe_register(server, client);
+            return;
+        }
         if (ban_db_open(&db, server->config.bans_db) == 0) {
             (void)ban_db_add_timed(&db, BAN_TYPE_ZLINE, client->real_ip, reason, set_by,
                                    server->config.zline_default_duration_seconds);
@@ -739,6 +756,8 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     size_t index;
     int fd;
     if (server == NULL || client == NULL) return;
+    if (client->registered)
+        server_pmstats_disconnect(server, client);
     snotice_broadcast(server, SNOTICE_CONNECTIONS, "Client disconnect: nick=%s user=%s display_host=%s real_ip=%s real_host=%s registered=%s reason=%s", client->nick[0] != '\0' ? client->nick : "*", client->user[0] != '\0' ? client->user : "*", client->display_host[0] != '\0' ? client->display_host : client->real_ip, client->real_ip, client->real_host[0] != '\0' ? client->real_host : "-", client->registered ? "yes" : "no", quit_reason);
     if (client->registered) {
         (void)snprintf(quit_message, sizeof(quit_message), ":%s!%s@%s QUIT :%s", client->nick, client->user, client->display_host, quit_reason);
@@ -760,6 +779,7 @@ void server_disconnect(Server *server, Client *client, const char *reason) {
     connection_count_remove(server, client->real_ip);
     fd = client->fd;
     for (index = 0U; index < server->client_count; ++index) if (server->clients[index] == client) { server->clients[index] = server->clients[server->client_count - 1U]; --server->client_count; break; }
+    client->registered = 0;
     client_free(client); close(fd);
 }
 

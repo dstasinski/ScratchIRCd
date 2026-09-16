@@ -81,6 +81,52 @@ static void send_whois_channels(Server *server,Client *client,Client *target){
                      client->nick,target->nick,channels);
 }
 
+static void send_whois_geoip(Server *server,Client *client,const Client *target){
+    char text[IRCD_GEOIP_ORG_MAX+64U];
+    const ClientGeoIP *geoip;
+    if(server==NULL||client==NULL||target==NULL||!target->geoip_complete)return;
+    geoip=&target->geoip;
+
+    if(geoip->country_name[0]!='\0'&&geoip->country_code[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Country: %s (%s)",geoip->country_name,geoip->country_code);
+    else if(geoip->country_name[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Country: %s",geoip->country_name);
+    else if(geoip->country_code[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Country: %s",geoip->country_code);
+    else text[0]='\0';
+    if(text[0]!='\0')client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+
+    if(geoip->region_name[0]!='\0'&&geoip->region_code[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Region: %s (%s)",geoip->region_name,geoip->region_code);
+    else if(geoip->region_name[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Region: %s",geoip->region_name);
+    else if(geoip->region_code[0]!='\0')
+        (void)snprintf(text,sizeof(text),"GeoIP Region: %s",geoip->region_code);
+    else text[0]='\0';
+    if(text[0]!='\0')client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+
+    if(geoip->city[0]!='\0'){
+        (void)snprintf(text,sizeof(text),"GeoIP City: %s",geoip->city);
+        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+    }
+    if(geoip->continent_code[0]!='\0'){
+        (void)snprintf(text,sizeof(text),"GeoIP Continent: %s",geoip->continent_code);
+        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+    }
+    if(geoip->network[0]!='\0'){
+        (void)snprintf(text,sizeof(text),"GeoIP Network: %s",geoip->network);
+        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+    }
+    if(geoip->asn!=0U){
+        (void)snprintf(text,sizeof(text),"GeoIP ASN: AS%u",(unsigned)geoip->asn);
+        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+    }
+    if(geoip->organization[0]!='\0'){
+        (void)snprintf(text,sizeof(text),"GeoIP Organization: %s",geoip->organization);
+        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+    }
+}
+
 static void send_missing_whois(Server *server,Client *client,const char *query){
     int missing_base;
     int end_base;
@@ -156,10 +202,11 @@ CommandResult command_whois(Server *server,Client *client,char *params){
         client_sendf(client,RPL_WHOISIDLE,server->config.server_name,client->nick,
                      target->nick,idle,(long)target->signon_time);
     }
-    if(visibility_is_oper(client)){
+    if(client==target||visibility_is_oper(client)){
         const char *real_host=target->real_host[0]!='\0'?target->real_host:target->real_ip;
         client_sendf(client,RPL_WHOISHOST,server->config.server_name,client->nick,
                      target->nick,real_host,target->real_ip);
+        send_whois_geoip(server,client,target);
         if(target->version_received)
             client_sendf(client,RPL_WHOISVERSION,server->config.server_name,
                          client->nick,target->nick,target->client_version);

@@ -11,7 +11,7 @@ int main(void) {
 
     assert(oper_permissions_parse(
                "oper,can_rehash,can_kill,can_kline,can_unkline,can_zline,can_geoban,"
-               "can_override,get_host,helpop,can_wallops,netadmin",
+               "can_stats,can_override,get_host,helpop,can_wallops,netadmin",
                &permissions) == 0);
     assert(oper_permission_has(permissions, OPER_PERMISSION_REHASH));
     assert(oper_permission_has(permissions, OPER_PERMISSION_KILL));
@@ -19,6 +19,7 @@ int main(void) {
     assert(oper_permission_has(permissions, OPER_PERMISSION_UNKLINE));
     assert(oper_permission_has(permissions, OPER_PERMISSION_ZLINE));
     assert(oper_permission_has(permissions, OPER_PERMISSION_GEOBAN));
+    assert(oper_permission_has(permissions, OPER_PERMISSION_STATS));
     assert(oper_permission_has(permissions, OPER_PERMISSION_OVERRIDE));
     assert(oper_permission_has(permissions, OPER_PERMISSION_GETHOST));
     assert(oper_permission_has(permissions, OPER_PERMISSION_HELPOP));
@@ -29,6 +30,7 @@ int main(void) {
     (void)oper_permissions_format(permissions, formatted, sizeof(formatted));
     assert(strstr(formatted, "can_kill") != NULL);
     assert(strstr(formatted, "can_geoban") != NULL);
+    assert(strstr(formatted, "can_stats") != NULL);
     assert(strstr(formatted, "netadmin") != NULL);
 
     assert(oper_permissions_parse("can_kill,not_a_flag", &permissions) == -1);
@@ -43,6 +45,7 @@ int main(void) {
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_UNKLINE));
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_ZLINE));
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_GEOBAN));
+    assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_STATS));
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_OVERRIDE));
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_GETHOST));
     assert(oper_permission_has(OPER_PERMISSION_ALL, OPER_PERMISSION_HELPOP));

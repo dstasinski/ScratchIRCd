@@ -58,7 +58,33 @@ static GeoBanDb *registration_geoban_handle(Server *server){
     return &registration_geoban_db;
 }
 
-static int registration_geo_banned(Server *server,Client *client){GeoBanDb *db;GeoBanRecord record;int matched;db=registration_geoban_handle(server);if(db==NULL)return 0;matched=geoban_db_match(db,&client->geoip,&record);if(matched==1){snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);(void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");(void)shutdown(client->fd,SHUT_RDWR);}return matched==1;}
+static int registration_exception_matches(BanDb *db,BanExceptionType type,const char *identity1,const char *identity2){
+    BanExceptionRecord exception;
+    return ban_exception_db_match(db,type,identity1,identity2,&exception)==1;
+}
+
+static int registration_geo_banned(Server *server,Client *client){
+    GeoBanDb *db;
+    GeoBanRecord record;
+    int matched;
+    db=registration_geoban_handle(server);
+    if(db==NULL)return 0;
+    matched=geoban_db_match(db,&client->geoip,&record);
+    if(matched==1){
+        BanDb *ban_db=registration_ban_handle(server);
+        char ip_identity[IRCD_MESSAGE_BUFFER_SIZE];
+        (void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);
+        if(ban_db!=NULL&&registration_exception_matches(ban_db,BAN_EXCEPTION_GEOBAN,client->real_ip,ip_identity)){
+            snotice_broadcast(server,SNOTICE_GEOBANS,"Registration GEOBAN match exempted by ELINE: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);
+            return 0;
+        }
+        snotice_broadcast(server,SNOTICE_GEOBANS,"Registration rejected by GEOBAN: %s!%s@%s [real_ip=%s] matched %s {%s}",command_reply_nick(client),client->user,client->display_host,client->real_ip,geoban_type_name(record.type),record.value);
+        client_sendf(client,ERR_YOUREBANNEDCREEP,server->config.server_name,command_reply_nick(client),server->config.admin_email);
+        (void)snprintf(client->quit_reason,sizeof(client->quit_reason),"%s",record.reason[0]!='\0'?record.reason:"GeoIP policy ban");
+        (void)shutdown(client->fd,SHUT_RDWR);
+    }
+    return matched==1;
+}
 
 static int registration_ban_policy_error(Server *server,Client *client){
     snotice_broadcast(server,SNOTICE_SECURITY|SNOTICE_BANS,"Registration rejected because KLINE/ZLINE policy could not be read safely for %s!%s@%s [real_ip=%s]",command_reply_nick(client),client->user,client->display_host,client->real_ip);
@@ -78,18 +104,26 @@ static int registration_banned(Server *server,Client *client){
     BanType matched_type=BAN_TYPE_ZLINE;
     db=registration_ban_handle(server);
     if(db==NULL)return registration_ban_policy_error(server,client);
+    (void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);
+    if(client->real_host[0]!='\0'){
+        (void)snprintf(host_identity,sizeof(host_identity),"%s@%s",client->user,client->real_host);
+        real_host_identity=host_identity;
+    }
     rc=ban_db_match(db,BAN_TYPE_ZLINE,client->real_ip,NULL,&record);
     if(rc<0)return registration_ban_policy_error(server,client);
-    if(rc==1){matched=1;matched_type=BAN_TYPE_ZLINE;}
-    else{
-        if(client->real_host[0]!='\0'){
-            (void)snprintf(host_identity,sizeof(host_identity),"%s@%s",client->user,client->real_host);
-            real_host_identity=host_identity;
-        }
-        (void)snprintf(ip_identity,sizeof(ip_identity),"%s@%s",client->user,client->real_ip);
+    if(rc==1){
+        if(registration_exception_matches(db,BAN_EXCEPTION_ZLINE,client->real_ip,ip_identity)){
+            snotice_broadcast(server,SNOTICE_BANS,"Registration ZLINE match exempted by ELINE: %s!%s@%s [real_ip=%s] matched %s",command_reply_nick(client),client->user,client->display_host,client->real_ip,record.mask);
+        }else{matched=1;matched_type=BAN_TYPE_ZLINE;}
+    }
+    if(!matched){
         rc=ban_db_match(db,BAN_TYPE_KLINE,real_host_identity!=NULL?real_host_identity:ip_identity,ip_identity,&record);
         if(rc<0)return registration_ban_policy_error(server,client);
-        if(rc==1){matched=1;matched_type=BAN_TYPE_KLINE;}
+        if(rc==1){
+            if(registration_exception_matches(db,BAN_EXCEPTION_KLINE,real_host_identity!=NULL?real_host_identity:ip_identity,ip_identity)){
+                snotice_broadcast(server,SNOTICE_BANS,"Registration KLINE match exempted by ELINE: %s!%s@%s [real_ip=%s] matched %s",command_reply_nick(client),client->user,client->display_host,client->real_ip,record.mask);
+            }else{matched=1;matched_type=BAN_TYPE_KLINE;}
+        }
     }
     if(matched){
         snotice_broadcast(server,SNOTICE_BANS,"Registration rejected by %s: %s!%s@%s [real_ip=%s] matched %s",matched_type==BAN_TYPE_ZLINE?"ZLINE":"KLINE",command_reply_nick(client),client->user,client->display_host,client->real_ip,record.mask);

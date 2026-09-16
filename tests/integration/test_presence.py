@@ -172,6 +172,26 @@ def main():
             register(subject, "Subject")
             watcher.expect(" 600 Watcher Subject ")
 
+            # WATCH s reports the current watch list and how many users are
+            # watching the requesting client. WATCH l reports only watched
+            # nicknames currently online. WATCH -nick removes one entry.
+            subject.send("WATCH +Watcher")
+            subject.expect(" 604 Subject Watcher ")
+            watcher.send("WATCH s")
+            watcher.expect(" 606 Watcher :")
+            watcher.expect(" 607 Watcher :End of WATCH L")
+            watcher.expect(" 603 Watcher :You have 3 and are on 1 WATCH entries")
+            watcher.send("WATCH l")
+            online_watch = watcher.collect_until(" 607 Watcher :End of WATCH L")
+            online_payload = "\n".join(online_watch)
+            assert " 604 Watcher Subject " in online_payload, online_watch
+            assert " 604 Watcher Temp " not in online_payload, online_watch
+            assert " 604 Watcher Renamed " not in online_payload, online_watch
+            watcher.send("WATCH -Temp")
+            watcher.expect(" 602 Watcher Temp ")
+            watcher.send("WATCH +Temp")
+            watcher.expect(" 605 Watcher Temp ")
+
             pending = IRCClient(port)
             pending.send("NICK Pending")
             watcher.send("WATCH +Pending")
@@ -283,8 +303,11 @@ def main():
             watcher.send("WHOWAS Temp")
             watcher.expect(" 314 Watcher Temp temp ")
 
+            watcher.send("WATCH c")
+            watcher.expect(" 607 Watcher :End of WATCH C")
             watcher.send("WATCH")
-            watcher.expect(" 606 Watcher :")
+            empty_watch = watcher.expect(" 606 Watcher :")
+            assert empty_watch.endswith(" 606 Watcher :"), empty_watch
             watcher.expect(" 607 Watcher :End of WATCH L")
         finally:
             if watcher is not None:

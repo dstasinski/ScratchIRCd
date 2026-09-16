@@ -8,6 +8,7 @@
 #include "chanserv_db.h"
 #include "ircv3.h"
 #include "message_policy.h"
+#include "memoserv_db.h"
 #include "modes.h"
 #include "nickserv_db.h"
 #include "numerics.h"
@@ -21,6 +22,7 @@
 #include <strings.h>
 #include <sys/random.h>
 #include <sys/types.h>
+#include <time.h>
 
 typedef struct ChanServFounderWorkItem {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
@@ -67,6 +69,22 @@ static void notice(Server *server, Client *client, const char *text) {
                      server->config.server_name, client->nick,
                      (int)chunk, text + offset);
         offset += chunk;
+    }
+}
+
+static void format_admin_time(long long when, char *buffer, size_t buffer_size) {
+    time_t timestamp;
+    struct tm utc;
+
+    if (buffer == NULL || buffer_size == 0U) return;
+    if (when <= 0) {
+        (void)snprintf(buffer, buffer_size, "never");
+        return;
+    }
+    timestamp = (time_t)when;
+    if ((long long)timestamp != when || gmtime_r(&timestamp, &utc) == NULL ||
+        strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc) == 0U) {
+        (void)snprintf(buffer, buffer_size, "unknown");
     }
 }
 
@@ -413,11 +431,31 @@ static void remove_chanserv_account_references(Server *server,
     free(items);
 }
 
+static void remove_memoserv_account_references(Server *server,
+                                               const char *account_name) {
+    MemoServDb db = {0};
+    size_t deleted = 0U;
+    if (server == NULL || !valid_account_name(account_name)) return;
+    if (memoserv_db_open(&db, server->config.memoserv_db) != 0) return;
+    if (memoserv_db_delete_account(&db, account_name, &deleted) == 0 && deleted != 0U) {
+        snotice_broadcast(server, SNOTICE_SERVICES,
+                          "MemoServ rows purged: account=%s deleted=%zu",
+                          account_name, deleted);
+    }
+    memoserv_db_close(&db);
+}
+
 CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     NickServDb db = {0};
     NickServAccount account;
-    char line[IRCD_OUTPUT_BUFFER_SIZE];
+    const char *vhost;
+    const char *email;
+    char created[32];
+    char updated[32];
+    char identified[32];
+    char *line;
     char *name;
+    int length;
 
     if (command_require_registered(client) || require_netadmin(server, client))
         return COMMAND_KEEP_CLIENT;
@@ -436,14 +474,31 @@ CommandResult command_nsinfo(Server *server, Client *client, char *params) {
     }
     nickserv_db_close(&db);
 
-    (void)snprintf(line, sizeof(line),
-                   "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%lld updated=%lld",
-                   account.name, account.enabled,
-                   account.vhost[0] != '\0' ? account.vhost : "-",
-                   account.email[0] != '\0' ? account.email : "-",
-                   account.email_verified,
-                   account.created_at, account.updated_at);
+    vhost = account.vhost[0] != '\0' ? account.vhost : "-";
+    email = account.email[0] != '\0' ? account.email : "-";
+    format_admin_time(account.created_at, created, sizeof(created));
+    format_admin_time(account.updated_at, updated, sizeof(updated));
+    format_admin_time(account.last_identified_at, identified, sizeof(identified));
+
+    length = snprintf(NULL, 0,
+                      "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%s updated=%s last_identified=%s",
+                      account.name, account.enabled, vhost, email,
+                      account.email_verified, created, updated, identified);
+    if (length < 0) {
+        notice(server, client, "NSINFO failed.");
+        return COMMAND_KEEP_CLIENT;
+    }
+    line = malloc((size_t)length + 1U);
+    if (line == NULL) {
+        notice(server, client, "NSINFO failed.");
+        return COMMAND_KEEP_CLIENT;
+    }
+    (void)snprintf(line, (size_t)length + 1U,
+                   "NICKSERV %s enabled=%d vhost=%s email=%s email_verified=%d created=%s updated=%s last_identified=%s",
+                   account.name, account.enabled, vhost, email,
+                   account.email_verified, created, updated, identified);
     notice(server, client, line);
+    free(line);
     return COMMAND_KEEP_CLIENT;
 }
 
@@ -540,6 +595,7 @@ CommandResult command_nsdrop(Server *server, Client *client, char *params) {
     clear_live_account(server, canonical_name);
     handle_chanserv_founder_account_removed(server, canonical_name);
     remove_chanserv_account_references(server, canonical_name);
+    remove_memoserv_account_references(server, canonical_name);
     notice(server, client, "NickServ account deleted.");
     snotice_broadcast(server, SNOTICE_SERVICES,
                       "NSDROP by %s: account=%s", client->nick, canonical_name);

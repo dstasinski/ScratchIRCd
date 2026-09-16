@@ -22,7 +22,8 @@ static int require_netadmin(Server *server, Client *client) {
 }
 
 static void notice(Server *server, Client *client, const char *text) {
-    client_sendf(client, ":%s NOTICE %s :%s", server->config.server_name, client->nick, text);
+    client_sendf(client, ":MemoServ!service@%s NOTICE %s :%s",
+                 server->config.server_name, client->nick, text);
 }
 
 CommandResult command_msinfo(Server *server, Client *client, char *params) {
