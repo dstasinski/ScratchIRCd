@@ -127,8 +127,6 @@
 #define IRCD_MAIL_BODY_MAX 1023U
 #define IRCD_NICKSERV_CODE_DIGITS 7U
 #define IRCD_NICKSERV_CODE_TEXT_LEN 8U
-#define IRCD_RESET_TOKEN_BYTES 16U
-#define IRCD_RESET_TOKEN_HEX_LEN (IRCD_RESET_TOKEN_BYTES * 2U)
 #define IRCD_TOKEN_HASH_HEX_LEN 64U
 /* IRCv3 AUTHENTICATE frames are limited to 400 bytes. Two frames cover the
  * longest credential that can be created through an ordinary IRC command

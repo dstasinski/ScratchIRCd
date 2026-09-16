@@ -114,15 +114,77 @@ static int hash_password(const char *password, char *encoded, size_t encoded_siz
                                  encoded, encoded_size) == ARGON2_OK ? 0 : -1;
 }
 
-/** Generate a 128-bit random token represented as lowercase hexadecimal. */
+/** Generate a cryptographically random seven-digit NickServ code. */
 static int generate_token(char *token, size_t token_size) {
-    unsigned char bytes[IRCD_RESET_TOKEN_BYTES];
+    uint32_t value;
+    const uint64_t random_range = UINT64_C(1) << 32;
+    const uint64_t limit =
+        random_range - (random_range % UINT64_C(10000000));
+
+    if (token == NULL ||
+        token_size < IRCD_NICKSERV_CODE_DIGITS + 1U)
+        return -1;
+
+    do {
+        if (RAND_bytes((unsigned char *)&value,
+                       (int)sizeof(value)) != 1)
+            return -1;
+    } while ((uint64_t)value >= limit);
+
+    value %= UINT32_C(10000000);
+    (void)snprintf(token, token_size, "%07u",
+                   (unsigned int)value);
+    return 0;
+}
+
+/** Accept either 1234567 or the displayed form 123-4567. */
+static int normalize_token(const char *input,
+                           char *output, size_t output_size) {
+    size_t input_length;
     size_t i;
-    if (token == NULL || token_size < IRCD_RESET_TOKEN_HEX_LEN + 1U) return -1;
-    if (RAND_bytes(bytes, (int)sizeof(bytes)) != 1) return -1;
-    for (i = 0U; i < sizeof(bytes); ++i)
-        (void)snprintf(token + i * 2U, token_size - i * 2U, "%02x", bytes[i]);
-    token[IRCD_RESET_TOKEN_HEX_LEN] = '\0';
+    size_t j = 0U;
+
+    if (input == NULL || output == NULL ||
+        output_size < IRCD_NICKSERV_CODE_DIGITS + 1U)
+        return -1;
+
+    input_length = strlen(input);
+    if (input_length != IRCD_NICKSERV_CODE_DIGITS &&
+        input_length != IRCD_NICKSERV_CODE_TEXT_LEN)
+        return -1;
+
+    for (i = 0U; i < input_length; ++i) {
+        if (input_length == IRCD_NICKSERV_CODE_TEXT_LEN &&
+            i == 3U) {
+            if (input[i] != '-')
+                return -1;
+            continue;
+        }
+
+        if (!isdigit((unsigned char)input[i]) ||
+            j >= IRCD_NICKSERV_CODE_DIGITS)
+            return -1;
+
+        output[j++] = input[i];
+    }
+
+    if (j != IRCD_NICKSERV_CODE_DIGITS)
+        return -1;
+
+    output[j] = '\0';
+    return 0;
+}
+
+/** Format a seven-digit code for human-readable email display. */
+static int format_token(const char *token,
+                        char *output, size_t output_size) {
+    if (token == NULL || output == NULL ||
+        strlen(token) != IRCD_NICKSERV_CODE_DIGITS ||
+        output_size < IRCD_NICKSERV_CODE_TEXT_LEN + 1U)
+        return -1;
+
+    (void)snprintf(output, output_size,
+                   "%.3s-%.4s", token, token + 3);
     return 0;
 }
 
@@ -160,9 +222,12 @@ static int mail_available(const Server *server) {
 static int send_token_mail(Server *server, const char *to, const char *account,
                            const char *token, int verification) {
     MailRequest request;
+    char formatted_token[IRCD_NICKSERV_CODE_TEXT_LEN + 1U];
     unsigned int lifetime = verification ? server->config.nickserv_verify_seconds
                                          : server->config.nickserv_reset_seconds;
     if (!mail_available(server)) return -1;
+    if (format_token(token, formatted_token, sizeof(formatted_token)) != 0)
+        return -1;
     memset(&request, 0, sizeof(request));
     (void)snprintf(request.to, sizeof(request.to), "%s", to);
     (void)snprintf(request.from, sizeof(request.from), "%s", server->config.mail_from);
@@ -172,17 +237,21 @@ static int send_token_mail(Server *server, const char *to, const char *account,
     if (verification) {
         (void)snprintf(request.body, sizeof(request.body),
                        "A request was made to verify this email address for NickServ account %s on %s.\n\n"
-                       "Verification token: %s\n\n"
-                       "On IRC, use: /NICKSERV VERIFY %s\n\n"
-                       "This token expires in %u seconds. If you did not request this, ignore this message.",
-                       account, server->config.network_name, token, token, lifetime);
+                       "Verification code: %s\n\n"
+                       "On IRC, use: /NICKSERV VERIFY %s\n"
+                       "The dash is optional when entering the code.\n\n"
+                       "This code expires in %u seconds. If you did not request this, ignore this message.",
+                       account, server->config.network_name,
+                       formatted_token, formatted_token, lifetime);
     } else {
         (void)snprintf(request.body, sizeof(request.body),
                        "A password reset was requested for NickServ account %s on %s.\n\n"
-                       "Reset token: %s\n\n"
-                       "On IRC, use: /NICKSERV RESET %s %s <new-password>\n\n"
-                       "This token expires in %u seconds and can be used only once. If you did not request this, ignore this message.",
-                       account, server->config.network_name, token, account, token, lifetime);
+                       "Reset code: %s\n\n"
+                       "On IRC, use: /NICKSERV RESET %s %s <new-password>\n"
+                       "The dash is optional when entering the code.\n\n"
+                       "This code expires in %u seconds and can be used only once. If you did not request this, ignore this message.",
+                       account, server->config.network_name,
+                       formatted_token, account, formatted_token, lifetime);
     }
     return mail_send_async(server->config.sendmail_path, &request);
 }
@@ -377,7 +446,7 @@ static void command_set_password(Server *server, Client *client, char *password)
 
 static void command_set_email(Server *server, Client *client, char *address) {
     NickServDb db = {0};
-    char token[IRCD_RESET_TOKEN_HEX_LEN + 1U];
+    char token[IRCD_NICKSERV_CODE_DIGITS + 1U];
     char token_hash[IRCD_TOKEN_HASH_HEX_LEN + 1U];
     long long expires_at;
 
@@ -417,6 +486,7 @@ static void command_set_email(Server *server, Client *client, char *address) {
 
 static void command_verify(Server *server, Client *client, char *token) {
     NickServDb db = {0};
+    char normalized_token[IRCD_NICKSERV_CODE_DIGITS + 1U];
     char token_hash[IRCD_TOKEN_HASH_HEX_LEN + 1U];
     int rc;
 
@@ -428,7 +498,13 @@ static void command_verify(Server *server, Client *client, char *token) {
         nickserv_notice(server, client, "Syntax: VERIFY <token>");
         return;
     }
-    hash_token(token, token_hash, sizeof(token_hash));
+    if (normalize_token(token, normalized_token,
+                        sizeof(normalized_token)) != 0) {
+        nickserv_notice(server, client,
+                        "Verification code is invalid or expired.");
+        return;
+    }
+    hash_token(normalized_token, token_hash, sizeof(token_hash));
     if (nickserv_db_open(&db, server->config.nickserv_db) != 0) {
         nickserv_notice(server, client, "Account database is unavailable.");
         return;
@@ -437,7 +513,7 @@ static void command_verify(Server *server, Client *client, char *token) {
     nickserv_db_close(&db);
     nickserv_notice(server, client, rc == 1
         ? "Email address verified."
-        : "Verification token is invalid or expired.");
+        : "Verification code is invalid or expired.");
 }
 
 /** Change a connected squatter's nickname while preserving its session. */
@@ -533,7 +609,7 @@ static void command_reset(Server *server, Client *client, char *params) {
     if (token == NULL) {
         NickServDb db = {0};
         NickServAccount account;
-        char plain_token[IRCD_RESET_TOKEN_HEX_LEN + 1U];
+        char plain_token[IRCD_NICKSERV_CODE_DIGITS + 1U];
         char token_hash[IRCD_TOKEN_HASH_HEX_LEN + 1U];
         long long expires_at;
         int found;
@@ -563,10 +639,18 @@ static void command_reset(Server *server, Client *client, char *params) {
     while (*new_password == ' ') ++new_password;
     {
         NickServDb db = {0};
+        char normalized_token[IRCD_NICKSERV_CODE_DIGITS + 1U];
         char token_hash[IRCD_TOKEN_HASH_HEX_LEN + 1U];
         char password_hash[IRCD_OPER_HASH_MAX + 1U];
         int rc = -1;
-        hash_token(token, token_hash, sizeof(token_hash));
+
+        if (normalize_token(token, normalized_token,
+                            sizeof(normalized_token)) != 0) {
+            nickserv_notice(server, client,
+                            "Reset code is invalid or expired.");
+            return;
+        }
+        hash_token(normalized_token, token_hash, sizeof(token_hash));
         if (!auth_limit_consume(server, client, "NickServ RESET password")) {
             nickserv_notice(server, client, "Password hashing rate limit reached; try again later.");
             return;
@@ -579,7 +663,7 @@ static void command_reset(Server *server, Client *client, char *params) {
         }
         nickserv_notice(server, client, rc == 1
             ? "Password reset complete. You may now IDENTIFY with the new password."
-            : "Reset token is invalid or expired.");
+            : "Reset code is invalid or expired.");
     }
 }
 
