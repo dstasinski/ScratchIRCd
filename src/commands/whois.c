@@ -156,7 +156,7 @@ CommandResult command_whois(Server *server,Client *client,char *params){
         client_sendf(client,RPL_WHOISIDLE,server->config.server_name,client->nick,
                      target->nick,idle,(long)target->signon_time);
     }
-    if(visibility_is_oper(client)){
+    if(client==target||visibility_is_oper(client)){
         const char *real_host=target->real_host[0]!='\0'?target->real_host:target->real_ip;
         client_sendf(client,RPL_WHOISHOST,server->config.server_name,client->nick,
                      target->nick,real_host,target->real_ip);
