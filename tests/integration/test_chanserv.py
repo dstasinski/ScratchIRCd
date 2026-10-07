@@ -235,7 +235,35 @@ def main():
             bob.expect("Password accepted - you are now identified.")
             bob.send("JOIN #persist")
             bob_lines = bob.expect(" 366 Helper #persist ")
-            assert any("@Helper" in line for line in bob_lines if " 353 Helper " in line), bob_lines
+
+            # An authenticated access-list member joining an occupied
+            # registered channel must first appear via JOIN and then receive
+            # the service-derived privilege through a visible ChanServ MODE.
+            bob_join_index = next(
+                i for i, line in enumerate(bob_lines)
+                if " JOIN #persist" in line and line.startswith(":Helper!")
+            )
+            bob_mode_index = next(
+                i for i, line in enumerate(bob_lines)
+                if ":ChanServ!service@test.local MODE #persist +o Helper" in line
+            )
+            assert bob_join_index < bob_mode_index, bob_lines
+            assert any("@Helper" in line for line in bob_lines
+                       if " 353 Helper " in line), bob_lines
+
+            traveler_join_lines = traveler.expect(
+                ":ChanServ!service@test.local MODE #persist +o Helper"
+            )
+            traveler_join_index = next(
+                i for i, line in enumerate(traveler_join_lines)
+                if " JOIN #persist" in line and line.startswith(":Helper!")
+            )
+            traveler_mode_index = next(
+                i for i, line in enumerate(traveler_join_lines)
+                if ":ChanServ!service@test.local MODE #persist +o Helper" in line
+            )
+            assert traveler_join_index < traveler_mode_index, traveler_join_lines
+
             traveler.send("MODE #persist +v Helper")
             traveler.expect(" MODE #persist +v Helper")
             bob.send("NICKSERV LOGOUT")
@@ -255,7 +283,18 @@ def main():
             guardian.expect("Password accepted - you are now identified.")
             guardian.send("JOIN #persist")
             guardian_lines = guardian.expect(" 366 Guardian #persist ")
-            assert any("&Guardian" in line for line in guardian_lines if " 353 Guardian " in line), guardian_lines
+            guardian_join_index = next(
+                i for i, line in enumerate(guardian_lines)
+                if " JOIN #persist" in line and line.startswith(":Guardian!")
+            )
+            guardian_mode_index = next(
+                i for i, line in enumerate(guardian_lines)
+                if ":ChanServ!service@test.local MODE #persist +ao Guardian Guardian"
+                in line
+            )
+            assert guardian_join_index < guardian_mode_index, guardian_lines
+            assert any("&Guardian" in line for line in guardian_lines
+                       if " 353 Guardian " in line), guardian_lines
 
             bob.send("MODE #persist -a Guardian")
             bob.expect(" 482 Helper #persist ")

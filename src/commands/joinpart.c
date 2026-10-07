@@ -170,15 +170,28 @@ static void join_one(Server *server, Client *client, const char *name,
     if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
         (void)channel_add_privileges(channel, client,
                                      CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
-    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
+
+    /*
+     * A first member has nobody else to observe a service MODE, so establish
+     * registered-channel privileges before NAMES without cosmetic MODE traffic.
+     *
+     * On an occupied channel, broadcast JOIN first. ChanServ then visibly
+     * grants the joining member's service-derived privileges so existing
+     * clients never receive a MODE for a nickname they have not seen join.
+     */
+    if (first_member &&
+        channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED) &&
         service_privileges != 0U)
-        (void)channel_set_service_privileges(channel, client, service_privileges);
-    if (channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
-        chanserv_sync_channel_privileges(server, channel);
+        (void)channel_set_service_privileges(channel, client,
+                                             service_privileges);
 
     ircv3_broadcast_join(channel, client);
     ircv3_away_notify_join(channel, client);
     channel_log_join(server, channel, client);
+
+    if (!first_member &&
+        channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
+        chanserv_sync_member_privileges(server, channel, client);
 
     if (channel->topic[0] == '\0') {
         client_sendf(client, RPL_NOTOPIC,

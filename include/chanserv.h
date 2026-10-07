@@ -23,6 +23,10 @@ int chanserv_client_is_founder(Server *server, const Client *client, const char 
 ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *client,
                                                const char *channel_name);
 
+/** Reconcile one channel member's service-derived privileges. */
+void chanserv_sync_member_privileges(Server *server, Channel *channel,
+                                     Client *client);
+
 /** Reconcile one live client's service-derived privileges after account changes. */
 void chanserv_sync_client_privileges(Server *server, Client *client);
 

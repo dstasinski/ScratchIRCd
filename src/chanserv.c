@@ -371,7 +371,8 @@ static void broadcast_privilege_change(Server *server, Channel *channel,
         used += (size_t)written;
     }
     for (recipient = channel->members; recipient != NULL; recipient = recipient->next)
-        client_sendf(recipient->client, ":%s MODE %s %c%s%s",
+        client_sendf(recipient->client,
+                     ":ChanServ!service@%s MODE %s %c%s%s",
                      server->config.server_name, channel->name,
                      sign, letters, parameters);
 }
@@ -408,6 +409,11 @@ static void sync_member_privileges(Server *server, Channel *channel,
     after = member->privileges;
     broadcast_privilege_change(server, channel, client, before & ~after, '-');
     broadcast_privilege_change(server, channel, client, after & ~before, '+');
+}
+
+void chanserv_sync_member_privileges(Server *server, Channel *channel,
+                                     Client *client) {
+    sync_member_privileges(server, channel, client);
 }
 
 void chanserv_sync_client_privileges(Server *server, Client *client) {
