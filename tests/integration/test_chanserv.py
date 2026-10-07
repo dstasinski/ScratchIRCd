@@ -154,7 +154,7 @@ def main():
             carol.expect(" 366 Carol #persist ")
             alice.send("CHANSERV ACCESS #persist ADD Carol PROTECTED")
             live_carol_access = alice.expect("Access set: Carol PROTECTED")
-            assert any(" MODE #persist +ao Carol Carol" in line
+            assert any(" MODE #persist +a Carol" in line
                        for line in live_carol_access), live_carol_access
             alice.send("CHANSERV ACCESS #persist LIST")
             access = alice.expect("End of access list for #persist.")
@@ -289,12 +289,32 @@ def main():
             )
             guardian_mode_index = next(
                 i for i, line in enumerate(guardian_lines)
-                if ":ChanServ!service@test.local MODE #persist +ao Guardian Guardian"
+                if ":ChanServ!service@test.local MODE #persist +a Guardian"
                 in line
             )
             assert guardian_join_index < guardian_mode_index, guardian_lines
             assert any("&Guardian" in line for line in guardian_lines
                        if " 353 Guardian " in line), guardian_lines
+
+            # The founder initially joined an empty channel, where service
+            # privilege assignment is intentionally silent. Rejoin while
+            # members are present to verify the visible OWNER mode.
+            traveler.send("PART #persist :testing founder rejoin")
+            traveler.expect(" PART #persist ")
+            traveler.send("JOIN #persist")
+            traveler_lines = traveler.expect(" 366 Traveler #persist ")
+            traveler_join_index = next(
+                i for i, line in enumerate(traveler_lines)
+                if " JOIN #persist" in line and line.startswith(":Traveler!")
+            )
+            traveler_mode_index = next(
+                i for i, line in enumerate(traveler_lines)
+                if ":ChanServ!service@test.local MODE #persist +q Traveler"
+                in line
+            )
+            assert traveler_join_index < traveler_mode_index, traveler_lines
+            assert any("~Traveler" in line for line in traveler_lines
+                       if " 353 Traveler " in line), traveler_lines
 
             bob.send("MODE #persist -a Guardian")
             bob.expect(" 482 Helper #persist ")

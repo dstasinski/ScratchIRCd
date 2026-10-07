@@ -169,7 +169,7 @@ static void join_one(Server *server, Client *client, const char *name,
 
     if (first_member && !channel_mode_has(channel->modes, CHANNEL_MODE_REGISTERED))
         (void)channel_add_privileges(channel, client,
-                                     CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+                                     CHANNEL_PRIV_OWNER);
 
     /*
      * A first member has nobody else to observe a service MODE, so establish

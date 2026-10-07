@@ -56,7 +56,7 @@ CommandResult command_sajoin(Server *server, Client *client, char *params) {
             }
         } else if (first) {
             (void)channel_add_privileges(channel, target,
-                                         CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+                                         CHANNEL_PRIV_OWNER);
         }
         ircv3_broadcast_join(channel, target);
         ircv3_away_notify_join(channel, target);

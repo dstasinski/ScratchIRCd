@@ -156,8 +156,7 @@ def main():
 
             alice.send("NSDROP Alice")
             drop_lines = alice.expect("NickServ account deleted.")
-            assert any(" MODE #inherit +qo Bob Bob" in line or
-                       " MODE #inherit +oq Bob Bob" in line
+            assert any(" MODE #inherit +q Bob" in line
                        for line in drop_lines), drop_lines
             assert any(" MODE #orphan -r" in line for line in drop_lines), drop_lines
 

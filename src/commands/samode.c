@@ -184,7 +184,7 @@ CommandResult command_samode(Server *server, Client *client, char *params) {
             saved_service = member->service_privileges;
         }
         if (member == NULL) return COMMAND_KEEP_CLIENT;
-        member->privileges |= CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
+        member->privileges |= CHANNEL_PRIV_OWNER;
 
         (void)snprintf(mode_params, sizeof(mode_params), "%s %s", target_name, rest);
         (void)command_mode_core(server, client, mode_params);

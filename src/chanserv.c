@@ -322,7 +322,7 @@ ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *cli
         if (!channel->chanserv_policy_valid) return 0U;
         live_policy = 1;
         if (cached_founder_matches(channel, client))
-            return CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
+            return CHANNEL_PRIV_OWNER;
     }
 
     if (chanserv_db_open(&db, server->config.chanserv_db) != 0) return 0U;
@@ -333,14 +333,14 @@ ChannelPrivilegeSet chanserv_client_privileges(Server *server, const Client *cli
         }
         if (founder_matches(&channel_record, client)) {
             chanserv_db_close(&db);
-            return CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR;
+            return CHANNEL_PRIV_OWNER;
         }
     }
 
     if (chanserv_db_access_get(&db, channel_name, client->account_name, &access) == 1) {
         switch (access.level) {
-            case CHANSERV_ACCESS_OWNER: privileges = CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR; break;
-            case CHANSERV_ACCESS_PROTECTED: privileges = CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OPERATOR; break;
+            case CHANSERV_ACCESS_OWNER: privileges = CHANNEL_PRIV_OWNER; break;
+            case CHANSERV_ACCESS_PROTECTED: privileges = CHANNEL_PRIV_PROTECTED; break;
             case CHANSERV_ACCESS_OP: privileges = CHANNEL_PRIV_OPERATOR; break;
             case CHANSERV_ACCESS_HALFOP: privileges = CHANNEL_PRIV_HALFOP; break;
             case CHANSERV_ACCESS_VOICE: privileges = CHANNEL_PRIV_VOICE; break;
@@ -397,9 +397,9 @@ static void sync_member_privileges(Server *server, Channel *channel,
                                               CHANNEL_PRIV_OPERATOR |
                                               CHANNEL_PRIV_HALFOP;
         unsigned int rank = channel_privilege_rank(desired);
-        ChannelPrivilegeSet eligible = rank >= 5U ? protected_bits
-                                      : rank >= 4U ? (CHANNEL_PRIV_PROTECTED | CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_HALFOP)
-                                      : rank >= 3U ? (CHANNEL_PRIV_OPERATOR | CHANNEL_PRIV_HALFOP)
+        ChannelPrivilegeSet eligible = rank >= 5U ? CHANNEL_PRIV_OWNER
+                                      : rank >= 4U ? CHANNEL_PRIV_PROTECTED
+                                      : rank >= 3U ? CHANNEL_PRIV_OPERATOR
                                       : rank >= 2U ? CHANNEL_PRIV_HALFOP : 0U;
         ChannelPrivilegeSet unauthorized = (member->manual_privileges & protected_bits) & ~eligible;
         if (unauthorized != 0U)
@@ -479,7 +479,7 @@ static void command_register(Server *server, Client *client, char *params) {
     channel->chanserv_mode_lock = 0U;
     channel->modes = channel_mode_add(channel->modes, CHANNEL_MODE_REGISTERED);
     (void)channel_set_service_privileges(channel, client,
-                                         CHANNEL_PRIV_OWNER | CHANNEL_PRIV_OPERATOR);
+                                         CHANNEL_PRIV_OWNER);
     chanserv_persist_channel(server, channel);
     cs_notice(server, client, "Channel registered successfully.");
 }
