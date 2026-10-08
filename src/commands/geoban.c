@@ -127,6 +127,7 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
     char value[IRCD_GEOIP_ORG_MAX + 1U];
     char duration_text[32];
     unsigned int duration;
+    int explicit_duration = 0;
     char *cursor = params;
     char *reason;
 
@@ -160,15 +161,25 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
 
     if (geoban_type_parse(type_text, &type) != 0 ||
         next_field(&cursor, value_raw, sizeof(value_raw)) == NULL ||
-        next_field(&cursor, duration_text, sizeof(duration_text)) == NULL ||
-        geoban_normalize_value(type, value_raw, value, sizeof(value)) != 0 ||
-        geoban_duration_parse(duration_text, &duration) != 0) {
+        geoban_normalize_value(type, value_raw, value, sizeof(value)) != 0) {
         client_sendf(client, ":%s NOTICE %s :Invalid GEOBAN syntax or value",
                      server->config.server_name, client->nick);
         return COMMAND_KEEP_CLIENT;
     }
 
+    duration = server->config.geoban_default_duration_seconds;
     reason = skip_space(cursor);
+    if (reason != NULL && *reason != '\0' && *reason != ':') {
+        char *saved = cursor;
+        if (next_field(&cursor, duration_text, sizeof(duration_text)) != NULL &&
+            geoban_duration_parse(duration_text, &duration) == 0) {
+            explicit_duration = 1;
+            reason = skip_space(cursor);
+        } else {
+            cursor = saved;
+            reason = skip_space(cursor);
+        }
+    }
     if (reason != NULL && *reason == ':') ++reason;
     if (reason == NULL || *reason == '\0') reason = "GeoIP policy ban";
 
@@ -185,7 +196,7 @@ CommandResult command_geoban(Server *server, Client *client, char *params) {
     client_sendf(client, ":%s NOTICE %s :GEOBAN added: %s {%s} %s",
                  server->config.server_name, client->nick,
                  geoban_type_name(type), value,
-                 duration == 0U ? "permanent" : duration_text);
+                 duration == 0U ? "permanent" : (explicit_duration ? duration_text : "default"));
     snotice_broadcast(server, SNOTICE_GEOBANS,
                       "%s added GEOBAN %s {%s} (%s)", client->nick,
                       geoban_type_name(type), value, reason);
