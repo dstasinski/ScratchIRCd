@@ -103,7 +103,6 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     char *reason;
     char resolved_mask[IRC_IP_MAX + 1U];
     BanDb db = {0};
-    int shorthand = 0;
     unsigned int duration;
     char *duration_or_reason;
     char *remaining;
@@ -178,7 +177,6 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         mask = resolved_mask;
         if (reason != NULL && *reason == ':') ++reason;
         if (reason == NULL || *reason == '\\0') reason = server->config.zline_default_reason;
-        shorthand = 1;
     } else {
         if (strlen(mask) > IRC_CHANNEL_MASK_MAX ||
             (strchr(mask, '/') != NULL && !valid_cidr_mask(mask))) {
