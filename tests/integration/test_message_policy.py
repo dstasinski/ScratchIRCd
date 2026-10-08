@@ -197,7 +197,7 @@ def main():
             # A security action generates a +s server notice.
             admin.send("KLINE nobody@192.0.2.1 :notice policy test")
             admin.expect("NOTICE Admin :KLINE added: nobody@192.0.2.1")
-            admin.expect("*** Admin added KLINE nobody@192.0.2.1")
+            admin.expect("*** Admin added temporary KLINE nobody@192.0.2.1 for 3600s (notice policy test)")
             admin.send("KLINE -nobody@192.0.2.1")
             admin.expect("NOTICE Admin :KLINE removed: nobody@192.0.2.1")
 
