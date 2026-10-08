@@ -1,6 +1,62 @@
 # ScratchIRCd Network Administrator Guide
 
-This is the technical guide for installing, building, configuring, running, upgrading, backing up, and troubleshooting ScratchIRCd. IRC client and operator command references are in `CLIENT_GUIDE.md` and `OPERATOR_GUIDE.md`.
+This guide covers network-administrator-only IRC commands and the technical work of installing, building, configuring, running, upgrading, backing up, and troubleshooting ScratchIRCd. Ordinary client, IRC operator, and service-user command references are in their respective guides. Shell commands, configuration keys, and raw server messages are not IRC slash commands.
+
+## Network-administrator-only IRC commands
+
+Authenticate using the configured bootstrap administrator identity before issuing these commands. Network-administrator mode `+N` is distinct from ordinary IRC operator status. Commands requiring only delegated operator permissions are documented in the [IRC Operator Guide](OPERATOR_GUIDE.md), not repeated here.
+
+### Operator account administration
+
+| Command | Purpose |
+| --- | --- |
+| `/OPERADD <name> <password> <vhost|-> :<permissions|->` | Create an operator account. |
+| `/OPERDEL <name>` | Delete an operator account. |
+| `/OPERLIST [name]` | List operators or inspect one operator. |
+| `/OPERSET <name> NAME <new-name>` | Rename an operator account. |
+| `/OPERSET <name> PASSWORD <new-password>` | Change its password. |
+| `/OPERSET <name> PERMISSIONS :<comma-separated-permissions>` | Replace its delegated permissions. |
+| `/OPERSET <name> VHOST <host|->` | Set or clear its displayed vhost. |
+| `/OPERSET <name> ENABLED <0|1>` | Disable or enable the account. |
+
+Supported delegated permissions are `can_rehash`, `can_die`, `can_restart`, `helpop`, `can_wallops`, `can_kill`, `can_kline`, `can_unkline`, `can_zline`, `can_geoban`, `get_host`, and `can_override`. These permissions do not grant network-administrator mode `+N`.
+
+### NickServ account administration
+
+```text
+/NSINFO <account>
+/NSSET <account> PASSWORD <new-password>
+/NSSET <account> VHOST <vhost|->
+/NSSET <account> EMAIL <address|->
+/NSSET <account> ENABLED <0|1>
+/NSDROP <account>
+```
+
+`/NSSET ... EMAIL` is an administrative override: a nonempty address is treated as verified immediately. Disabling an account preserves its memos and may trigger registered-channel founder succession; deleting it removes associated account state.
+
+### ChanServ registration administration
+
+```text
+/CSINFO #channel
+/CSSET #channel DESCRIPTION :New description
+/CSSET #channel FOUNDER <enabled-NickServ-account>
+/CSSET #channel ENABLED <0|1>
+/CSDROP #channel
+/CHANSERV REGISTER #channel :Optional description
+/CHANSERV DROP #channel
+```
+
+Registration requires the administrator to be identified to NickServ and present in the live channel with owner/operator authority. The initial founder is the administrator's identified account. Assigning another founder uses `/CSSET #channel FOUNDER <account>`. Registration and deletion remain network-administrator-only even after founder transfer. The equivalent service-message forms `/PRIVMSG ChanServ :REGISTER #channel :Optional description` and `/PRIVMSG ChanServ :DROP #channel` are also supported.
+
+### MemoServ administration
+
+```text
+/MSINFO <account>
+/MSPURGE <account>
+/MSPURGE *
+```
+
+`/MSINFO` reports mailbox counts and retention settings without exposing memo contents. `/MSPURGE` removes expired memos for one account or globally, according to the configured retention policy.
 
 ## Platform and dependencies
 
@@ -396,7 +452,7 @@ Generate the password hash locally:
 Copy only the resulting Argon2id hash into `netadmin_password_hash`. Restrict `netadmin_hostmask` to real trusted identity whenever practical. Authentication uses:
 
 ```text
-OPER root choose-a-strong-password
+/OPER root choose-a-strong-password
 ```
 
 The bootstrap account receives `+N` and all operator permissions. Use it to create narrowly permitted day-to-day operator accounts, then reserve the bootstrap credentials for administration.
@@ -478,8 +534,8 @@ Never run `VACUUM` in the message hot path or as an uncontrolled live maintenanc
 ChanServ channel logging uses a durable queue before periodic text-file flushes. Enable or disable it through an authenticated IRC operator or network administrator:
 
 ```text
-CHANSERV SET #chat LOGGING ON
-CHANSERV SET #chat LOGGING OFF
+/CHANSERV SET #chat LOGGING ON
+/CHANSERV SET #chat LOGGING OFF
 ```
 
 The service account must be able to create and append files under `logs/`. If the durable queue reaches `channel_log_queue_max_rows`, new log events are refused until the backlog can flush, and operators receive rate-limited notices. Monitor filesystem availability, free space, ownership, and permissions.
@@ -496,13 +552,13 @@ The service account must be able to create and append files under `logs/`. If th
 Other validated changes can be reloaded when the operator has `can_rehash`:
 
 ```text
-REHASH
+/REHASH
 ```
 
 Use the daemon command for a graceful in-process restart when the operator has `can_restart`:
 
 ```text
-RESTART
+/RESTART
 ```
 
 For binary upgrades, use an external service manager: stop the old process cleanly and start the new binary after tests pass.
