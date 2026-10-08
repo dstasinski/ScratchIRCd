@@ -61,9 +61,10 @@ Any authenticated IRC operator or network administrator may send a server-origin
 
 #### GEOBAN
 
-Requires `can_geoban`. Adds or lists country, region, ASN, or organization policies. Durations accept `s` (seconds), `m` (minutes), `h` (hours), `d` (days), and `w` (weeks). Timed policies expire automatically. `0`, `permanent`, `perm`, and `forever` mean permanent.
+Requires `can_geoban`. Adds or lists country, region, ASN, or organization policies. Durations accept `s` (seconds), `m` (minutes), `h` (hours), `d` (days), and `w` (weeks). Timed policies expire automatically. Omit the duration to use `geoban_default_duration_seconds` (3600 seconds by default). `0`, `permanent`, `perm`, and `forever` mean permanent.
 
 ```text
+/GEOBAN COUNTRY RU :Uses the configured default expiration
 /GEOBAN COUNTRY RU 0 :Connections from this country are not accepted
 /GEOBAN REGION AZ 30m :Temporary regional restriction (expires after 30 minutes)
 /GEOBAN ASN AS22773 2h :Network abuse (expires after 2 hours)
@@ -91,16 +92,17 @@ Requires `can_kill`. Disconnects a client.
 
 #### KLINE
 
-Adding a KLINE requires `can_kline`; removing one requires `can_unkline`. Nickname shorthand creates a temporary policy using the server's configured `kline_default_duration_seconds` and default reason. The temporary ban expires automatically after that interval. Explicit masks are permanent and match `user@real_host` and `user@real_ip`, not a displayed cloak or vhost. **KLINE does not currently support a custom duration argument**; to create a temporary KLINE, use the nickname of a connected client.
+Adding a KLINE requires `can_kline`; removing one requires `can_unkline`. Syntax: `/KLINE <nickname|user@host> [duration] [:reason]`. When omitted, the duration comes from `kline_default_duration_seconds` (3600 seconds by default). The duration accepts seconds, `m`, `h`, `d`, or `w`; `0` or `permanent` makes the ban non-expiring. Nickname targets are resolved to their real hostname or IP; explicit masks match real identity, not displayed cloaks.
 
 ```text
 /KLINE trouble
-/KLINE noisyuser
-/KLINE *@bad.example :Abusive network
+/KLINE trouble 30m :Flooding
+/KLINE *@bad.example 7d :Repeated abuse
+/KLINE *@bad.example 0 :Permanent ban
 /KLINE -*@bad.example
 ```
 
-The first two examples create expiring KLINE entries for the connected nicknames using the configured default duration. For example, if `kline_default_duration_seconds = 3600`, each expires after one hour. The explicit-mask example remains in effect until removed with `/KLINE -mask`.
+The default duration applies to both nickname and explicit-mask entries. Use `/KLINE -mask` to remove an entry early.
 
 #### LOCOPS
 
@@ -241,11 +243,13 @@ Requires `can_wallops`. Sends a wallops message to clients with user mode `+w`.
 
 #### ZLINE
 
-Requires `can_zline`. Nickname shorthand creates a temporary exact-IP policy using the server defaults. Explicit masks are permanent and match only the real client IP.
+Requires `can_zline`. Syntax: `/ZLINE <nickname|IP-mask> [duration] [:reason]`. When omitted, the duration comes from `zline_default_duration_seconds` (3600 seconds by default). A duration of `0` or `permanent` creates a non-expiring ban. Nickname shorthand resolves to the client's real IP; explicit IP masks and CIDR ranges are also supported.
 
 ```text
 /ZLINE trouble
-/ZLINE 203.0.113.* :Abusive network
+/ZLINE trouble 2h :Repeated flooding
+/ZLINE 203.0.113.* 7d :Abusive network
+/ZLINE 203.0.113.0/24 0 :Permanent restriction
 /ZLINE -203.0.113.*
 ```
 
