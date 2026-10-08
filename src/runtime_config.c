@@ -135,6 +135,7 @@ void runtime_config_defaults(ServerConfig *config) {
     config->argon2_global_burst_per_second = IRCD_DEFAULT_ARGON2_GLOBAL_BURST_PER_SECOND;
     config->kline_default_duration_seconds = IRCD_DEFAULT_KLINE_DURATION_SECONDS;
     config->zline_default_duration_seconds = IRCD_DEFAULT_ZLINE_DURATION_SECONDS;
+    config->geoban_default_duration_seconds = IRCD_DEFAULT_KLINE_DURATION_SECONDS;
     config->nickserv_reset_seconds = IRCD_DEFAULT_NICKSERV_RESET_SECONDS;
     config->nickserv_verify_seconds = IRCD_DEFAULT_NICKSERV_VERIFY_SECONDS;
     config->nospoof_enabled = 0;
@@ -467,6 +468,8 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
         return set_ban_duration(number, &config->kline_default_duration_seconds);
     if (strcmp(key, "zline_default_duration_seconds") == 0)
         return set_ban_duration(number, &config->zline_default_duration_seconds);
+    if (strcmp(key, "geoban_default_duration_seconds") == 0)
+        return set_ban_duration(number, &config->geoban_default_duration_seconds);
     if (strcmp(key, "dns_timeout_seconds") == 0) {
         if (number == 0UL || number > 300UL) return -1;
         config->dns_timeout_seconds = (unsigned int)number;
