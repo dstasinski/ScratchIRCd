@@ -4,23 +4,6 @@ MemoServ is ScratchIRCd's persistent account-to-account memo service. It is a vi
 
 Memo ownership is tied to authenticated NickServ account names, not to temporary nicknames. A user must be connected, registered, and identified to a NickServ account before using MemoServ commands that read, send, reply, forward, delete, or report mailbox status.
 
-## Configuration
-
-MemoServ uses these server configuration values:
-
-```text
-memoserv_db = data/memoserv.db
-memoserv_quota = 100
-memoserv_sender_quota = 0
-memoserv_retention_days = 90
-```
-
-`memoserv_db` is the SQLite database path. `memoserv_quota` is the maximum number of visible inbox memos for one recipient account. `memoserv_sender_quota` is an optional outstanding sent-memo limit for one sender account; `0` disables the sender-side limit. It counts sent rows that are still visible to the recipient and still inside the retention window. Sender-side capacity returns when recipients delete memos or retention removes them. Hiding a memo from `SENT` with `DELSENT` does not by itself free sender quota. `memoserv_retention_days` controls automatic expiration by memo creation time. A value of `0` disables automatic expiration.
-
-Each memo stores a generated numeric ID, sender account, recipient account, message text, creation time, read time, sender-side sent-history visibility, and recipient-side inbox visibility. Reading a memo marks it read, but it remains stored until both user-facing sides hide it, retention expiry, or account cleanup.
-
-MemoServ can automatically migrate the known legacy table shape that predates per-side memo visibility. The migration adds sender and recipient visibility fields plus supporting visible-sent and visible-inbox indexes while keeping existing sent and received rows visible. If an existing `memos` table is missing required legacy columns, MemoServ rejects that database instead of guessing how to repair it. Operators should restore a valid backup or migrate the table manually before pointing `memoserv_db` at it again.
-
 ## Authentication
 
 All current MemoServ user commands require an authenticated NickServ account. If the user is not identified, MemoServ replies:
@@ -246,34 +229,11 @@ Unknown help topics produce a short syntax reminder instead of exposing internal
 
 ## Account lifecycle
 
-MemoServ sends only to enabled NickServ accounts. Disabled accounts cannot receive new memos, and users cannot identify to disabled accounts to read existing memos.
-
-When a network administrator disables an account with `NSSET <account> ENABLED 0`, existing MemoServ rows are preserved. If the account is later re-enabled, its owner can identify again and manage its visible memos normally.
-
-When a network administrator deletes an account with `NSDROP <account>`, MemoServ removes all rows where that account is either sender or recipient, including sender-hidden and recipient-hidden rows. This prevents dropped account names from leaving orphaned sent or received memo history behind.
+Memos belong to identified NickServ accounts. Disabled accounts cannot receive new memos or sign in to read existing ones. Existing memos are retained while an account is disabled; deleting an account removes its associated sent and received memos. Account administration is documented in the Network Administrator Guide.
 
 ## Retention
 
-When `memoserv_retention_days` is nonzero, MemoServ removes expired memo rows by creation time, including rows hidden from one side's view. Normal MemoServ activity may trigger retention cleanup, but the cleanup is throttled internally so ordinary commands do not run a global purge every time.
-
-## Network-administrator commands
-
-These commands require network-administrator mode `+N`:
-
-```text
-MSINFO <account>
-MSPURGE <account|*>
-```
-
-`MSINFO` reports visible stored inbox count, visible unread count, configured quota, and retention policy for one account. It does not display memo contents.
-
-Example reply:
-
-```text
-MEMOSERV account=Daniel stored=4 unread=2 quota=100 retention_days=90
-```
-
-`MSPURGE <account>` deletes expired memos for one account. `MSPURGE *` deletes expired memos globally. If `memoserv_retention_days` is `0`, `MSPURGE` reports that automatic retention is disabled.
+Memos can expire under the network's configured retention policy. Expired memos are removed by creation time, including memos hidden from one side's view. Contact a network administrator for the current retention period.
 
 ## Privacy and service identity
 
