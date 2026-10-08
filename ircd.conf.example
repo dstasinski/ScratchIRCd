@@ -92,6 +92,7 @@ history_db = data/history.db
 kline_default_duration_seconds = 3600
 kline_default_reason = Temporary KLINE
 zline_default_duration_seconds = 3600
+geoban_default_duration_seconds = 3600
 zline_default_reason = Temporary ZLINE
 
 # Maximum rows returned by one CHATHISTORY request.
