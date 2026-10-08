@@ -110,6 +110,7 @@ typedef struct ServerConfig {
 
     unsigned int kline_default_duration_seconds;
     unsigned int zline_default_duration_seconds;
+    unsigned int geoban_default_duration_seconds;
     char kline_default_reason[IRC_QUIT_REASON_MAX + 1U];
     char zline_default_reason[IRC_QUIT_REASON_MAX + 1U];
 
