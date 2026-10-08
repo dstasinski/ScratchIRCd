@@ -12,6 +12,7 @@
 
 #include "ban_db.h"
 #include "commands.h"
+#include "geoban_db.h"
 #include "message_policy.h"
 #include "numerics.h"
 #include "oper.h"
@@ -103,6 +104,11 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     char resolved_mask[IRC_IP_MAX + 1U];
     BanDb db = {0};
     int shorthand = 0;
+    unsigned int duration;
+    char *duration_or_reason;
+    char *remaining;
+    char token[32];
+    size_t token_len;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
     if (!oper_permission_has(client->oper_permissions, OPER_PERMISSION_ZLINE)) {
@@ -116,7 +122,28 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     }
 
     mask = strtok(params, " ");
-    reason = strtok(NULL, "");
+    duration_or_reason = strtok(NULL, "");
+    reason = NULL;
+    duration = server->config.zline_default_duration_seconds;
+    if (duration_or_reason != NULL) {
+        char *p = duration_or_reason;
+        while (*p == ' ' || *p == '\\t') ++p;
+        remaining = p;
+        while (*p != '\\0' && *p != ' ' && *p != '\\t') ++p;
+        token_len = (size_t)(p - remaining);
+        if (token_len > 0U && token_len < sizeof(token)) {
+            memcpy(token, remaining, token_len);
+            token[token_len] = '\\0';
+            if (geoban_duration_parse(token, &duration) == 0) {
+                while (*p == ' ' || *p == '\\t') ++p;
+                reason = p;
+            } else {
+                reason = duration_or_reason;
+            }
+        } else {
+            reason = duration_or_reason;
+        }
+    }
     if (mask == NULL || *mask == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS, server->config.server_name,
                      client->nick, "ZLINE");
@@ -149,7 +176,8 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         }
         (void)snprintf(resolved_mask, sizeof(resolved_mask), "%s", target->real_ip);
         mask = resolved_mask;
-        reason = server->config.zline_default_reason;
+        if (reason != NULL && *reason == ':') ++reason;
+        if (reason == NULL || *reason == '\\0') reason = server->config.zline_default_reason;
         shorthand = 1;
     } else {
         if (strlen(mask) > IRC_CHANNEL_MASK_MAX ||
@@ -163,10 +191,10 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     }
 
     if (ban_db_open(&db, server->config.bans_db) != 0 ||
-        (shorthand
+        (duration != 0U
             ? ban_db_add_timed(&db, BAN_TYPE_ZLINE, mask, reason,
                                client->oper_name[0] != '\0' ? client->oper_name : client->nick,
-                               server->config.zline_default_duration_seconds)
+                               duration)
             : ban_db_add(&db, BAN_TYPE_ZLINE, mask, reason,
                          client->oper_name[0] != '\0' ? client->oper_name : client->nick)) != 0) {
         ban_db_close(&db);
@@ -181,14 +209,14 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     }
     ban_db_close(&db);
 
-    if (shorthand) {
+    if (duration != 0U) {
         client_sendf(client, ":%s NOTICE %s :ZLINE added: %s (%us, %s)",
                      server->config.server_name, client->nick, mask,
-                     server->config.zline_default_duration_seconds, reason);
+                     duration, reason);
         snotice_broadcast(server, SNOTICE_BANS,
                           "%s added temporary ZLINE %s for %us (%s)",
                           client->nick, mask,
-                          server->config.zline_default_duration_seconds, reason);
+                          duration, reason);
     } else {
         client_sendf(client, ":%s NOTICE %s :ZLINE added: %s",
                      server->config.server_name, client->nick, mask);
