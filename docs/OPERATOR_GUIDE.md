@@ -100,7 +100,10 @@ Adding a KLINE requires `can_kline`; removing one requires `can_unkline`. Syntax
 /KLINE *@bad.example 7d :Repeated abuse
 /KLINE *@bad.example 0 :Permanent ban
 /KLINE -*@bad.example
+/KLINE -*@real-host.example
 ```
+
+To remove a KLINE before it expires, use `/KLINE -mask` with the **stored mask**, not the nickname used when creating it. Removal requires `can_unkline`.
 
 The default duration applies to both nickname and explicit-mask entries. Use `/KLINE -mask` to remove an entry early.
 
@@ -220,9 +223,12 @@ Requires `can_geoban`. Removes a GeoBAN policy.
 
 ```text
 /UNGEOBAN COUNTRY RU
+/UNGEOBAN REGION AZ
 /UNGEOBAN ASN AS22773
 /UNGEOBAN ORG {*Example Network*}
 ```
+
+To remove a GeoBAN before it expires, specify its type and stored value. The duration and original reason are not required. Removal requires `can_geoban`.
 
 #### USERIP
 
@@ -251,7 +257,10 @@ Requires `can_zline`. Syntax: `/ZLINE <nickname|IP-mask> [duration] [:reason]`. 
 /ZLINE 203.0.113.* 7d :Abusive network
 /ZLINE 203.0.113.0/24 0 :Permanent restriction
 /ZLINE -203.0.113.*
+/ZLINE -203.0.113.0/24
 ```
+
+To remove a ZLINE before it expires, use `/ZLINE -mask` with the **stored IP mask or CIDR range**. If it was created using a nickname, use the resolved IP address. Removal requires `can_zline`.
 
 ### Privileged command forms
 
