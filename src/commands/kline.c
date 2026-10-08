@@ -360,7 +360,6 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
     char *reason;
     char resolved_mask[IRC_CHANNEL_MASK_MAX + 1U];
     BanDb db = {0};
-    int shorthand = 0;
     unsigned int duration;
     char *duration_or_reason;
     char *remaining;
@@ -449,7 +448,6 @@ CommandResult command_kline(Server *server, Client *client, char *params) {
         mask = resolved_mask;
         if (reason != NULL && *reason == ':') ++reason;
         if (reason == NULL || *reason == '\\0') reason = server->config.kline_default_reason;
-        shorthand = 1;
     } else {
         if (reason != NULL && *reason == ':') ++reason;
         if (reason == NULL || *reason == '\0') reason = "K-lined";
