@@ -126,15 +126,15 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
     duration = server->config.zline_default_duration_seconds;
     if (duration_or_reason != NULL) {
         char *p = duration_or_reason;
-        while (*p == ' ' || *p == '\\t') ++p;
+        while (*p == ' ' || *p == '\t') ++p;
         remaining = p;
-        while (*p != '\\0' && *p != ' ' && *p != '\\t') ++p;
+        while (*p != '\0' && *p != ' ' && *p != '\t') ++p;
         token_len = (size_t)(p - remaining);
         if (token_len > 0U && token_len < sizeof(token)) {
             memcpy(token, remaining, token_len);
-            token[token_len] = '\\0';
+            token[token_len] = '\0';
             if (geoban_duration_parse(token, &duration) == 0) {
-                while (*p == ' ' || *p == '\\t') ++p;
+                while (*p == ' ' || *p == '\t') ++p;
                 reason = p;
             } else {
                 reason = duration_or_reason;
@@ -176,7 +176,7 @@ CommandResult command_zline(Server *server, Client *client, char *params) {
         (void)snprintf(resolved_mask, sizeof(resolved_mask), "%s", target->real_ip);
         mask = resolved_mask;
         if (reason != NULL && *reason == ':') ++reason;
-        if (reason == NULL || *reason == '\\0') reason = server->config.zline_default_reason;
+        if (reason == NULL || *reason == '\0') reason = server->config.zline_default_reason;
     } else {
         if (strlen(mask) > IRC_CHANNEL_MASK_MAX ||
             (strchr(mask, '/') != NULL && !valid_cidr_mask(mask))) {
