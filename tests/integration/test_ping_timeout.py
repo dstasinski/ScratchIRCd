@@ -138,7 +138,7 @@ def main():
             for index in range(4):
                 time.sleep(0.7)
                 responsive.send(f"PING :activity-{index}")
-                _, seen = responsive.expect(f"PONG test.local ::activity-{index}")
+                _, seen = responsive.expect(f"PONG test.local :activity-{index}")
                 assert not any(line.startswith("PING :") for line in seen), seen
 
             # A matching PONG clears the outstanding challenge and starts a new
@@ -149,10 +149,10 @@ def main():
             responsive.send(f"PONG :{token}")
             time.sleep(1.2)
             responsive.send("PING :probe-one")
-            responsive.expect("PONG test.local ::probe-one")
+            responsive.expect("PONG test.local :probe-one")
             time.sleep(1.2)
             responsive.send("PING :probe-two")
-            responsive.expect("PONG test.local ::probe-two")
+            responsive.expect("PONG test.local :probe-two")
 
             responsive.send("JOIN #liveness")
             responsive.expect(" 366 Responsive #liveness ")
@@ -164,7 +164,7 @@ def main():
             # A wrong PONG and unrelated traffic do not replace the required
             # matching PONG. Other channel members see the exact timeout reason.
             responsive.send("PING :observer-reset")
-            responsive.expect("PONG test.local ::observer-reset")
+            responsive.expect("PONG test.local :observer-reset")
             silent_token = silent.wait_server_ping()
             assert silent_token.isdigit() and len(silent_token) <= 20, silent_token
             answer_pending_pings(responsive)
@@ -176,7 +176,7 @@ def main():
                               auto_pong=True)
 
             responsive.send("PING :after-timeout")
-            responsive.expect("PONG test.local ::after-timeout", auto_pong=True)
+            responsive.expect("PONG test.local :after-timeout", auto_pong=True)
             assert proc.poll() is None, "server exited during PING timeout handling"
         finally:
             if silent is not None:
