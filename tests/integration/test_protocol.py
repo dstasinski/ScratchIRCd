@@ -264,6 +264,22 @@ def run_unprotected(binary, mkpasswd, tempdir):
         unknown_oper.send("OPER does-not-exist boguspass")
         unknown_oper.expect(" 464 foxtrot ")
 
+        # Client PING trailing-parameter delimiters must not become token data.
+        for request, token in (
+            ("PING :12345", "12345"),
+            ("PING 12345", "12345"),
+            ("PING :abc-123_XYZ", "abc-123_XYZ"),
+            ("PING abc-123_XYZ", "abc-123_XYZ"),
+        ):
+            b.send(request)
+            replies = b.expect(f"PONG test.local :{token}")
+            pong_lines = [line for line in replies if " PONG " in line]
+            assert len(pong_lines) == 1, (request, replies)
+            assert pong_lines[0] == f":test.local PONG test.local :{token}", (
+                request, pong_lines
+            )
+            assert " ::" not in pong_lines[0], pong_lines
+
         # Existing protocol behavior remains covered.
         a.send("JOIN #test"); a.expect(" JOIN #test")
         b.send("JOIN #test"); b.expect(" JOIN #test")
