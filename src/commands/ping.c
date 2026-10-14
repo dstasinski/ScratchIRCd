@@ -12,6 +12,9 @@ CommandResult command_ping(Server *server, Client *client, char *params) {
     size_t limit;
     size_t length;
 
+    /* The raw parameter string retains IRC's trailing-parameter delimiter. */
+    if (*token == ':') ++token;
+
     overhead = snprintf(NULL, 0, ":%s PONG %s :",
                         server->config.server_name, server->config.server_name);
     if (overhead < 0 || (size_t)overhead >= IRC_LINE_CONTENT_MAX)
