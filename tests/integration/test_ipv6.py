@@ -130,7 +130,7 @@ def main():
             alice.expect(" NOTICE Alice :private over IPv6")
 
             bob.send("PING :ipv6-probe")
-            bob.expect("PONG test.local ::ipv6-probe")
+            bob.expect("PONG test.local :ipv6-probe")
             assert proc.poll() is None, "server exited while serving IPv6 clients"
 
             # Shutdown with a live IPv6 connection exercises listener/client
