@@ -154,7 +154,7 @@ def main():
             idle_before=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_before>=1,idle_before
             observer.send("PING :idle-check")
-            observer.expect(" PONG test.local ::idle-check")
+            observer.expect(" PONG test.local :idle-check")
             trusted.send("WHOIS observer")
             idle_after_ping=whois_idle(trusted.expect(" 318 webuser observer "),"webuser","observer")
             assert idle_after_ping>=idle_before,(idle_before,idle_after_ping)
