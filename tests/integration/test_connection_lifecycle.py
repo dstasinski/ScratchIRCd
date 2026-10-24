@@ -186,7 +186,7 @@ def main():
             assert not any(token.startswith("R") and "M" in token for token in name_payload.split()), name_payload
 
             survivor.send("PING :after-churn")
-            survivor.expect("PONG test.local ::after-churn")
+            survivor.expect("PONG test.local :after-churn")
 
             # #ephemeral should have been destroyed when its last member left.
             # Recreating it must grant initial channel-operator authority.
