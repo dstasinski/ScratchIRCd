@@ -183,7 +183,7 @@ def main():
                 # A separate client must remain responsive while another
                 # client's socket and bounded output queue are saturated.
                 observer.send(f"PING :pressure-{batch_index}")
-                observer.expect(f"PONG test.local ::pressure-{batch_index}")
+                observer.expect(f"PONG test.local :pressure-{batch_index}")
                 time.sleep(0.1)
                 if not is_online(observer, "Slow"):
                     slow_disconnected = True
@@ -197,7 +197,7 @@ def main():
             # been dropped. Use the same finite five-second write allowance as
             # the pressure batches instead of the normal 200 ms probe timeout.
             sender.send_lines(["PING :sender-alive"])
-            sender.expect("PONG test.local ::sender-alive")
+            sender.expect("PONG test.local :sender-alive")
 
             # The disconnected client's slot and nickname index must both be
             # reclaimed rather than leaking capacity or stale identity state.
@@ -205,7 +205,7 @@ def main():
             clients.append(replacement)
             register(replacement, "Slow")
             replacement.send("PING :replacement")
-            replacement.expect("PONG test.local ::replacement")
+            replacement.expect("PONG test.local :replacement")
         finally:
             for client in clients:
                 client.close()
