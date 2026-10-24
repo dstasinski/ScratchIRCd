@@ -291,10 +291,10 @@ def main():
                 client.send("WATCH " + " ".join("+" + name for name in batch))
                 marker = f"watch-add-{batch_index}"
                 client.send(f"PING :{marker}")
-                client.collect_until(f"PONG {server_name} ::{marker}")
+                client.collect_until(f"PONG {server_name} :{marker}")
             client.send("WATCH")
             client.send("PING :watch-list-done")
-            lines = client.collect_until(f"PONG {server_name} ::watch-list-done")
+            lines = client.collect_until(f"PONG {server_name} :watch-list-done")
             assert_wire_safe(lines)
             watch_rows = [line for line in lines if " 606 alice :" in line]
             assert len(watch_rows) >= 2, lines
@@ -317,7 +317,7 @@ def main():
                 ison_names.append(nick)
             client.send("ISON " + " ".join(ison_names))
             client.send("PING :ison-done")
-            lines = client.collect_until(f"PONG {server_name} ::ison-done")
+            lines = client.collect_until(f"PONG {server_name} :ison-done")
             assert_wire_safe(lines)
             ison_rows = [line for line in lines if " 303 alice :" in line]
             assert len(ison_rows) >= 2, lines
