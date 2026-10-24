@@ -108,7 +108,7 @@ def main():
             wait_listen(port,proc);c=IRC(port)
             c.send("NICK NoMotd");c.send("USER nomotd 0 * :No MOTD")
             got=c.expect(" 422 NoMotd ");assert any(" 001 NoMotd " in x for x in got),got
-            c.send("PING :after-422");c.expect("PONG test.local ::after-422")
+            c.send("PING :after-422");c.expect("PONG test.local :after-422")
         finally:
             if c:c.close()
             stop(proc)
