@@ -163,15 +163,15 @@ def main():
             packed = (b"\r\n" * 300) + b"PING :packed-tail\r\n"
             started = time.monotonic()
             c.send_bytes(packed)
-            c.expect("PONG test.local ::packed-tail", duration=2.0)
+            c.expect("PONG test.local :packed-tail", duration=2.0)
             assert time.monotonic() - started < 1.5, "buffered line batches stalled between poll turns"
 
             # A maximum-size legal PING may need a shorter PONG because the
             # server adds its own prefix. The reply must still be emitted and
             # remain within the 510-octet IRC content envelope.
             c.send_bytes(b"PING :" + (b"x" * 504) + b"\r\n")
-            pong_lines = c.expect("PONG test.local ::")
-            pong = next(line for line in pong_lines if "PONG test.local ::" in line)
+            pong_lines = c.expect("PONG test.local :")
+            pong = next(line for line in pong_lines if "PONG test.local :" in line)
             assert len(pong.encode()) <= 510, (len(pong.encode()), pong)
             assert pong.endswith("x" * 480), pong
 
