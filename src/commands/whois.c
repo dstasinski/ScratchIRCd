@@ -88,42 +88,42 @@ static void send_whois_geoip(Server *server,Client *client,const Client *target)
     geoip=&target->geoip;
 
     if(geoip->country_name[0]!='\0'&&geoip->country_code[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Country: %s (%s)",geoip->country_name,geoip->country_code);
+        (void)snprintf(text,sizeof(text),"%s (%s)",geoip->country_name,geoip->country_code);
     else if(geoip->country_name[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Country: %s",geoip->country_name);
+        (void)snprintf(text,sizeof(text),"%s",geoip->country_name);
     else if(geoip->country_code[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Country: %s",geoip->country_code);
+        (void)snprintf(text,sizeof(text),"%s",geoip->country_code);
     else text[0]='\0';
-    if(text[0]!='\0')client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        if(text[0]!='\0')client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/country", "*", text);
 
     if(geoip->region_name[0]!='\0'&&geoip->region_code[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Region: %s (%s)",geoip->region_name,geoip->region_code);
+        (void)snprintf(text,sizeof(text),"%s (%s)",geoip->region_name,geoip->region_code);
     else if(geoip->region_name[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Region: %s",geoip->region_name);
+        (void)snprintf(text,sizeof(text),"%s",geoip->region_name);
     else if(geoip->region_code[0]!='\0')
-        (void)snprintf(text,sizeof(text),"GeoIP Region: %s",geoip->region_code);
+        (void)snprintf(text,sizeof(text),"%s",geoip->region_code);
     else text[0]='\0';
-    if(text[0]!='\0')client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        if(text[0]!='\0')client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/region", "*", text);
 
     if(geoip->city[0]!='\0'){
         (void)snprintf(text,sizeof(text),"GeoIP City: %s",geoip->city);
-        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/city", "*", text);
     }
     if(geoip->continent_code[0]!='\0'){
         (void)snprintf(text,sizeof(text),"GeoIP Continent: %s",geoip->continent_code);
-        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/continent", "*", text);
     }
     if(geoip->network[0]!='\0'){
         (void)snprintf(text,sizeof(text),"GeoIP Network: %s",geoip->network);
-        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/network", "*", text);
     }
     if(geoip->asn!=0U){
         (void)snprintf(text,sizeof(text),"GeoIP ASN: AS%u",(unsigned)geoip->asn);
-        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/asn", "*", text);
     }
     if(geoip->organization[0]!='\0'){
         (void)snprintf(text,sizeof(text),"GeoIP Organization: %s",geoip->organization);
-        client_sendf(client,RPL_WHOISSPECIAL,server->config.server_name,client->nick,target->nick,text);
+        client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,client->nick,target->nick,"geo/organization", "*", text);
     }
 }
 

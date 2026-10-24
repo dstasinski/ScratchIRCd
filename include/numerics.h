@@ -245,6 +245,7 @@
 #define RPL_WHOISSECURE  ":%s 671 %s %s :%s"
 #define RPL_WHOISVERSION  ":%s 672 %s %s :%s"
 #define RPL_WHOISWEBSITE  ":%s 673 %s %s :%s"
+#define RPL_WHOISKEYVALUE  ":%s 760 %s %s %s %s :%s"
 #define RPL_LOGGEDIN ":%s 900 %s %s!%s@%s %s :You are now logged in as %s"
 #define RPL_LOGGEDOUT ":%s 901 %s %s!%s@%s :You are now logged out"
 #define ERR_NICKLOCKED ":%s 902 %s :You must use a nick assigned to you"
