@@ -73,6 +73,18 @@ def main():
             assert nums.index("001")<nums.index("005")<nums.index("375")<nums.index("372")<nums.index("376"),nums
             assert any("Registration test MOTD" in x for x in welcome),welcome
 
+            # Repeating the exact current nick must not emit a NICK event,
+            # an error numeric, or WATCH offline/online notifications.
+            first.lines(.2)
+            first.send("NICK First[")
+            unchanged = first.lines(.4)
+            assert not any(" NICK " in line or " 433 " in line or
+                           " 437 " in line or " 432 " in line or
+                           " 600 " in line or " 601 " in line
+                           for line in unchanged), unchanged
+            first.send("PING :same-nick-alive")
+            first.expect("PONG test.local :same-nick-alive")
+
             before=IRC(port);clients.append(before)
             before.send("USER before 0 * :Before Nick");before.send("NICK BeforeNick")
             before.expect(" 376 BeforeNick ")
