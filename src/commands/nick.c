@@ -47,6 +47,9 @@ CommandResult command_nick(Server *server, Client *client, char *params) {
     if (params == NULL || *params == '\0') { client_sendf(client, ERR_NONICKNAMEGIVEN, server->config.server_name, command_reply_nick(client)); return COMMAND_KEEP_CLIENT; }
     params[strcspn(params, " ")] = '\0';
     if (!valid_nickname(params)) { client_sendf(client, ERR_ERRONEUSNICKNAME, server->config.server_name, command_reply_nick(client), params); return COMMAND_KEEP_CLIENT; }
+    /* An identical nickname is a no-op, not a collision or a nick change. */
+    if (client->nick[0] != '\0' && strcmp(client->nick, params) == 0)
+        return COMMAND_KEEP_CLIENT;
     if (service_nickname_reserved(params) || (nickserv_config_reserved_nickname(server, params) && !nickserv_reserved_nickname_allowed(client))) { client_sendf(client, ERR_RESERVEDNICK, server->config.server_name, command_reply_nick(client), params); return COMMAND_KEEP_CLIENT; }
     existing = hash_get(&server->clients_by_nick, params);
     if (existing != NULL && existing != client) { client_sendf(client, ERR_NICKNAMEINUSE, server->config.server_name, command_reply_nick(client), params); return COMMAND_KEEP_CLIENT; }
