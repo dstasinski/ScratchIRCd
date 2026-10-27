@@ -212,12 +212,13 @@ static void join_one(Server *server, Client *client, const char *name,
     command_send_names(server, channel, client);
 }
 
+/* Walk comma-separated channel names without losing positional JOIN keys. */
 CommandResult command_join(Server *server, Client *client, char *params) {
-    char *name;
-    char *key;
+    char *names, *keys, *name, *key;
+    char *next_name, *next_key;
 
     if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
-    if (params == NULL) {
+    if (params == NULL || *params == '\0') {
         client_sendf(client, ERR_NEEDMOREPARAMS,
                      server->config.server_name, client->nick, "JOIN");
         return COMMAND_KEEP_CLIENT;
@@ -229,44 +230,42 @@ CommandResult command_join(Server *server, Client *client, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
 
-    name = strtok(params, " ");
-    key = strtok(NULL, " ");
-    join_one(server, client, name, key, 0U);
+    names = strtok(params, " ");
+    keys = strtok(NULL, " ");
+    if (names == NULL) return COMMAND_KEEP_CLIENT;
+    name = names;
+    key = keys;
+    while (name != NULL) {
+        next_name = strchr(name, ',');
+        if (next_name != NULL) *next_name++ = '\0';
+        next_key = key != NULL ? strchr(key, ',') : NULL;
+        if (next_key != NULL) *next_key++ = '\0';
+        if (*name != '\0') join_one(server, client, name, key, 0U);
+        name = next_name;
+        key = next_key;
+    }
     return COMMAND_KEEP_CLIENT;
 }
 
-CommandResult command_part(Server *server, Client *client, char *params) {
-    char *name;
-    char *reason;
+static void part_one(Server *server, Client *client, const char *name,
+                     const char *reason) {
     const char *delivered_reason;
     Channel *channel;
     char message[IRCD_MESSAGE_BUFFER_SIZE];
-
-    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
-    if (params == NULL) {
-        client_sendf(client, ERR_NEEDMOREPARAMS,
-                     server->config.server_name, client->nick, "PART");
-        return COMMAND_KEEP_CLIENT;
-    }
-
-    name = strtok(params, " ");
-    reason = strtok(NULL, "");
-    if (reason != NULL && *reason == ':') ++reason;
-
     if (!channel_name_valid(name)) {
         send_no_such_channel_query(server, client, name);
-        return COMMAND_KEEP_CLIENT;
+        return;
     }
     channel = hash_get(&server->channels_by_name, name);
     if (channel == NULL) {
         client_sendf(client, ERR_NOSUCHCHANNEL,
                      server->config.server_name, client->nick, name);
-        return COMMAND_KEEP_CLIENT;
+        return;
     }
     if (!channel_has_client(channel, client)) {
         client_sendf(client, ERR_NOTONCHANNEL,
                      server->config.server_name, client->nick, channel->name);
-        return COMMAND_KEEP_CLIENT;
+        return;
     }
 
     delivered_reason = reason != NULL && *reason != '\0'
@@ -282,5 +281,23 @@ CommandResult command_part(Server *server, Client *client, char *params) {
     channel_broadcast(channel, NULL, message);
     channel_remove_client(channel, client);
     server_remove_channel_if_empty(server, channel);
+}
+
+CommandResult command_part(Server *server, Client *client, char *params) {
+    char *names, *reason, *name, *next;
+    if (command_require_registered(client)) return COMMAND_KEEP_CLIENT;
+    if (params == NULL || *params == '\0') {
+        client_sendf(client, ERR_NEEDMOREPARAMS,
+                     server->config.server_name, client->nick, "PART");
+        return COMMAND_KEEP_CLIENT;
+    }
+    names = strtok(params, " ");
+    reason = strtok(NULL, "");
+    if (reason != NULL && *reason == ':') ++reason;
+    for (name = names; name != NULL; name = next) {
+        next = strchr(name, ',');
+        if (next != NULL) *next++ = '\0';
+        if (*name != '\0') part_one(server, client, name, reason);
+    }
     return COMMAND_KEEP_CLIENT;
 }
