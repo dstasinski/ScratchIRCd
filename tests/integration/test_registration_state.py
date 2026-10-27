@@ -85,6 +85,15 @@ def main():
             first.send("PING :same-nick-alive")
             first.expect("PONG test.local :same-nick-alive")
 
+            # JOIN/PART accept comma-separated channels, not space-separated targets.
+            first.send("JOIN #multi-one,#multi-two")
+            joined = first.expect(" 366 First[ #multi-two ")
+            assert any(" JOIN #multi-one" in line for line in joined), joined
+            assert any(" JOIN #multi-two" in line for line in joined), joined
+            first.send("PART #multi-one,#multi-two :Leaving both")
+            parted = first.expect(" PART #multi-two :Leaving both")
+            assert any(" PART #multi-one :Leaving both" in line for line in parted), parted
+
             before=IRC(port);clients.append(before)
             before.send("USER before 0 * :Before Nick");before.send("NICK BeforeNick")
             before.expect(" 376 BeforeNick ")
