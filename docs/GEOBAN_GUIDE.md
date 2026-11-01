@@ -96,3 +96,25 @@ The lookup source distinguishes IP2Location from GeoLite2 when the MMDB
 metadata database type identifies the IP2Location provider. No external
 IP2Location API is used. Proprietary IP2Location BIN databases are not
 supported by these MMDB settings.
+
+## Simultaneous MaxMind and IP2Location lookups
+
+Both providers can be configured at once:
+
+```ini
+geoip_city_db = /usr/share/GeoIP/GeoLite2-City.mmdb
+geoip_asn_db = /usr/share/GeoIP/GeoLite2-ASN.mmdb
+ip2location_city_db = /usr/share/GeoIP/IP2LOCATION-LITE-DB11.MMDB
+ip2location_asn_db = /usr/share/GeoIP/IP2LOCATION-LITE-ASN.MMDB
+geoip_preferred_provider = maxmind
+```
+
+Set `geoip_preferred_provider = ip2location` to reverse precedence.
+For country, region, city, ASN, and organization, the preferred provider's
+nonempty value wins. Missing values fall back to the other provider. GeoBAN
+uses the merged values, not both providers' conflicting values. The client
+GeoIP record also retains per-field provider labels for diagnostics.
+Missing optional files are nonfatal. No BIN-format files are supported.
+
+IP2Location LITE attribution: This product includes IP2Location LITE data
+available from https://lite.ip2location.com.
