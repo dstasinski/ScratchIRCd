@@ -75,6 +75,9 @@ typedef struct ServerConfig {
 
     char geoip_city_db[IRCD_CONFIG_PATH_MAX + 1U];
     char geoip_asn_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char ip2location_city_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char ip2location_asn_db[IRCD_CONFIG_PATH_MAX + 1U];
+    char geoip_preferred_provider[16];
     char server_password[IRCD_SERVER_PASSWORD_MAX + 1U];
     char motd_file[IRCD_CONFIG_PATH_MAX + 1U];
     char rules_file[IRCD_CONFIG_PATH_MAX + 1U];
