@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-int main(void) {
+int main(int argc, char **argv) {
     GeoIPContext context;
     ClientGeoIP geo;
 
@@ -16,6 +16,26 @@ int main(void) {
     assert(geo.network[0] == '\0');
     assert(geo.source[0] == '\0');
     assert(geo.asn == 0U);
+
+    /* Optional real-database compatibility check. The ordinary unit test
+     * remains fixture-free; supply City and ASN MMDB paths to validate an
+     * installed IP2Location LITE or MaxMind GeoLite2 database pair. */
+    if (argc == 3) {
+        assert(geoip_init(&context, argv[1], argv[2]) == 0);
+        assert(context.city_open && context.asn_open);
+        geoip_lookup(&context, "8.8.8.8", &geo);
+        assert(strcmp(geo.status, "ok") == 0);
+        assert(geo.country_code[0] != '\0');
+        assert(geo.country_name[0] != '\0');
+        assert(geo.asn != 0U);
+        assert(geo.organization[0] != '\0');
+        assert(geo.source[0] != '\0');
+        geoip_destroy(&context);
+        puts("GeoIP City/ASN MMDB compatibility test passed");
+    } else if (argc != 1) {
+        fprintf(stderr, "usage: %s [city.mmdb asn.mmdb]\\n", argv[0]);
+        return 2;
+    }
 
     puts("GeoIP unavailable-state test passed");
     return 0;
