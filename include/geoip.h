@@ -21,6 +21,11 @@ typedef struct ClientGeoIP {
     char ip[IRC_IP_MAX + 1U];
     char network[IRCD_GEOIP_NETWORK_MAX + 1U];
     char source[IRCD_GEOIP_SOURCE_MAX + 1U];
+    char country_source[16];
+    char region_source[16];
+    char city_source[16];
+    char asn_source[16];
+    char organization_source[16];
     char continent_code[IRCD_GEOIP_CODE_MAX + 1U];
     char country_code[IRCD_GEOIP_CODE_MAX + 1U];
     char country_name[IRCD_GEOIP_NAME_MAX + 1U];
@@ -37,12 +42,21 @@ typedef struct GeoIPContext {
     MMDB_s asn;
     int city_open;
     int asn_open;
+    MMDB_s ip2location_city;
+    MMDB_s ip2location_asn;
+    int ip2location_city_open;
+    int ip2location_asn_open;
+    int prefer_ip2location;
 } GeoIPContext;
 
 /** Open whichever configured databases are available. Missing files are non-fatal. */
 int geoip_init(GeoIPContext *context, const char *city_path, const char *asn_path);
 
 /** Close all opened MMDB mappings. */
+int geoip_init_dual(GeoIPContext *context, const char *city_path,
+                    const char *asn_path, const char *ip2_city_path,
+                    const char *ip2_asn_path, const char *preferred_provider);
+
 void geoip_destroy(GeoIPContext *context);
 
 /** Populate one ClientGeoIP record from a finalized numeric IP address. */
