@@ -74,6 +74,9 @@ dnsbl_timeout_seconds = 5
 
 geoip_city_db = data/GeoLite2-City.mmdb
 geoip_asn_db = data/GeoLite2-ASN.mmdb
+ip2location_city_db = 
+ip2location_asn_db = 
+geoip_preferred_provider = maxmind
 
 server_password =
 motd_file = motd.txt
