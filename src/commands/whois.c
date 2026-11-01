@@ -86,12 +86,6 @@ static void send_whois_geoip(Server *server,Client *client,const Client *target)
     const ClientGeoIP *geoip;
     if(server==NULL||client==NULL||target==NULL||!target->geoip_complete)return;
     geoip=&target->geoip;
-    /* Operators need visibility into empty lookups as well as successful ones. */
-    (void)snprintf(text,sizeof(text),"GeoIP status: %s (source: %s)",
-                   geoip->status[0] ? geoip->status : "unknown",
-                   geoip->source[0] ? geoip->source : "none");
-    client_sendf(client,RPL_WHOISKEYVALUE,server->config.server_name,
-                 client->nick,target->nick,"geo/status","*",text);
 
     if(geoip->country_name[0]!='\0'&&geoip->country_code[0]!='\0')
         (void)snprintf(text,sizeof(text),"%s (%s)",geoip->country_name,geoip->country_code);
