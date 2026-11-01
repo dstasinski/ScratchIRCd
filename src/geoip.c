@@ -119,6 +119,17 @@ static void network_string(const char *ip, uint16_t raw_prefix,
     }
 }
 
+/* IP2Location's GeoLite2-compatible MMDB files share the lookup schema,
+ * but should not be reported as MaxMind data. */
+static const char *geoip_provider(const MMDB_s *db) {
+    const char *type = db->metadata.database_type;
+    if (type != NULL && (strstr(type, "IP2Location") != NULL ||
+                         strstr(type, "IP2LOCATION") != NULL ||
+                         strstr(type, "ip2location") != NULL))
+        return "IP2Location";
+    return "GeoLite2";
+}
+
 int geoip_init(GeoIPContext *context, const char *city_path, const char *asn_path) {
     int city_rc = MMDB_FILE_OPEN_ERROR;
     int asn_rc = MMDB_FILE_OPEN_ERROR;
@@ -233,13 +244,17 @@ void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *resu
         }
     }
 
-    if (city_found && asn_found)
+    if (city_found && asn_found) {
+        const char *city_provider = geoip_provider(&context->city);
+        const char *asn_provider = geoip_provider(&context->asn);
         (void)snprintf(result->source, sizeof(result->source),
-                       "GeoLite2-City+GeoLite2-ASN");
-    else if (city_found)
-        (void)snprintf(result->source, sizeof(result->source), "GeoLite2-City");
+                       "%s-City+%s-ASN", city_provider, asn_provider);
+    } else if (city_found)
+        (void)snprintf(result->source, sizeof(result->source), "%s-City",
+                       geoip_provider(&context->city));
     else if (asn_found)
-        (void)snprintf(result->source, sizeof(result->source), "GeoLite2-ASN");
+        (void)snprintf(result->source, sizeof(result->source), "%s-ASN",
+                       geoip_provider(&context->asn));
 
     if (city_found || asn_found)
         (void)snprintf(result->status, sizeof(result->status), "ok");
