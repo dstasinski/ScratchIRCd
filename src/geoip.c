@@ -119,17 +119,6 @@ static void network_string(const char *ip, uint16_t raw_prefix,
     }
 }
 
-/* IP2Location's GeoLite2-compatible MMDB files share the lookup schema,
- * but should not be reported as MaxMind data. */
-static const char *geoip_provider(const MMDB_s *db) {
-    const char *type = db->metadata.database_type;
-    if (type != NULL && (strstr(type, "IP2Location") != NULL ||
-                         strstr(type, "IP2LOCATION") != NULL ||
-                         strstr(type, "ip2location") != NULL))
-        return "IP2Location";
-    return "GeoLite2";
-}
-
 static void open_database(MMDB_s *db, int *opened, const char *path) {
     int rc;
     if (path == NULL || *path == '\0') return;
@@ -277,7 +266,9 @@ void geoip_lookup(const GeoIPContext *context, const char *ip, ClientGeoIP *resu
     if (city_found || asn_found || ip2_city_found || ip2_asn_found) {
         (void)snprintf(result->status, sizeof(result->status), "ok");
         (void)snprintf(result->source, sizeof(result->source), "%s",
-                       context->prefer_ip2location ? "IP2Location+MaxMind" : "MaxMind+IP2Location");
+                       (city_found || asn_found) && (ip2_city_found || ip2_asn_found)
+                           ? (context->prefer_ip2location ? "IP2Location+MaxMind" : "MaxMind+IP2Location")
+                           : (ip2_city_found || ip2_asn_found) ? "IP2Location" : "MaxMind");
     } else
         (void)snprintf(result->status, sizeof(result->status), "%s",
                        error ? "error" : "not_found");
