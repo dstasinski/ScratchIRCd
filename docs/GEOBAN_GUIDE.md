@@ -76,3 +76,23 @@ GeoIP enrichment is completed from the finalized `Client.real_ip` before GeoBAN 
 A matching GeoBAN is checked before registration completes. The client receives the normal banned-client numeric and is disconnected using the policy reason. Adding a new policy also disconnects already-registered matching clients, except the operator who is setting the policy.
 
 GeoBAN does not inspect or modify `display_host`, KLINE masks, ZLINE masks, channel bans, cloaks, or vhosts.
+
+## IP2Location MMDB compatibility
+
+ScratchIRCd reads MMDB databases through libmaxminddb. The existing
+`geoip_city_db` and `geoip_asn_db` paths can point to IP2Location MMDB
+files that use the GeoLite2-compatible City/Country and ASN field layouts.
+For example:
+
+```ini
+geoip_city_db = /usr/share/GeoIP/IP2LOCATION-LITE-DB11.MMDB
+geoip_asn_db = /usr/share/GeoIP/IP2LOCATION-LITE-ASN.MMDB
+```
+
+Country-only MMDB data can supply country fields but not city or region.
+Database contents determine which GeoBAN attributes are available. A missing
+ASN database does not magically provide ASN/organization information.
+The lookup source distinguishes IP2Location from GeoLite2 when the MMDB
+metadata database type identifies the IP2Location provider. No external
+IP2Location API is used. Proprietary IP2Location BIN databases are not
+supported by these MMDB settings.
