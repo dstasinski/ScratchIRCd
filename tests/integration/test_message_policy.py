@@ -171,10 +171,14 @@ def main():
             user.send("NOTICE Admin :")
             admin.expect_not("NOTICE Admin :")
 
-            # Channel creation uses one shared syntax validator. Comma/colon
-            # names must not create partial or malformed channels.
+            # JOIN uses comma-separated channel targets. A valid first
+            # target joins; an invalid second target receives its own error.
             user.send("JOIN #bad,name")
-            user.expect(" 403 User #bad,name ")
+            user.expect(" JOIN #bad")
+            user.expect(" 403 User name ")
+            user.send("PART #bad :Cleanup")
+            user.expect(" PART #bad :Cleanup")
+            # Colon and empty channel names remain invalid.
             user.send("JOIN #bad:name")
             user.expect(" 403 User #bad:name ")
             user.send("JOIN #")
