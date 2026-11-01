@@ -93,6 +93,8 @@ void runtime_config_defaults(ServerConfig *config) {
                      IRCD_DEFAULT_GEOIP_CITY_DB);
     (void)copy_value(config->geoip_asn_db, sizeof(config->geoip_asn_db),
                      IRCD_DEFAULT_GEOIP_ASN_DB);
+    (void)copy_value(config->geoip_preferred_provider,
+                     sizeof(config->geoip_preferred_provider), "maxmind");
     (void)copy_value(config->sendmail_path, sizeof(config->sendmail_path),
                      IRCD_DEFAULT_SENDMAIL_PATH);
     (void)copy_value(config->netadmin_hostmask, sizeof(config->netadmin_hostmask), "*!*@*");
@@ -302,6 +304,9 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     STRING_OPTION("tls_key_file", tls_key_file);
     STRING_OPTION("geoip_city_db", geoip_city_db);
     STRING_OPTION("geoip_asn_db", geoip_asn_db);
+    STRING_OPTION("ip2location_city_db", ip2location_city_db);
+    STRING_OPTION("ip2location_asn_db", ip2location_asn_db);
+    STRING_OPTION("geoip_preferred_provider", geoip_preferred_provider);
     STRING_OPTION("server_password", server_password);
     STRING_OPTION("motd_file", motd_file);
     STRING_OPTION("rules_file", rules_file);
