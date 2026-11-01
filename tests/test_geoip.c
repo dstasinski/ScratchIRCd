@@ -37,6 +37,18 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    /* Both provider orders must work with no configured MMDB files. */
+    assert(geoip_init_dual(&context, NULL, NULL, NULL, NULL, "maxmind") == 0);
+    assert(context.prefer_ip2location == 0);
+    geoip_lookup(&context, "203.0.113.42", &geo);
+    assert(strcmp(geo.status, "unavailable") == 0);
+    geoip_destroy(&context);
+    assert(geoip_init_dual(&context, NULL, NULL, NULL, NULL, "ip2location") == 0);
+    assert(context.prefer_ip2location == 1);
+    geoip_lookup(&context, "203.0.113.42", &geo);
+    assert(strcmp(geo.status, "unavailable") == 0);
+    geoip_destroy(&context);
+
     puts("GeoIP unavailable-state test passed");
     return 0;
 }
