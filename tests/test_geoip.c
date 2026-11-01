@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
         geoip_destroy(&context);
         puts("GeoIP City/ASN MMDB compatibility test passed");
     } else if (argc != 1) {
-        fprintf(stderr, "usage: %s [city.mmdb asn.mmdb]\\n", argv[0]);
+        fprintf(stderr, "usage: %s [city.mmdb asn.mmdb]\n", argv[0]);
         return 2;
     }
 
