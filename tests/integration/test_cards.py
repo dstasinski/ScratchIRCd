@@ -148,6 +148,15 @@ def main():
             alice.send("CARDS REQUEST #cards 2")
             dealer.expect("Alice requests 2 card(s)")
             alice.expect("Request sent to dealer")
+            # Malformed requests and rank questions must be rejected
+            # without drawing cards or creating a hand.
+            for bad_count in ("0", "-1", "325", "2x"):
+                alice.send("CARDS REQUEST #cards " + bad_count)
+                alice.expect("Usage: CARDS REQUEST")
+            for bad_rank in ("1", "10", "Z"):
+                alice.send("CARDS ASK #cards Bob " + bad_rank)
+                alice.expect("Usage: CARDS ASK")
+
             alice.send("CARDS ASK #cards Alice 7")
             alice.expect("You cannot ask yourself for cards")
             alice.send("CARDS ASK #cards Bob j")
