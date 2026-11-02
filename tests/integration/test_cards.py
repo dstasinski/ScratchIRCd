@@ -215,6 +215,13 @@ def main():
             dealer.expect("deck: 52 remaining")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
+            # Optional deck count really is optional with JOKERS.
+            dealer.send("CARDS NEW #cards JOKERS")
+            for peer in peers: peer.expect("opened a 1-deck table (54 cards)")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 54 remaining")
+            dealer.send("CARDS END #cards")
+            for peer in peers: peer.expect("closed the card table")
             assert proc.poll() is None
         finally:
             for peer in peers: peer.close()
