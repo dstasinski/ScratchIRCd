@@ -419,17 +419,18 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             error(s, c, "Your hand is empty");
             return COMMAND_KEEP_CLIENT;
         }
-        line[0] = '\0';
+        used = (size_t)snprintf(line, sizeof(line), "%s revealed:", c->nick);
+        if (used >= sizeof(line)) { error(s, c, "Nickname too long"); return COMMAND_KEEP_CLIENT; }
         for (i = 0U; i < p->count; ++i) {
             char code[3];
             int written;
             card_code(p->hand[i], code);
             written = snprintf(line + used, sizeof(line) - used,
-                               "%s%s", used ? " " : "", code);
+                               " %s", code);
             if (written < 0 || (size_t)written >= sizeof(line) - used) {
                 broadcast(s, channel, "REVEAL", line);
-                used = 0U;
-                written = snprintf(line, sizeof(line), "%s", code);
+                used = (size_t)snprintf(line, sizeof(line), "%s revealed:", c->nick);
+                written = snprintf(line + used, sizeof(line) - used, " %s", code);
             }
             used += (size_t)written;
         }
