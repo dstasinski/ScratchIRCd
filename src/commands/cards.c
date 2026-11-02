@@ -203,7 +203,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         return COMMAND_KEEP_CLIENT;
     }
     if (t == NULL) { error(s, c, "No active card table in this channel"); return COMMAND_KEEP_CLIENT; }
-    if (strcasecmp(args[0], "REQUEST") == 0 || strcasecmp(args[0], "ASK") == 0) {
+    if (strcasecmp(args[0], "REQUEST") == 0) {
         Client *dealer;
         if (argc != 3U || !parse_count(args[2], CARD_TOTAL_MAX, &n)) {
             error(s, c, "Usage: CARDS REQUEST #channel <count>"); return COMMAND_KEEP_CLIENT;
@@ -213,6 +213,25 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         (void)snprintf(message, sizeof(message), "%s requests %u card(s)", c->nick, n);
         reply(s, dealer, channel->name, "REQUEST", message);
         reply(s, c, channel->name, "REQUEST", "Request sent to dealer; no cards drawn");
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "ASK") == 0) {
+        Client *target;
+        const char *rank;
+        if (argc != 4U || strlen(args[3]) != 1U ||
+            strchr("A23456789TJQK", args[3][0]) == NULL) {
+            error(s, c, "Usage: CARDS ASK #channel <nick> <rank:A,2-9,T,J,Q,K>");
+            return COMMAND_KEEP_CLIENT;
+        }
+        target = hash_get(&s->clients_by_nick, args[2]);
+        if (target == NULL || !target->registered || !has_room(channel, target)) {
+            error(s, c, "Target must be an online member of this channel");
+            return COMMAND_KEEP_CLIENT;
+        }
+        rank = args[3];
+        (void)snprintf(message, sizeof(message), "%s asks %s for rank %s",
+                       c->nick, target->nick, rank);
+        broadcast(s, channel, "ASK", message);
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(args[0], "DEAL") == 0) {
