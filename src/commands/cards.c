@@ -399,7 +399,13 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         }
         recipient = player_find(t, target->id, 1);
         recipient->hand[recipient->count++] = card;
-        reply(s, target, channel->name, "GIVE", args[3]);
+        /* Report the actual card in canonical uppercase, regardless of
+           how the sender typed its code. */
+        {
+            char code[3];
+            card_code(card, code);
+            reply(s, target, channel->name, "GIVE", code);
+        }
         (void)snprintf(message, sizeof(message), "%s gave 1 card to %s",
                        c->nick, target->nick);
         broadcast(s, channel, "GIVE", message);
