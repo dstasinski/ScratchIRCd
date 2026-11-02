@@ -106,6 +106,8 @@ def main():
             alice.expect("Request sent to dealer")
             alice.send("CARDS ASK #cards Alice 7")
             alice.expect("You cannot ask yourself for cards")
+            alice.send("CARDS ASK #cards Bob j")
+            for peer in peers: peer.expect("asks Bob for rank J")
             alice.send("CARDS ASK #cards Bob 7")
             for peer in peers: peer.expect("asks Bob for rank 7")
             dealer.send("CARDS DEAL #cards Alice 5")
