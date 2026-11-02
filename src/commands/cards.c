@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #define CARD_TABLE_LIMIT 32U
@@ -120,7 +121,7 @@ static int has_room(Channel *channel, Client *c) {
     return channel_has_client(channel, c);
 }
 static void hand_send(Server *s, Client *c, CardTable *t, CardPlayer *p) {
-    char message[IRCD_MESSAGE_BUFFER_SIZE];
+    char message[1024];
     unsigned int i;
     size_t used = 0U;
     message[0] = '\0';
@@ -270,8 +271,8 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         --p->count;
         memmove(&p->hand[i], &p->hand[i+1U], (p->count - i) * sizeof(p->hand[0]));
         if (is_play) ++t->played; else ++t->discarded;
-        (void)snprintf(message, sizeof(message), is_play ? "%s played %s" : "%s discarded 1 card",
-                       c->nick, code);
+        if (is_play) (void)snprintf(message, sizeof(message), "%s played %s", c->nick, code);
+        else (void)snprintf(message, sizeof(message), "%s discarded 1 card", c->nick);
         broadcast(s, channel, is_play ? "PLAY" : "DISCARD", message);
         return COMMAND_KEEP_CLIENT;
     }
