@@ -279,6 +279,10 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             error(s, c, "Target must be an online member of this channel");
             return COMMAND_KEEP_CLIENT;
         }
+        if (target->id == c->id) {
+            error(s, c, "You cannot ask yourself for cards");
+            return COMMAND_KEEP_CLIENT;
+        }
         rank = args[3];
         (void)snprintf(message, sizeof(message), "%s asks %s for rank %s",
                        c->nick, target->nick, rank);
