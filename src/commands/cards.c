@@ -233,10 +233,20 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
     t = table_find(channel->name);
     if (strcasecmp(args[0], "NEW") == 0) {
         unsigned int decks = 1U;
-        int jokers = argc >= 4U && strcasecmp(args[3], "JOKERS") == 0;
-        if (argc > 4U || (argc == 4U && !jokers) ||
-            (argc >= 3U && !parse_count(args[2], CARD_DECK_LIMIT, &decks))) {
-            error(s, c, "Usage: CARDS NEW #channel [decks:1-6] [JOKERS]"); return COMMAND_KEEP_CLIENT;
+        int jokers = 0;
+        if (argc == 3U && strcasecmp(args[2], "JOKERS") == 0)
+            jokers = 1;
+        else if (argc >= 3U) {
+            if (!parse_count(args[2], CARD_DECK_LIMIT, &decks)) {
+                error(s, c, "Usage: CARDS NEW #channel [decks:1-6] [JOKERS]");
+                return COMMAND_KEEP_CLIENT;
+            }
+            if (argc == 4U && strcasecmp(args[3], "JOKERS") == 0)
+                jokers = 1;
+            else if (argc > 3U) {
+                error(s, c, "Usage: CARDS NEW #channel [decks:1-6] [JOKERS]");
+                return COMMAND_KEEP_CLIENT;
+            }
         }
         if (t != NULL) { error(s, c, "A deck already exists; use END first"); return COMMAND_KEEP_CLIENT; }
         for (i = 0U; i < CARD_TABLE_LIMIT && tables[i].active; ++i) {}
