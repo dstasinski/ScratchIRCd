@@ -101,7 +101,8 @@ def main():
             # Card-table operations require channel membership, even when
             # a table already exists. A fourth registered client is not joined.
             outsider = Peer(port, "Outsider")
-            peers.append(outsider)
+            # Keep it in cleanup without treating it as a channel member.
+            # Channel broadcasts below iterate only over `peers`.
             outsider.send("CARDS STATUS #cards")
             outsider.expect(" 442 Outsider #cards ")
             outsider.send("CARDS HAND #cards")
@@ -331,6 +332,7 @@ def main():
             assert proc.poll() is None
         finally:
             for peer in peers: peer.close()
+            if "outsider" in locals(): outsider.close()
             if proc.poll() is None:
                 proc.terminate()
                 try: proc.wait(timeout=3)
