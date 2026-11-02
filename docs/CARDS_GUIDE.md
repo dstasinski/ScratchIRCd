@@ -100,23 +100,18 @@ must enforce turn order, scoring, legal moves, and winners. Commands marked
 | Hand and Foot | Often 5 decks plus jokers; commonly 4 players | NEW #Main 5 JOKERS, DEAL large hands, MELD, DISCARD | Needs separate hand/foot ownership, named melds, and pile pickup |
 | Double-Deck Pinochle | 80-card specialized deck; commonly 4 players | Play tricks and melds with multiple copies of each rank/suit | NEW currently builds full 52-card decks; needs custom rank-filtered decks (A,T,K,Q,J with four copies per suit) |
 
-### Suggested future generic operations
+### Scope of future development
 
-- **Named melds:** preserve distinct public meld groups and their owners,
-  allow adding cards to an existing meld, and inspect each meld separately.
-- **Whole discard-pile pickup:** take the complete discard pile in one
-  atomic operation when the game's rules allow it.
-- **Multiple hands/piles per player:** support Hand and Foot, War, and
-  other games that distinguish active hands from reserves or won piles.
-- **Custom deck composition:** select ranks, suits, omitted cards,
-  joker counts, and larger deck limits for Pinochle and other variants.
-- **Random concealed transfer:** support Old Maid without revealing
-  the selected card to the requesting player in advance.
-- **Trick and turn support:** group played cards into tricks, assign
-  trick winners, optionally manage player turns and teams.
-- **Optional scoring and rule modules:** keep the generic card-table
-  service independent from individual games while allowing future
-  rules-aware extensions.
+The goal is casual card play among IRC channel members, with a human
+dealer and players agreeing on the rules. This is **not** intended to
+be a gambling platform or a comprehensive rules engine. Priorities are
+simple commands, private hands, reliable card accounting, and familiar
+games that work naturally with the existing operations.
+
+Game-specific automation, betting, scoring, custom deck formats, and
+advanced pile or turn management are **not planned features**. Games
+that require these mechanisms may need players to keep track manually,
+or may remain examples of possibilities rather than supported play styles.
 
 ### Sample command sequences
 
