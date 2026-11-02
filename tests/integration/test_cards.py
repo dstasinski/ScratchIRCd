@@ -185,9 +185,10 @@ def main():
             assert all(all_cards[rank + suit] == 2
                        for rank in "A23456789TJQK" for suit in "SHDC")
             # A two-deck shoe has at most two physical copies of any
-            # card code. Asking to meld three copies must fail atomically,
+            # standard card (jokers have four). Asking to meld three
+            # copies of a standard card must fail atomically,
             # without consuming the first one or two matched cards.
-            owned = alice_cards[0]
+            owned = next(code for code in alice_cards if code != "JK")
             alice.send(f"CARDS MELD #cards {owned} {owned} {owned}")
             alice.expect("Meld contains a card not in your hand")
             alice.send("CARDS TABLE #cards")
