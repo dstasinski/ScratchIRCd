@@ -220,7 +220,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         }
         if (token != NULL) { error(s, c, "Too many arguments"); return COMMAND_KEEP_CLIENT; }
     }
-    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|SHOW|BURN|GIVE|REVEAL|TABLE|HAND|PLAY|DISCARD|DISCARDS|TAKE|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
+    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|SHOW|BURN|GIVE|REVEAL|TABLE|HAND|PLAY|DISCARD|DISCARDS|TAKE|MELD|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
     channel = hash_get(&s->channels_by_name, args[1]);
     if (channel == NULL) {
         client_sendf(c, ERR_NOSUCHCHANNEL, s->config.server_name, c->nick, args[1]);
@@ -405,6 +405,41 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             used += (size_t)written;
         }
         if (used) broadcast(s, channel, "REVEAL", line);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "MELD") == 0 && argc >= 4U) {
+        CardPlayer *hand = player_find(t, c->id, 0);
+        CardPlayer copy;
+        unsigned short selected[6];
+        char codes[64];
+        size_t used = 0U;
+        if (hand == NULL || hand->count < argc - 2U ||
+            t->public_count + argc - 2U > CARD_TOTAL_MAX) {
+            error(s, c, "Insufficient cards or public table capacity");
+            return COMMAND_KEEP_CLIENT;
+        }
+        copy = *hand;
+        for (i = 2U; i < argc; ++i) {
+            if (!remove_from_hand(&copy, args[i], &selected[i - 2U])) {
+                error(s, c, "Meld contains a card not in your hand");
+                return COMMAND_KEEP_CLIENT;
+            }
+        }
+        *hand = copy;
+        codes[0] = '\0';
+        for (i = 2U; i < argc; ++i) {
+            char card[3];
+            int written;
+            card_code(selected[i - 2U], card);
+            t->public_cards[t->public_count++] = selected[i - 2U];
+            written = snprintf(codes + used, sizeof(codes) - used,
+                               "%s%s", used ? " " : "", card);
+            if (written < 0 || (size_t)written >= sizeof(codes) - used) break;
+            used += (size_t)written;
+        }
+        t->played += argc - 2U;
+        (void)snprintf(message, sizeof(message), "%s melded %s", c->nick, codes);
+        broadcast(s, channel, "MELD", message);
         return COMMAND_KEEP_CLIENT;
     }
     if (strcasecmp(args[0], "TAKE") == 0 && argc == 2U) {
