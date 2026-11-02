@@ -9,7 +9,7 @@ may request cards, inspect their own hands, play, discard, and ask for ranks.
 
 | Command | Action |
 | --- | --- |
-| `/CARDS NEW #Main [1-6]` | Create a shuffled 52-card deck (or 2-6 decks) |
+| `/CARDS NEW #Main [1-6] [JOKERS]` | Create 1-6 decks, optionally with two jokers per deck |
 | `/CARDS REQUEST #Main 2` | Privately request two cards from the dealer; does not draw |
 | `/CARDS ASK #Main Alice 7` | Publicly ask Alice for rank 7 (Go Fish); does not transfer |
 | `/CARDS DEAL #Main Alice 5` | Dealer distributes five cards privately to Alice |
@@ -18,6 +18,9 @@ may request cards, inspect their own hands, play, discard, and ask for ranks.
 | `/CARDS TABLE #Main` | View public cards played or shown |
 | `/CARDS GIVE #Main Bob AS` | Transfer a card privately to Bob (ownership checked) |
 | `/CARDS REVEAL #Main` | Reveal your hand publicly without giving it up |
+| `/CARDS MELD #Main 7H 7D 7C` | Move 2-6 owned cards face up (no rules validation) |
+| `/CARDS DISCARDS #Main` | Inspect top discard and pile count |
+| `/CARDS TAKE #Main` | Take the top discarded card into your hand |
 | `/CARDS HAND #Main` | Privately inspect your own cards |
 | `/CARDS PLAY #Main AS` | Publicly play a card from your hand |
 | `/CARDS DISCARD #Main AS` | Discard a card privately; channel sees only the count |
@@ -54,3 +57,7 @@ a lightweight noncryptographic generator.
 
 Melds, discard-pile pickup,
 jokers, dealer reassignment, and per-game rules are not yet implemented.
+
+## Jokers and discards
+
+`JOKERS` adds two jokers per deck, identified as `JK`. Physical duplicates are tracked independently. `DISCARD` creates an ordered pile. `DISCARDS` shows its top card, and `TAKE` moves the top card into the requesting player's hand. `MELD` checks ownership atomically but does not enforce game-specific meld rules.
