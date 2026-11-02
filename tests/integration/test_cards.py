@@ -142,7 +142,9 @@ def main():
             alice.send("CARDS HAND #cards")
             assert "(empty)" in alice.expect(" #cards HAND ")
             alice.send("CARDS MELD #cards AS AS")
-            alice.expect("Meld contains a card not in your hand")
+            alice.expect("Insufficient cards or public table capacity")
+            alice.send("CARDS HAND #cards")
+            assert "(empty)" in alice.expect(" #cards HAND ")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
 
