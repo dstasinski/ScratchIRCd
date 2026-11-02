@@ -736,6 +736,7 @@ void server_remove_channel_if_empty(Server *server, Channel *channel) {
     if (server == NULL || channel == NULL || channel->member_count != 0U) return;
     if (hash_remove(&server->channels_by_name, channel->name) != NULL) {
         if (server->channel_count > 0U) --server->channel_count;
+        cards_channel_removed(channel->name);
         channel_free(channel);
     }
 }
@@ -940,6 +941,7 @@ void server_run(Server *server) {
 }
 
 void server_destroy(Server *server) {
+    cards_reset_all();
     size_t index;
     size_t destroy_count;
     if (server == NULL) return;
