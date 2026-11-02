@@ -145,6 +145,7 @@ int main(int argc, char **argv) {
         restart = server.restart_requested && !server.shutdown_requested;
         if (runtime_failure)
             fprintf(stderr, "ScratchIRCd event loop terminated unexpectedly; shutting down\n");
+        command_vacuum_shutdown();
         server_destroy(&server);
 
         /* Channel-log rows are already durable in SQLite. Make one bounded
