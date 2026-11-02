@@ -175,8 +175,13 @@ def main():
             assert hand[0] in bob.expect(" #cards HAND ")
             alice.send("CARDS HAND #cards")
             assert len(alice.expect(" #cards HAND ").split(" :")[-1].split()) == 4
+            # The discarded card remains private until another player
+            # explicitly inspects the discard pile; the public event
+            # must not reveal its identity.
             bob.send("CARDS DISCARD #cards " + hand[0])
-            for peer in peers: peer.expect("Bob discarded 1 card")
+            for peer in peers:
+                discard_event = peer.expect(" #cards DISCARD * :Bob discarded 1 card")
+                assert hand[0] not in discard_event.split(" :", 1)[1], discard_event
             alice.send("CARDS DISCARDS #cards")
             alice.expect("Top: " + hand[0])
             alice.send("CARDS TAKE #cards")
