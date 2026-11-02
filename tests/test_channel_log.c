@@ -153,16 +153,19 @@ int main(void) {
     assert(queue_count(&db) == 0U);
     chanserv_db_close(&db);
 
-    now = time(NULL);
+    channel_log_message(&server, &channel, &client, "before midnight", 0);
+
+    /* Derive the log date from the durable event's actual timestamp.
+     * Reading the clock before enqueue could cross real midnight and make
+     * this test expect the event in the wrong day's file. */
+    assert(chanserv_db_open(&db, db_path) == 0);
+    assert(queue_count(&db) == 1U);
+    assert(chanserv_db_logging_queue_fetch(&db, channel.name, rows, 1U, &fetched) == 0);
+    assert(fetched == 1U);
+    now = (time_t)rows[0].event_time;
     assert(localtime_r(&now, &now_tm) != NULL);
     (void)strftime(old_suffix, sizeof(old_suffix), "%d%b%Y", &now_tm);
     (void)snprintf(old_path, sizeof(old_path), "logs/Rotate.log.%s", old_suffix);
-
-    channel_log_message(&server, &channel, &client, "before midnight", 0);
-
-    /* The event is durable immediately but not appended to the text log yet. */
-    assert(chanserv_db_open(&db, db_path) == 0);
-    assert(queue_count(&db) == 1U);
     chanserv_db_close(&db);
     assert(access(old_path, F_OK) != 0);
 
