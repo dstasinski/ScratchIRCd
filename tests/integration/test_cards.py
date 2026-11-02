@@ -90,6 +90,12 @@ def main():
                 peer.expect(" 366 ")
             dealer, alice, bob = peers
             for peer in peers: peer.drain()
+            # Invalid deck options must not create a table or consume a slot.
+            for bad in ("0", "7", "-1", "2 EXTRA", "JOKERS EXTRA"):
+                dealer.send("CARDS NEW #cards " + bad)
+                dealer.expect("Usage: CARDS NEW")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("No active card table")
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect(" 761 " + peer.nick + " #cards NEW ")
             # A non-dealer cannot reset or close another player's table.
