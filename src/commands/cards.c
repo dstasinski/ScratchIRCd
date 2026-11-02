@@ -13,7 +13,7 @@
 
 #define CARD_TABLE_LIMIT 32U
 #define CARD_DECK_LIMIT 6U
-#define CARD_TOTAL_MAX (52U * CARD_DECK_LIMIT)
+#define CARD_TOTAL_MAX (54U * CARD_DECK_LIMIT)
 #define CARD_PLAYER_LIMIT 64U
 
 typedef struct CardPlayer {
@@ -26,6 +26,8 @@ typedef struct CardTable {
     uint64_t dealer_id;
     unsigned short deck[CARD_TOTAL_MAX];
     unsigned int total, next, played, discarded, burned;
+    unsigned int deck_count, jokers_per_deck;
+    unsigned short discard_cards[CARD_TOTAL_MAX];
     unsigned short public_cards[CARD_TOTAL_MAX];
     unsigned int public_count;
     CardPlayer players[CARD_PLAYER_LIMIT];
@@ -51,8 +53,9 @@ static unsigned int cards_random(unsigned int upper) {
 static void card_code(unsigned short card, char out[3]) {
     static const char ranks[] = "A23456789TJQK";
     static const char suits[] = "SHDC";
-    out[0] = ranks[(card % 52U) % 13U];
-    out[1] = suits[(card % 52U) / 13U];
+    if ((card % (52U + 2U)) >= 52U) { out[0] = 'J'; out[1] = 'K'; out[2] = '\0'; return; }
+    out[0] = ranks[(card % 54U) % 13U];
+    out[1] = suits[(card % 54U) / 13U];
     out[2] = '\0';
 }
 static int parse_count(const char *s, unsigned int maximum, unsigned int *value) {
@@ -99,10 +102,13 @@ static CardPlayer *player_find(CardTable *t, uint64_t id, int create) {
 }
 static void shuffle(CardTable *t, unsigned int decks) {
     unsigned int i;
-    t->total = decks * 52U;
+    unsigned int stride = 52U + t->jokers_per_deck;
+    t->deck_count = decks;
+    t->total = decks * stride;
     t->next = t->played = t->discarded = t->burned = t->player_count = t->public_count = 0U;
     memset(t->players, 0, sizeof(t->players));
-    for (i = 0; i < t->total; ++i) t->deck[i] = (unsigned short)i;
+    for (i = 0; i < t->total; ++i)
+        t->deck[i] = (unsigned short)((i / stride) * 54U + (i % stride));
     for (i = t->total; i > 1U; --i) {
         unsigned int j = cards_random(i);
         unsigned short temp = t->deck[i-1U];
@@ -214,7 +220,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         }
         if (token != NULL) { error(s, c, "Too many arguments"); return COMMAND_KEEP_CLIENT; }
     }
-    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|SHOW|BURN|GIVE|REVEAL|TABLE|HAND|PLAY|DISCARD|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
+    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|SHOW|BURN|GIVE|REVEAL|TABLE|HAND|PLAY|DISCARD|DISCARDS|TAKE|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
     channel = hash_get(&s->channels_by_name, args[1]);
     if (channel == NULL) {
         client_sendf(c, ERR_NOSUCHCHANNEL, s->config.server_name, c->nick, args[1]);
@@ -227,8 +233,10 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
     t = table_find(channel->name);
     if (strcasecmp(args[0], "NEW") == 0) {
         unsigned int decks = 1U;
-        if (argc > 3U || (argc == 3U && !parse_count(args[2], CARD_DECK_LIMIT, &decks))) {
-            error(s, c, "Usage: CARDS NEW #channel [decks:1-6]"); return COMMAND_KEEP_CLIENT;
+        int jokers = argc >= 4U && strcasecmp(args[3], "JOKERS") == 0;
+        if (argc > 4U || (argc == 4U && !jokers) ||
+            (argc >= 3U && !parse_count(args[2], CARD_DECK_LIMIT, &decks))) {
+            error(s, c, "Usage: CARDS NEW #channel [decks:1-6] [JOKERS]"); return COMMAND_KEEP_CLIENT;
         }
         if (t != NULL) { error(s, c, "A deck already exists; use END first"); return COMMAND_KEEP_CLIENT; }
         for (i = 0U; i < CARD_TABLE_LIMIT && tables[i].active; ++i) {}
@@ -237,6 +245,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         memset(t, 0, sizeof(*t));
         t->active = 1;
         t->dealer_id = c->id;
+        t->jokers_per_deck = jokers ? 2U : 0U;
         (void)snprintf(t->channel, sizeof(t->channel), "%s", channel->name);
         shuffle(t, decks);
         (void)snprintf(message, sizeof(message), "%s opened a %u-deck table (%u cards)",
@@ -398,6 +407,41 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         if (used) broadcast(s, channel, "REVEAL", line);
         return COMMAND_KEEP_CLIENT;
     }
+    if (strcasecmp(args[0], "TAKE") == 0 && argc == 2U) {
+        unsigned short card;
+        char code[3];
+        if (t->discarded == 0U) {
+            error(s, c, "Discard pile is empty");
+            return COMMAND_KEEP_CLIENT;
+        }
+        p = player_find(t, c->id, 0);
+        if ((p == NULL && t->player_count == CARD_PLAYER_LIMIT) ||
+            (p != NULL && p->count == CARD_TOTAL_MAX)) {
+            error(s, c, "Hand capacity reached");
+            return COMMAND_KEEP_CLIENT;
+        }
+        card = t->discard_cards[--t->discarded];
+        p = player_find(t, c->id, 1);
+        p->hand[p->count++] = card;
+        card_code(card, code);
+        reply(s, c, channel->name, "TAKE", code);
+        (void)snprintf(message, sizeof(message),
+                       "%s took the top discard (%u discarded remain)",
+                       c->nick, t->discarded);
+        broadcast(s, channel, "TAKE", message);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "DISCARDS") == 0 && argc == 2U) {
+        char code[3];
+        if (t->discarded == 0U) reply(s, c, channel->name, "DISCARDS", "(empty)");
+        else {
+            card_code(t->discard_cards[t->discarded - 1U], code);
+            (void)snprintf(message, sizeof(message), "Top: %s; count: %u",
+                           code, t->discarded);
+            reply(s, c, channel->name, "DISCARDS", message);
+        }
+        return COMMAND_KEEP_CLIENT;
+    }
     if (strcasecmp(args[0], "HAND") == 0 && argc == 2U) {
         hand_send(s, c, t, player_find(t, c->id, 0));
         return COMMAND_KEEP_CLIENT;
@@ -416,8 +460,9 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
           --p->count;
           memmove(&p->hand[i], &p->hand[i+1U], (p->count - i) * sizeof(p->hand[0]));
           if (is_play) t->public_cards[t->public_count++] = card;
+          else t->discard_cards[t->discarded++] = card;
         }
-        if (is_play) ++t->played; else ++t->discarded;
+        if (is_play) ++t->played;
         if (is_play) (void)snprintf(message, sizeof(message), "%s played %s", c->nick, code);
         else (void)snprintf(message, sizeof(message), "%s discarded 1 card", c->nick);
         broadcast(s, channel, is_play ? "PLAY" : "DISCARD", message);
@@ -435,7 +480,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
     if (strcasecmp(args[0], "SHUFFLE") == 0 && argc == 2U) {
         unsigned int decks;
         if (!is_dealer(s, c, t)) return COMMAND_KEEP_CLIENT;
-        decks = t->total / 52U;
+        decks = t->deck_count;
         shuffle(t, decks);
         (void)snprintf(message, sizeof(message), "%s reset all hands and shuffled %u cards", c->nick, t->total);
         broadcast(s, channel, "SHUFFLE", message);
