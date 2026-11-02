@@ -177,11 +177,26 @@ def main():
                 return cards
 
             from collections import Counter
-            all_cards = Counter(full_hand(alice, 100) + full_hand(bob, 8))
+            alice_cards = full_hand(alice, 100)
+            bob_cards = full_hand(bob, 8)
+            all_cards = Counter(alice_cards + bob_cards)
             assert all_cards["JK"] == 4, all_cards
             assert len(all_cards) == 53, len(all_cards)
             assert all(all_cards[rank + suit] == 2
                        for rank in "A23456789TJQK" for suit in "SHDC")
+            # Reject an invalid multi-card meld atomically even when
+            # the player holds enough cards. Bob must have at least one
+            # code that Alice does not hold (two decks, eight Bob cards).
+            absent = next((code for code in bob_cards if code not in alice_cards), None)
+            if absent is not None:
+                owned = next(code for code in alice_cards if code != absent)
+                alice.send(f"CARDS MELD #cards {owned} {absent}")
+                alice.expect("Meld contains a card not in your hand")
+                alice.send("CARDS TABLE #cards")
+                alice.expect(" #cards TABLE * :(empty)")
+                assert Counter(full_hand(alice, 100)) == Counter(alice_cards)
+                dealer.send("CARDS STATUS #cards")
+                dealer.expect("deck: 0 remaining")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
             dealer.send("CARDS NEW #cards")
