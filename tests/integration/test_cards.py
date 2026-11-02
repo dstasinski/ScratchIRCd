@@ -166,7 +166,7 @@ def main():
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect("opened a 2-deck table")
             dealer.send("CARDS DEAL #cards Alice 100")
-            alice.expect(" #cards DEAL ")
+            alice.expect("Cards dealt; use CARDS HAND to see all")
             for peer in peers: peer.expect("Alice received 100 card(s)")
             dealer.send("CARDS DEAL #cards Bob 8")
             bob.expect(" #cards DEAL ")
