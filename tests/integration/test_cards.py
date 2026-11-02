@@ -98,6 +98,12 @@ def main():
             dealer.expect("No active card table")
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect(" 761 " + peer.nick + " #cards NEW ")
+            # A second NEW must not replace an active table or reset its deck.
+            dealer.send("CARDS NEW #cards 1")
+            dealer.expect("A deck already exists; use END first")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 108 remaining")
+
             # A non-dealer cannot reset or close another player's table.
             alice.send("CARDS SHUFFLE #cards")
             alice.expect("Only the dealer")
