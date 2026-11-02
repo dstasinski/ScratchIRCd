@@ -184,6 +184,11 @@ def main():
                 assert hand[0] not in discard_event.split(" :", 1)[1], discard_event
             alice.send("CARDS DISCARDS #cards")
             alice.expect("Top: " + hand[0])
+            # Inspecting the discard pile is read-only.
+            bob.send("CARDS DISCARDS #cards")
+            bob.expect("Top: " + hand[0])
+            alice.send("CARDS DISCARDS #cards")
+            alice.expect("Top: " + hand[0])
             alice.send("CARDS TAKE #cards")
             alice.expect(" #cards TAKE * :" + hand[0])
             for peer in peers: peer.expect("Alice took the top discard")
