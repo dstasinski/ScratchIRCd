@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Dealer-controlled CARDS integration: privacy, ownership, and deck accounting."""
+import os
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+class Peer:
+    def __init__(self, port, nick):
+        self.nick = nick
+        self.sock = socket.create_connection(("127.0.0.1", port), timeout=3)
+        self.sock.settimeout(.15)
+        self.buffer = b""
+        self.pending = []
+        self.send("NICK " + nick)
+        self.send("USER " + nick + " 0 * :" + nick)
+        self.expect(" 001 " + nick + " ")
+    def send(self, line):
+        self.sock.sendall((line + "\r\n").encode())
+    def drain(self, duration=.3):
+        deadline = time.monotonic() + duration
+        lines = self.pending
+        self.pending = []
+        while time.monotonic() < deadline:
+            while b"\n" in self.buffer:
+                raw, self.buffer = self.buffer.split(b"\n", 1)
+                lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+            try:
+                chunk = self.sock.recv(8192)
+                if not chunk:
+                    break
+                self.buffer += chunk
+            except socket.timeout:
+                pass
+        while b"\n" in self.buffer:
+            raw, self.buffer = self.buffer.split(b"\n", 1)
+            lines.append(raw.rstrip(b"\r").decode(errors="replace"))
+        return lines
+    def expect(self, needle, duration=4):
+        deadline = time.monotonic() + duration
+        seen = []
+        while time.monotonic() < deadline:
+            seen.extend(self.drain(.12))
+            for i, line in enumerate(seen):
+                if needle in line:
+                    self.pending = seen[i+1:] + self.pending
+                    return line
+        raise AssertionError((self.nick, needle, seen))
+    def close(self):
+        self.sock.close()
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+def main():
+    binary = os.path.abspath(sys.argv[1])
+    with tempfile.TemporaryDirectory(prefix="scratch-cards-") as td:
+        port = free_port()
+        config = os.path.join(td, "ircd.conf")
+        with open(config, "w", encoding="utf-8") as out:
+            out.write("server_name = test.local\nnetwork_name = TestNet\n")
+            out.write(f"bind_address = 127.0.0.1\nport = {port}\nmax_clients = 16\n")
+            out.write("nospoof = no\ndns_timeout_seconds = 1\ngeoip_city_db = \ngeoip_asn_db = \n")
+            for name in ("operators", "bans", "nickserv", "chanserv", "memoserv", "history"):
+                out.write(f"{name}_db = {td}/{name}.db\n")
+        proc = subprocess.Popen([binary, config], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE, text=True)
+        peers = []
+        try:
+            deadline = time.monotonic() + 5
+            while True:
+                if proc.poll() is not None:
+                    raise RuntimeError(proc.stderr.read())
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=.1):
+                        break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("server did not listen")
+                    time.sleep(.05)
+            for nick in ("Dealer", "Alice", "Bob"):
+                peer = Peer(port, nick)
+                peers.append(peer)
+                peer.send("JOIN #cards")
+                peer.expect(" 366 ")
+            dealer, alice, bob = peers
+            for peer in peers: peer.drain()
+            dealer.send("CARDS NEW #cards 2 JOKERS")
+            for peer in peers: peer.expect(" 761 " + peer.nick + " #cards NEW ")
+            alice.send("CARDS DEAL #cards Alice 2")
+            alice.expect("Only the dealer")
+            alice.send("CARDS REQUEST #cards 2")
+            dealer.expect("Alice requests 2 card(s)")
+            alice.expect("Request sent to dealer")
+            alice.send("CARDS ASK #cards Bob 7")
+            for peer in peers: peer.expect("asks Bob for rank 7")
+            dealer.send("CARDS DEAL #cards Alice 5")
+            alice.expect(" 761 Alice #cards DEAL * :")
+            for peer in peers: peer.expect("Alice received 5 card(s)")
+            alice.send("CARDS HAND #cards")
+            hand = alice.expect(" 761 Alice #cards HAND * :").split(" :")[-1].split()
+            assert len(hand) == 5, hand
+            assert all(re.fullmatch(r"[A23456789TJQK][SHDC]|JK", x) for x in hand)
+            bob.send("CARDS HAND #cards")
+            assert "(empty)" in bob.expect(" #cards HAND ")
+            bob.send("CARDS PLAY #cards " + hand[0])
+            bob.expect("You do not have that card")
+            alice.send("CARDS GIVE #cards Bob " + hand[0])
+            bob.expect(" #cards GIVE * :" + hand[0])
+            for peer in peers: peer.expect("Alice gave 1 card to Bob")
+            bob.send("CARDS HAND #cards")
+            assert hand[0] in bob.expect(" #cards HAND ")
+            alice.send("CARDS HAND #cards")
+            assert len(alice.expect(" #cards HAND ").split(" :")[-1].split()) == 4
+            bob.send("CARDS DISCARD #cards " + hand[0])
+            for peer in peers: peer.expect("Bob discarded 1 card")
+            alice.send("CARDS DISCARDS #cards")
+            alice.expect("Top: " + hand[0])
+            alice.send("CARDS TAKE #cards")
+            alice.expect(" #cards TAKE * :" + hand[0])
+            for peer in peers: peer.expect("Alice took the top discard")
+            alice.send("CARDS MELD #cards " + hand[0] + " " + hand[1])
+            for peer in peers: peer.expect("Alice melded")
+            dealer.send("CARDS SHOW #cards 2")
+            for peer in peers:
+                peer.expect(" #cards SHOW ")
+                peer.expect(" #cards SHOW ")
+            dealer.send("CARDS BURN #cards 1")
+            for peer in peers: peer.expect("Dealer burned 1 card")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 100 remaining")
+            dealer.send("CARDS SHUFFLE #cards")
+            for peer in peers: peer.expect("shuffled 108 cards")
+            alice.send("CARDS HAND #cards")
+            alice.expect("(empty)")
+            dealer.send("CARDS END #cards")
+            for peer in peers: peer.expect("closed the card table")
+            assert proc.poll() is None
+        finally:
+            for peer in peers: peer.close()
+            if proc.poll() is None:
+                proc.terminate()
+                try: proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+    print("CARDS integration tests passed")
+
+if __name__ == "__main__":
+    main()
