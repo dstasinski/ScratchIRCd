@@ -214,6 +214,13 @@ def main():
             for peer in peers: peer.expect("shuffled 108 cards")
             alice.send("CARDS HAND #cards")
             alice.expect("(empty)")
+            # SHUFFLE resets public cards and discards as well as hands.
+            alice.send("CARDS TABLE #cards")
+            alice.expect(" #cards TABLE * :(empty)")
+            alice.send("CARDS DISCARDS #cards")
+            alice.expect(" #cards DISCARDS * :(empty)")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 108 remaining")
             # A rejected meld must not consume any cards.
             alice.send("CARDS HAND #cards")
             assert "(empty)" in alice.expect(" #cards HAND ")
