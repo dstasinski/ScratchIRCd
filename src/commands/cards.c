@@ -305,6 +305,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         Client *target;
         char cards[384];
         size_t used = 0U;
+        int truncated = 0;
         if (argc != 4U || !parse_count(args[3], 100U, &n)) {
             error(s, c, "Usage: CARDS DEAL #channel <nick> <count:1-100>"); return COMMAND_KEEP_CLIENT;
         }
@@ -326,14 +327,20 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             unsigned short card = t->deck[t->next++];
             p->hand[p->count++] = card;
             card_code(card, code);
-            written = snprintf(cards + used, sizeof(cards) - used, "%s%s",
-                               i ? " " : "", code);
-            if (written < 0 || (size_t)written >= sizeof(cards) - used) break;
-            used += (size_t)written;
+            /* Continue dealing all requested cards even when the private
+               summary no longer fits; HAND can show the complete hand. */
+            if (!truncated) {
+                written = snprintf(cards + used, sizeof(cards) - used, "%s%s",
+                                   i ? " " : "", code);
+                if (written < 0 || (size_t)written >= sizeof(cards) - used)
+                    truncated = 1;
+                else
+                    used += (size_t)written;
+            }
         }
         /* HAND is the authoritative full private list; DEAL may be truncated
            when a large count is requested. */
-        if (i == n) reply(s, target, channel->name, "DEAL", cards);
+        if (!truncated) reply(s, target, channel->name, "DEAL", cards);
         else reply(s, target, channel->name, "DEAL", "Cards dealt; use CARDS HAND to see all");
         (void)snprintf(message, sizeof(message), "%s received %u card(s) (%u remaining)",
                        target->nick, n, t->total - t->next);
