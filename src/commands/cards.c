@@ -2,6 +2,7 @@
 #include "commands.h"
 #include "modes.h"
 #include "numerics.h"
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -280,7 +281,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         Client *target;
         const char *rank;
         if (argc != 4U || strlen(args[3]) != 1U ||
-            strchr("A23456789TJQK", args[3][0]) == NULL) {
+            strchr("A23456789TJQK", (char)toupper((unsigned char)args[3][0])) == NULL) {
             error(s, c, "Usage: CARDS ASK #channel <nick> <rank:A,2-9,T,J,Q,K>");
             return COMMAND_KEEP_CLIENT;
         }
@@ -293,6 +294,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             error(s, c, "You cannot ask yourself for cards");
             return COMMAND_KEEP_CLIENT;
         }
+        args[3][0] = (char)toupper((unsigned char)args[3][0]);
         rank = args[3];
         (void)snprintf(message, sizeof(message), "%s asks %s for rank %s",
                        c->nick, target->nick, rank);
