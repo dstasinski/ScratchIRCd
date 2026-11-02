@@ -119,6 +119,13 @@ def main():
             hand = alice.expect(" 761 Alice #cards HAND * :").split(" :")[-1].split()
             assert len(hand) == 5, hand
             assert all(re.fullmatch(r"[A23456789TJQK][SHDC]|JK", x) for x in hand)
+            # A public reveal identifies its owner and does not remove cards.
+            alice.send("CARDS REVEAL #cards")
+            for peer in peers:
+                revealed = peer.expect(" #cards REVEAL * :Alice revealed:")
+                assert set(hand).issubset(set(revealed.split(" :", 1)[1].split()[2:]))
+            alice.send("CARDS HAND #cards")
+            assert sorted(alice.expect(" #cards HAND ").split(" :")[-1].split()) == sorted(hand)
             bob.send("CARDS HAND #cards")
             assert "(empty)" in bob.expect(" #cards HAND ")
             bob.send("CARDS PLAY #cards " + hand[0])
