@@ -192,6 +192,14 @@ def main():
             alice.send("CARDS TAKE #cards")
             alice.expect(" #cards TAKE * :" + hand[0])
             for peer in peers: peer.expect("Alice took the top discard")
+            # Taking the only discard empties the pile and restores
+            # that exact card to Alice's hand.
+            alice.send("CARDS DISCARDS #cards")
+            alice.expect(" #cards DISCARDS * :(empty)")
+            alice.send("CARDS HAND #cards")
+            restored = alice.expect(" #cards HAND * :").split(" :", 1)[1].split()
+            assert sorted(restored) == sorted(hand), (restored, hand)
+
             alice.send("CARDS MELD #cards " + hand[0] + " " + hand[1])
             for peer in peers: peer.expect("Alice melded")
             dealer.send("CARDS SHOW #cards 2")
