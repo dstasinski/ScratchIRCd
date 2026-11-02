@@ -212,6 +212,7 @@ add_test(NAME ping_timeout_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CUR
 set_tests_properties(ping_timeout_integration PROPERTIES TIMEOUT 30)
 add_test(NAME operator_actions_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_operator_actions.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(operator_actions_integration PROPERTIES TIMEOUT 60)
+add_test(NAME cards_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_cards.py $<TARGET_FILE:scratchircd>)
 add_test(NAME flash_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_flash.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(flash_integration PROPERTIES TIMEOUT 60)
 add_test(NAME stats_envelope_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_stats_envelope.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
