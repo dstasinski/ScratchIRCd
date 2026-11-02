@@ -13,6 +13,11 @@ may request cards, inspect their own hands, play, discard, and ask for ranks.
 | `/CARDS REQUEST #Main 2` | Privately request two cards from the dealer; does not draw |
 | `/CARDS ASK #Main Alice 7` | Publicly ask Alice for rank 7 (Go Fish); does not transfer |
 | `/CARDS DEAL #Main Alice 5` | Dealer distributes five cards privately to Alice |
+| `/CARDS SHOW #Main 3` | Dealer deals three public cards from the deck |
+| `/CARDS BURN #Main 1` | Dealer removes one card unseen |
+| `/CARDS TABLE #Main` | View public cards played or shown |
+| `/CARDS GIVE #Main Bob AS` | Transfer a card privately to Bob (ownership checked) |
+| `/CARDS REVEAL #Main` | Reveal your hand publicly without giving it up |
 | `/CARDS HAND #Main` | Privately inspect your own cards |
 | `/CARDS PLAY #Main AS` | Publicly play a card from your hand |
 | `/CARDS DISCARD #Main AS` | Discard a card privately; channel sees only the count |
@@ -47,5 +52,5 @@ At most 32 concurrent tables, six decks per table, 64 player hands per table,
 100 cards per DEAL, and no jokers in this first version. Card randomness uses
 a lightweight noncryptographic generator.
 
-Public community-card dealing, card transfers, melds, discard-pile pickup,
+Melds, discard-pile pickup,
 jokers, dealer reassignment, and per-game rules are not yet implemented.
