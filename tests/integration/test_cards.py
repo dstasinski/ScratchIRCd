@@ -138,6 +138,54 @@ def main():
             for peer in peers: peer.expect("shuffled 108 cards")
             alice.send("CARDS HAND #cards")
             alice.expect("(empty)")
+            # A rejected meld must not consume any cards.
+            alice.send("CARDS HAND #cards")
+            assert "(empty)" in alice.expect(" #cards HAND ")
+            alice.send("CARDS MELD #cards AS AS")
+            alice.expect("Meld contains a card not in your hand")
+            dealer.send("CARDS END #cards")
+            for peer in peers: peer.expect("closed the card table")
+
+            # Exhaust an entire multi-deck shoe. Every standard card appears
+            # twice and the optional joker code appears four times.
+            dealer.send("CARDS NEW #cards 2 JOKERS")
+            for peer in peers: peer.expect("opened a 2-deck table")
+            dealer.send("CARDS DEAL #cards Alice 100")
+            alice.expect(" #cards DEAL ")
+            for peer in peers: peer.expect("Alice received 100 card(s)")
+            dealer.send("CARDS DEAL #cards Bob 8")
+            bob.expect(" #cards DEAL ")
+            for peer in peers: peer.expect("Bob received 8 card(s)")
+            dealer.send("CARDS DEAL #cards Bob 1")
+            dealer.expect("Not enough cards")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 0 remaining")
+
+            # HAND responses are chunked into bounded IRC lines.
+            def full_hand(peer, expected):
+                peer.send("CARDS HAND #cards")
+                cards = []
+                deadline = time.monotonic() + 4
+                while time.monotonic() < deadline and len(cards) < expected:
+                    for line in peer.drain(.15):
+                        if " 761 " + peer.nick + " #cards HAND * :" in line:
+                            assert len(line.encode()) <= 510, line
+                            cards.extend(line.split(" :", 1)[1].split())
+                assert len(cards) == expected, (peer.nick, len(cards), expected)
+                return cards
+
+            from collections import Counter
+            all_cards = Counter(full_hand(alice, 100) + full_hand(bob, 8))
+            assert all_cards["JK"] == 4, all_cards
+            assert len(all_cards) == 53, len(all_cards)
+            assert all(all_cards[rank + suit] == 2
+                       for rank in "A23456789TJQK" for suit in "SHDC")
+            dealer.send("CARDS END #cards")
+            for peer in peers: peer.expect("closed the card table")
+            dealer.send("CARDS NEW #cards")
+            for peer in peers: peer.expect("opened a 1-deck table")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 52 remaining")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
             assert proc.poll() is None
