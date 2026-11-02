@@ -142,6 +142,11 @@ def main():
             hand = alice.expect(" 761 Alice #cards HAND * :").split(" :")[-1].split()
             assert len(hand) == 5, hand
             assert all(re.fullmatch(r"[A23456789TJQK][SHDC]|JK", x) for x in hand)
+            # Giving a card to oneself must fail without losing ownership.
+            alice.send("CARDS GIVE #cards Alice " + hand[0].lower())
+            alice.expect("Invalid recipient or hand capacity reached")
+            alice.send("CARDS HAND #cards")
+            assert sorted(alice.expect(" #cards HAND ").split(" :")[-1].split()) == sorted(hand)
             # A public reveal identifies its owner and does not remove cards.
             alice.send("CARDS REVEAL #cards")
             for peer in peers:
