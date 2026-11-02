@@ -125,6 +125,14 @@ def main():
             for peer in peers: peer.expect("asks Bob for rank J")
             alice.send("CARDS ASK #cards Bob 7")
             for peer in peers: peer.expect("asks Bob for rank 7")
+            # A request or Go Fish question is informational: neither
+            # operation draws cards or creates a player hand.
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 108 remaining")
+            alice.send("CARDS HAND #cards")
+            alice.expect(" #cards HAND * :(empty)")
+            bob.send("CARDS HAND #cards")
+            bob.expect(" #cards HAND * :(empty)")
             dealer.send("CARDS DEAL #cards Alice 5")
             alice.expect(" 761 Alice #cards DEAL * :")
             for peer in peers: peer.expect("Alice received 5 card(s)")
