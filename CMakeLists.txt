@@ -50,7 +50,7 @@ add_executable(scratchircd
     src/hash.c src/irc.c src/ircv3.c src/runtime_config.c src/dns.c src/dnsbl.c src/geoip.c src/geoban_db.c src/history_db.c src/mail.c src/message_policy.c src/modes.c src/nospoof.c src/oper.c src/presence.c src/usermode_policy.c
     src/operator_db.c src/ban_db.c src/nickserv.c src/nickserv_db.c src/chanserv.c src/chanserv_db.c src/chanserv_db_logging.c src/chanserv_persist.c src/memoserv.c src/memoserv_db.c src/memoserv_db_extra.c src/visibility.c
 
-    src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
+    src/commands/admin.c src/commands/authenticate.c src/commands/away.c src/commands/cap.c src/commands/cards.c src/commands/chanserv.c src/commands/chanserv_admin.c src/commands/chathistory.c src/commands/common.c
     src/commands/deafmute.c src/commands/die.c src/commands/dispatch.c src/commands/flash.c src/commands/geoban.c src/commands/globops.c src/commands/identify.c src/commands/invite.c src/commands/ison.c
     src/commands/joinpart.c src/commands/kick.c src/commands/kill.c src/commands/kline.c src/commands/knock.c
     src/commands/list.c src/commands/lusers.c
