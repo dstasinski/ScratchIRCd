@@ -25,7 +25,9 @@ typedef struct CardTable {
     char channel[IRC_CHANNEL_NAME_MAX + 1U];
     uint64_t dealer_id;
     unsigned short deck[CARD_TOTAL_MAX];
-    unsigned int total, next, played, discarded;
+    unsigned int total, next, played, discarded, burned;
+    unsigned short public_cards[CARD_TOTAL_MAX];
+    unsigned int public_count;
     CardPlayer players[CARD_PLAYER_LIMIT];
     unsigned int player_count;
     int active;
@@ -98,7 +100,7 @@ static CardPlayer *player_find(CardTable *t, uint64_t id, int create) {
 static void shuffle(CardTable *t, unsigned int decks) {
     unsigned int i;
     t->total = decks * 52U;
-    t->next = t->played = t->discarded = t->player_count = 0U;
+    t->next = t->played = t->discarded = t->burned = t->player_count = t->public_count = 0U;
     memset(t->players, 0, sizeof(t->players));
     for (i = 0; i < t->total; ++i) t->deck[i] = (unsigned short)i;
     for (i = t->total; i > 1U; --i) {
@@ -119,6 +121,46 @@ static int is_dealer(Server *s, Client *c, CardTable *t) {
 }
 static int has_room(Channel *channel, Client *c) {
     return channel_has_client(channel, c);
+}
+static int remove_from_hand(CardPlayer *p, const char *wanted, unsigned short *card) {
+    unsigned int i;
+    char code[3];
+    if (p == NULL || wanted == NULL || strlen(wanted) != 2U) return 0;
+    for (i = 0U; i < p->count; ++i) {
+        card_code(p->hand[i], code);
+        if (strcasecmp(code, wanted) == 0) {
+            *card = p->hand[i];
+            --p->count;
+            memmove(&p->hand[i], &p->hand[i + 1U],
+                    (p->count - i) * sizeof(p->hand[0]));
+            return 1;
+        }
+    }
+    return 0;
+}
+static void public_send(Server *s, Client *c, CardTable *t) {
+    char line[300];
+    size_t used = 0U;
+    unsigned int i;
+    if (t->public_count == 0U) {
+        reply(s, c, t->channel, "TABLE", "(empty)");
+        return;
+    }
+    line[0] = '\0';
+    for (i = 0U; i < t->public_count; ++i) {
+        char code[3];
+        int n;
+        card_code(t->public_cards[i], code);
+        n = snprintf(line + used, sizeof(line) - used,
+                     "%s%s", used ? " " : "", code);
+        if (n < 0 || (size_t)n >= sizeof(line) - used) {
+            reply(s, c, t->channel, "TABLE", line);
+            used = 0U;
+            n = snprintf(line, sizeof(line), "%s", code);
+        }
+        used += (size_t)n;
+    }
+    if (used) reply(s, c, t->channel, "TABLE", line);
 }
 static void hand_send(Server *s, Client *c, CardTable *t, CardPlayer *p) {
     char message[1024];
@@ -172,7 +214,7 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         }
         if (token != NULL) { error(s, c, "Too many arguments"); return COMMAND_KEEP_CLIENT; }
     }
-    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|HAND|PLAY|DISCARD|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
+    if (argc < 2U) { error(s, c, "Usage: CARDS <NEW|REQUEST|ASK|DEAL|SHOW|BURN|GIVE|REVEAL|TABLE|HAND|PLAY|DISCARD|LEFT|STATUS|SHUFFLE|END> #channel ..."); return COMMAND_KEEP_CLIENT; }
     channel = hash_get(&s->channels_by_name, args[1]);
     if (channel == NULL) {
         client_sendf(c, ERR_NOSUCHCHANNEL, s->config.server_name, c->nick, args[1]);
@@ -273,6 +315,89 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
         broadcast(s, channel, "DEAL", message);
         return COMMAND_KEEP_CLIENT;
     }
+    if ((strcasecmp(args[0], "SHOW") == 0 ||
+         strcasecmp(args[0], "BURN") == 0) && argc == 3U) {
+        int visible = strcasecmp(args[0], "SHOW") == 0;
+        if (!is_dealer(s, c, t)) return COMMAND_KEEP_CLIENT;
+        if (!parse_count(args[2], CARD_TOTAL_MAX, &n) || n > t->total - t->next) {
+            error(s, c, "Invalid count or insufficient cards remaining");
+            return COMMAND_KEEP_CLIENT;
+        }
+        for (i = 0U; i < n; ++i) {
+            unsigned short card = t->deck[t->next++];
+            if (visible) t->public_cards[t->public_count++] = card;
+            else ++t->burned;
+            if (visible) {
+                char code[3];
+                card_code(card, code);
+                broadcast(s, channel, "SHOW", code);
+            }
+        }
+        if (!visible) {
+            (void)snprintf(message, sizeof(message),
+                           "%s burned %u card(s) (%u remaining)",
+                           c->nick, n, t->total - t->next);
+            broadcast(s, channel, "BURN", message);
+        }
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "TABLE") == 0 && argc == 2U) {
+        public_send(s, c, t);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "GIVE") == 0 && argc == 4U) {
+        Client *target = hash_get(&s->clients_by_nick, args[2]);
+        CardPlayer *recipient;
+        unsigned short card;
+        if (target == NULL || !target->registered || !has_room(channel, target)) {
+            error(s, c, "Recipient must be an online channel member");
+            return COMMAND_KEEP_CLIENT;
+        }
+        p = player_find(t, c->id, 0);
+        recipient = player_find(t, target->id, 0);
+        if (target->id == c->id ||
+            (recipient == NULL && t->player_count >= CARD_PLAYER_LIMIT) ||
+            (recipient != NULL && recipient->count >= CARD_TOTAL_MAX)) {
+            error(s, c, "Invalid recipient or hand capacity reached");
+            return COMMAND_KEEP_CLIENT;
+        }
+        if (!remove_from_hand(p, args[3], &card)) {
+            error(s, c, "You do not have that card");
+            return COMMAND_KEEP_CLIENT;
+        }
+        recipient = player_find(t, target->id, 1);
+        recipient->hand[recipient->count++] = card;
+        reply(s, target, channel->name, "GIVE", args[3]);
+        (void)snprintf(message, sizeof(message), "%s gave 1 card to %s",
+                       c->nick, target->nick);
+        broadcast(s, channel, "GIVE", message);
+        return COMMAND_KEEP_CLIENT;
+    }
+    if (strcasecmp(args[0], "REVEAL") == 0 && argc == 2U) {
+        char line[320];
+        size_t used = 0U;
+        p = player_find(t, c->id, 0);
+        if (p == NULL || p->count == 0U) {
+            error(s, c, "Your hand is empty");
+            return COMMAND_KEEP_CLIENT;
+        }
+        line[0] = '\0';
+        for (i = 0U; i < p->count; ++i) {
+            char code[3];
+            int written;
+            card_code(p->hand[i], code);
+            written = snprintf(line + used, sizeof(line) - used,
+                               "%s%s", used ? " " : "", code);
+            if (written < 0 || (size_t)written >= sizeof(line) - used) {
+                broadcast(s, channel, "REVEAL", line);
+                used = 0U;
+                written = snprintf(line, sizeof(line), "%s", code);
+            }
+            used += (size_t)written;
+        }
+        if (used) broadcast(s, channel, "REVEAL", line);
+        return COMMAND_KEEP_CLIENT;
+    }
     if (strcasecmp(args[0], "HAND") == 0 && argc == 2U) {
         hand_send(s, c, t, player_find(t, c->id, 0));
         return COMMAND_KEEP_CLIENT;
@@ -287,8 +412,11 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
             if (strcasecmp(code, args[2]) == 0) break;
         }
         if (i == p->count) { error(s, c, "You do not have that card"); return COMMAND_KEEP_CLIENT; }
-        --p->count;
-        memmove(&p->hand[i], &p->hand[i+1U], (p->count - i) * sizeof(p->hand[0]));
+        { unsigned short card = p->hand[i];
+          --p->count;
+          memmove(&p->hand[i], &p->hand[i+1U], (p->count - i) * sizeof(p->hand[0]));
+          if (is_play) t->public_cards[t->public_count++] = card;
+        }
         if (is_play) ++t->played; else ++t->discarded;
         if (is_play) (void)snprintf(message, sizeof(message), "%s played %s", c->nick, code);
         else (void)snprintf(message, sizeof(message), "%s discarded 1 card", c->nick);
@@ -298,9 +426,9 @@ CommandResult command_cards(Server *s, Client *c, char *params) {
     if ((strcasecmp(args[0], "LEFT") == 0 || strcasecmp(args[0], "STATUS") == 0) && argc == 2U) {
         Client *dealer = server_find_client_by_id(s, t->dealer_id);
         (void)snprintf(message, sizeof(message),
-                       "Dealer: %s; deck: %u remaining; played: %u; discarded: %u; players: %u",
+                       "Dealer: %s; deck: %u remaining; played: %u; discarded: %u; burned: %u; public: %u; players: %u",
                        dealer != NULL && dealer->registered ? dealer->nick : "(offline)",
-                       t->total - t->next, t->played, t->discarded, t->player_count);
+                       t->total - t->next, t->played, t->discarded, t->burned, t->public_count, t->player_count);
         reply(s, c, channel->name, "STATUS", message);
         return COMMAND_KEEP_CLIENT;
     }
