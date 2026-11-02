@@ -61,7 +61,7 @@ add_executable(scratchircd
     src/commands/restart.c src/commands/rules.c src/commands/sajoin.c
     src/commands/samode.c src/commands/sapart.c src/commands/sethost.c
     src/commands/setident.c src/commands/setname.c src/commands/silence.c src/commands/tagmsg.c src/commands/topic.c
-    src/commands/user.c src/commands/userhost.c src/commands/userip.c
+    src/commands/user.c src/commands/vacuum.c src/commands/userhost.c src/commands/userip.c
     src/commands/wallops.c src/commands/watch.c src/commands/webirc.c src/commands/who.c
     src/commands/whois.c src/commands/whowas.c src/commands/zline.c
 )
