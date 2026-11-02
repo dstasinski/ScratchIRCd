@@ -184,19 +184,17 @@ def main():
             assert len(all_cards) == 53, len(all_cards)
             assert all(all_cards[rank + suit] == 2
                        for rank in "A23456789TJQK" for suit in "SHDC")
-            # Reject an invalid multi-card meld atomically even when
-            # the player holds enough cards. Bob must have at least one
-            # code that Alice does not hold (two decks, eight Bob cards).
-            absent = next((code for code in bob_cards if code not in alice_cards), None)
-            if absent is not None:
-                owned = next(code for code in alice_cards if code != absent)
-                alice.send(f"CARDS MELD #cards {owned} {absent}")
-                alice.expect("Meld contains a card not in your hand")
-                alice.send("CARDS TABLE #cards")
-                alice.expect(" #cards TABLE * :(empty)")
-                assert Counter(full_hand(alice, 100)) == Counter(alice_cards)
-                dealer.send("CARDS STATUS #cards")
-                dealer.expect("deck: 0 remaining")
+            # A two-deck shoe has at most two physical copies of any
+            # card code. Asking to meld three copies must fail atomically,
+            # without consuming the first one or two matched cards.
+            owned = alice_cards[0]
+            alice.send(f"CARDS MELD #cards {owned} {owned} {owned}")
+            alice.expect("Meld contains a card not in your hand")
+            alice.send("CARDS TABLE #cards")
+            alice.expect(" #cards TABLE * :(empty)")
+            assert Counter(full_hand(alice, 100)) == Counter(alice_cards)
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 0 remaining")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
             dealer.send("CARDS NEW #cards")
