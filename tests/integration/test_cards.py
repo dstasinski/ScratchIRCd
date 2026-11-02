@@ -166,7 +166,13 @@ def main():
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect("opened a 2-deck table")
             dealer.send("CARDS DEAL #cards Alice 100")
-            alice.expect("Cards dealt; use CARDS HAND to see all")
+            deal_reply = alice.expect(" #cards DEAL * :")
+            deal_text = deal_reply.split(" :", 1)[1]
+            if deal_text != "Cards dealt; use CARDS HAND to see all":
+                dealt = deal_text.split()
+                assert len(dealt) == 100, (len(dealt), deal_reply)
+                assert all(re.fullmatch(r"[A23456789TJQK][SHDC]|JK", code)
+                           for code in dealt), deal_reply
             for peer in peers: peer.expect("Alice received 100 card(s)")
             dealer.send("CARDS DEAL #cards Bob 8")
             bob.expect(" #cards DEAL ")
