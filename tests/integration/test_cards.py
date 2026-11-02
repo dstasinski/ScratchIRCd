@@ -147,6 +147,16 @@ def main():
             alice.expect("Invalid recipient or hand capacity reached")
             alice.send("CARDS HAND #cards")
             assert sorted(alice.expect(" #cards HAND ").split(" :")[-1].split()) == sorted(hand)
+            # An empty discard pile cannot be taken from, and a player
+            # cannot discard a card they do not own.
+            bob.send("CARDS TAKE #cards")
+            bob.expect("Discard pile is empty")
+            bob.send("CARDS DISCARD #cards " + hand[0])
+            bob.expect("You do not have that card")
+            bob.send("CARDS HAND #cards")
+            bob.expect(" #cards HAND * :(empty)")
+            alice.send("CARDS HAND #cards")
+            assert sorted(alice.expect(" #cards HAND ").split(" :")[-1].split()) == sorted(hand)
             # A public reveal identifies its owner and does not remove cards.
             alice.send("CARDS REVEAL #cards")
             for peer in peers:
