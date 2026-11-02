@@ -293,6 +293,11 @@ def main():
             dealer.expect("deck: 0 remaining")
             dealer.send("CARDS END #cards")
             for peer in peers: peer.expect("closed the card table")
+            # END must make the old table inaccessible, including hands.
+            alice.send("CARDS HAND #cards")
+            alice.expect("No active card table")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("No active card table")
             dealer.send("CARDS NEW #cards")
             for peer in peers: peer.expect("opened a 1-deck table")
             dealer.send("CARDS STATUS #cards")
