@@ -109,6 +109,17 @@ def main():
             outsider.expect(" 442 Outsider #cards ")
             outsider.send("CARDS NEW #cards")
             outsider.expect(" 442 Outsider #cards ")
+            # A channel member may not request or give cards to someone
+            # outside the channel; the existing table remains intact.
+            dealer.send("CARDS DEAL #cards Outsider 1")
+            dealer.expect("Target must be an online member of this channel")
+            alice.send("CARDS ASK #cards Outsider 7")
+            alice.expect("Target must be an online member of this channel")
+            alice.send("CARDS GIVE #cards Outsider AS")
+            alice.expect("Recipient must be an online channel member")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 108 remaining")
+
 
             # A second NEW must not replace an active table or reset its deck.
             dealer.send("CARDS NEW #cards 1")
