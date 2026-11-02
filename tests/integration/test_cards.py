@@ -123,7 +123,7 @@ def main():
             assert "(empty)" in bob.expect(" #cards HAND ")
             bob.send("CARDS PLAY #cards " + hand[0])
             bob.expect("You do not have that card")
-            alice.send("CARDS GIVE #cards Bob " + hand[0])
+            alice.send("CARDS GIVE #cards Bob " + hand[0].lower())
             bob.expect(" #cards GIVE * :" + hand[0])
             for peer in peers: peer.expect("Alice gave 1 card to Bob")
             bob.send("CARDS HAND #cards")
