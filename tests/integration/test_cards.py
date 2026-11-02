@@ -198,6 +198,12 @@ def main():
             from collections import Counter
             alice_cards = full_hand(alice, 100)
             bob_cards = full_hand(bob, 8)
+            if deal_text != "Cards dealt; use CARDS HAND to see all":
+                # The initial private DEAL list must match the actual hand,
+                # including multiplicities when two decks contain duplicates.
+                assert Counter(dealt) == Counter(alice_cards)
+            # The rejected ninth card must not change Bob's existing hand.
+            assert Counter(full_hand(bob, 8)) == Counter(bob_cards)
             all_cards = Counter(alice_cards + bob_cards)
             assert all_cards["JK"] == 4, all_cards
             assert len(all_cards) == 53, len(all_cards)
