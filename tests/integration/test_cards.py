@@ -92,6 +92,13 @@ def main():
             for peer in peers: peer.drain()
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect(" 761 " + peer.nick + " #cards NEW ")
+            # A non-dealer cannot reset or close another player's table.
+            alice.send("CARDS SHUFFLE #cards")
+            alice.expect("Only the dealer")
+            alice.send("CARDS END #cards")
+            alice.expect("Only the dealer")
+            dealer.send("CARDS STATUS #cards")
+            dealer.expect("deck: 108 remaining")
             alice.send("CARDS DEAL #cards Alice 2")
             alice.expect("Only the dealer")
             alice.send("CARDS REQUEST #cards 2")
@@ -102,6 +109,8 @@ def main():
             dealer.send("CARDS DEAL #cards Alice 5")
             alice.expect(" 761 Alice #cards DEAL * :")
             for peer in peers: peer.expect("Alice received 5 card(s)")
+            # Only Alice receives the private hand response.
+            bob.drain()
             alice.send("CARDS HAND #cards")
             hand = alice.expect(" 761 Alice #cards HAND * :").split(" :")[-1].split()
             assert len(hand) == 5, hand
