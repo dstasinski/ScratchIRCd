@@ -98,6 +98,17 @@ def main():
             dealer.expect("No active card table")
             dealer.send("CARDS NEW #cards 2 JOKERS")
             for peer in peers: peer.expect(" 761 " + peer.nick + " #cards NEW ")
+            # Card-table operations require channel membership, even when
+            # a table already exists. A fourth registered client is not joined.
+            outsider = Peer(port, "Outsider")
+            peers.append(outsider)
+            outsider.send("CARDS STATUS #cards")
+            outsider.expect(" 442 Outsider #cards ")
+            outsider.send("CARDS HAND #cards")
+            outsider.expect(" 442 Outsider #cards ")
+            outsider.send("CARDS NEW #cards")
+            outsider.expect(" 442 Outsider #cards ")
+
             # A second NEW must not replace an active table or reset its deck.
             dealer.send("CARDS NEW #cards 1")
             dealer.expect("A deck already exists; use END first")
