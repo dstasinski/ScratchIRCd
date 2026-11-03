@@ -9,6 +9,7 @@ CMD(admin); CMD(authenticate); CMD(away); CMD(cap); CMD(cards); CMD(chanserv); C
 void cards_channel_removed(const char *channel);
 void cards_reset_all(void);
 void command_vacuum_shutdown(void);
+void command_vacuum_poll(Server *server);
 #undef CMD
 const char *command_reply_nick(const Client *client);
 int command_require_registered(Client *client);
