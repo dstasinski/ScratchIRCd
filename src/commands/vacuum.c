@@ -5,6 +5,7 @@
 #include "oper.h"
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include <sqlite3.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +34,12 @@ typedef struct VacuumJob {
 } VacuumJob;
 
 static VacuumJob job = {.mutex = PTHREAD_MUTEX_INITIALIZER};
+static atomic_int vacuum_cancel_requested;
+
+static int vacuum_progress(void *unused) {
+    (void)unused;
+    return atomic_load(&vacuum_cancel_requested) != 0;
+}
 
 static void notice(Server *server, Client *client, const char *message) {
     client_sendf(client, ":%s NOTICE %s :VACUUM %s",
@@ -43,6 +50,7 @@ static void *run_vacuum(void *unused) {
     unsigned int n;
     (void)unused;
     for (n = 0U; n < job.count; ++n) {
+        if (atomic_load(&vacuum_cancel_requested)) break;
         unsigned int index = job.targets[n];
         sqlite3 *db = NULL;
         int rc;
@@ -54,6 +62,7 @@ static void *run_vacuum(void *unused) {
         rc = sqlite3_open_v2(job.paths[index], &db, SQLITE_OPEN_READWRITE, NULL);
         if (rc == SQLITE_OK) {
             (void)sqlite3_busy_timeout(db, 1000);
+            sqlite3_progress_handler(db, 1000, vacuum_progress, NULL);
             if (index == 1U) rc = chanserv_db_register_collation(db);
             if (rc == SQLITE_OK)
                 rc = sqlite3_exec(db, "VACUUM;", NULL, NULL, NULL);
@@ -109,6 +118,7 @@ void command_vacuum_poll(Server *server) {
 }
 
 void command_vacuum_shutdown(void) {
+    atomic_store(&vacuum_cancel_requested, 1);
     pthread_mutex_lock(&job.mutex);
     if (job.joinable) {
         pthread_mutex_unlock(&job.mutex);
@@ -200,6 +210,7 @@ CommandResult command_vacuum(Server *server, Client *client, char *params) {
         command_vacuum_shutdown();
         pthread_mutex_lock(&job.mutex);
     }
+    atomic_store(&vacuum_cancel_requested, 0);
     job.count = all ? VACUUM_COUNT : 1U;
     job.completed = 0U;
     job.failed = 0U;
