@@ -1,5 +1,6 @@
 /** @file vacuum.c @brief Network-administrator-only SQLite maintenance. */
 #include "commands.h"
+#include "chanserv_db.h"
 #include "numerics.h"
 #include "oper.h"
 
@@ -53,7 +54,9 @@ static void *run_vacuum(void *unused) {
         rc = sqlite3_open_v2(job.paths[index], &db, SQLITE_OPEN_READWRITE, NULL);
         if (rc == SQLITE_OK) {
             (void)sqlite3_busy_timeout(db, 1000);
-            rc = sqlite3_exec(db, "VACUUM;", NULL, NULL, NULL);
+            if (index == 1U) rc = chanserv_db_register_collation(db);
+            if (rc == SQLITE_OK)
+                rc = sqlite3_exec(db, "VACUUM;", NULL, NULL, NULL);
         }
         if (rc != SQLITE_OK)
             (void)snprintf(error, sizeof(error), "%s: %.120s",
