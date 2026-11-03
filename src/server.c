@@ -794,6 +794,7 @@ void server_run(Server *server) {
 
     if (server == NULL) return;
     while (!server->restart_requested) {
+        command_vacuum_poll(server);
         size_t input_line_budget = SERVER_INPUT_LINE_BUDGET_GLOBAL;
         int buffered_pending = drain_buffered_client_input(server, &input_line_budget);
         const size_t dns_index = server->listener_count;
