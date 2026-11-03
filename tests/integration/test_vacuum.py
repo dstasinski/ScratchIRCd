@@ -164,11 +164,24 @@ def main():
             with sqlite3.connect(path) as db:
                 assert db.execute("SELECT text FROM vacuum_probe").fetchone()[0] == "preserved"
 
-            admin.send("VACUUM NICKSERV")
-            admin.expect("VACUUM started")
-            admin.send("DIE")
-            admin.expect("Shutting down ScratchIRCd")
-            assert proc.wait(timeout=10) == 0
+            # Shutdown while a VACUUM is blocked by another connection.
+            # The worker must not keep the daemon alive indefinitely.
+            lock = sqlite3.connect(path, timeout=1, isolation_level=None)
+            try:
+                lock.execute("BEGIN EXCLUSIVE")
+                admin.send("VACUUM NICKSERV")
+                admin.expect("VACUUM started")
+                admin.send("DIE")
+                admin.expect("Shutting down ScratchIRCd")
+                started = time.monotonic()
+                assert proc.wait(timeout=5) == 0
+                assert time.monotonic() - started < 5, "VACUUM delayed shutdown"
+            finally:
+                lock.execute("ROLLBACK")
+                lock.close()
+            with sqlite3.connect(path) as db:
+                assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                assert db.execute("SELECT text FROM vacuum_probe").fetchone()[0] == "preserved"
         finally:
             if ordinary: ordinary.close()
             if admin: admin.close()
