@@ -43,6 +43,12 @@ static int irc_collation(void *context, int left_len, const void *left_data,
     return left_len < right_len ? -1 : left_len > right_len ? 1 : 0;
 }
 
+int chanserv_db_register_collation(sqlite3 *db) {
+    if (db == NULL) return SQLITE_MISUSE;
+    return sqlite3_create_collation(db, "IRCNOCASE", SQLITE_UTF8,
+                                    NULL, irc_collation);
+}
+
 static int exec_sql(sqlite3 *db, const char *sql) {
     char *error = NULL;
     int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
@@ -240,7 +246,7 @@ int chanserv_db_open(ChanServDb *db, const char *path) {
     memset(db, 0, sizeof(*db));
     if (sqlite3_open(path, &db->db) != SQLITE_OK) { chanserv_db_close(db); return -1; }
     if (ircd_sqlite_apply_policy(db->db) != 0) { chanserv_db_close(db); return -1; }
-    if (sqlite3_create_collation(db->db, "IRCNOCASE", SQLITE_UTF8, NULL, irc_collation) != SQLITE_OK) {
+    if (chanserv_db_register_collation(db->db) != SQLITE_OK) {
         chanserv_db_close(db); return -1;
     }
     if (exec_sql(db->db, "PRAGMA foreign_keys=ON;") != 0 ||
