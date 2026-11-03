@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include "config.h"
 
+/** Register the IRCNOCASE collation on a SQLite connection. */
+int chanserv_db_register_collation(sqlite3 *db);
+
 /** Persistent ChanServ channel registration and settings. */
 typedef struct ChanServChannel {
     char name[IRC_CHANNEL_NAME_MAX + 1U];
