@@ -141,6 +141,29 @@ def main():
                     if name == "chanserv":
                         db.create_collation("IRCNOCASE", irc_nocase)
                     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            # An exclusive SQLite lock must fail safely without modifying data.
+            lock = sqlite3.connect(path, timeout=1, isolation_level=None)
+            try:
+                lock.execute("BEGIN EXCLUSIVE")
+                admin.send("VACUUM NICKSERV")
+                admin.expect("VACUUM started")
+                deadline = time.monotonic() + 8
+                last_status = ""
+                while time.monotonic() < deadline:
+                    admin.send("VACUUM STATUS")
+                    last_status = admin.expect("NOTICE Admin :VACUUM ", 2)
+                    if "idle" in last_status and "failed=1" in last_status:
+                        assert "locked" in last_status or "busy" in last_status, last_status
+                        break
+                    time.sleep(.1)
+                else:
+                    raise AssertionError("locked VACUUM did not report failure: " + last_status)
+            finally:
+                lock.execute("ROLLBACK")
+                lock.close()
+            with sqlite3.connect(path) as db:
+                assert db.execute("SELECT text FROM vacuum_probe").fetchone()[0] == "preserved"
+
             admin.send("VACUUM NICKSERV")
             admin.expect("VACUUM started")
             admin.send("DIE")
