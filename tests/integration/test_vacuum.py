@@ -8,6 +8,13 @@ import sys
 import tempfile
 import time
 
+def irc_fold(value):
+    return value.lower().translate(str.maketrans({"{": "[", "}": "]", "|": "\\", "~": "^"}))
+
+def irc_nocase(left, right):
+    a, b = irc_fold(left), irc_fold(right)
+    return (a > b) - (a < b)
+
 def free_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -131,6 +138,8 @@ def main():
                 raise AssertionError("ALL VACUUM did not finish; last status: " + last_status)
             for name in names:
                 with sqlite3.connect(os.path.join(td, name + ".db")) as db:
+                    if name == "chanserv":
+                        db.create_collation("IRCNOCASE", irc_nocase)
                     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             admin.send("VACUUM NICKSERV")
             admin.expect("VACUUM started")
