@@ -22,6 +22,9 @@ typedef struct VacuumJob {
     unsigned int count;
     unsigned int completed;
     unsigned int failed;
+    unsigned int reported;
+    int finish_reported;
+    char results[VACUUM_COUNT][180];
     char current[24];
     char error[160];
     char paths[VACUUM_COUNT][IRCD_CONFIG_PATH_MAX + 1U];
@@ -64,6 +67,8 @@ static void *run_vacuum(void *unused) {
             ++job.failed;
             (void)snprintf(job.error, sizeof(job.error), "%s", error);
         }
+        (void)snprintf(job.results[n], sizeof(job.results[n]), "%s %s",
+                       vacuum_names[index], rc == SQLITE_OK ? "completed" : error);
         pthread_mutex_unlock(&job.mutex);
     }
     pthread_mutex_lock(&job.mutex);
@@ -71,6 +76,33 @@ static void *run_vacuum(void *unused) {
     job.running = 0;
     pthread_mutex_unlock(&job.mutex);
     return NULL;
+}
+
+/* Only the main IRC thread emits notices; worker only writes protected state. */
+void command_vacuum_poll(Server *server) {
+    char results[VACUUM_COUNT][180];
+    unsigned int count = 0U, completed, failed, i;
+    int finished = 0;
+    pthread_mutex_lock(&job.mutex);
+    while (job.reported < job.completed + job.failed && count < VACUUM_COUNT) {
+        (void)snprintf(results[count], sizeof(results[count]), "%s",
+                       job.results[job.reported]);
+        ++job.reported;
+        ++count;
+    }
+    completed = job.completed;
+    failed = job.failed;
+    if (!job.running && job.joinable && !job.finish_reported) {
+        job.finish_reported = 1;
+        finished = 1;
+    }
+    pthread_mutex_unlock(&job.mutex);
+    for (i = 0U; i < count; ++i)
+        snotice_broadcast(server, SNOTICE_ADMIN, "VACUUM %s", results[i]);
+    if (finished)
+        snotice_broadcast(server, SNOTICE_ADMIN,
+                          "VACUUM finished: %u succeeded, %u failed",
+                          completed, failed);
 }
 
 void command_vacuum_shutdown(void) {
@@ -168,6 +200,8 @@ CommandResult command_vacuum(Server *server, Client *client, char *params) {
     job.count = all ? VACUUM_COUNT : 1U;
     job.completed = 0U;
     job.failed = 0U;
+    job.reported = 0U;
+    job.finish_reported = 0;
     job.current[0] = '\0';
     job.error[0] = '\0';
     for (i = 0U; i < VACUUM_COUNT; ++i)
