@@ -96,7 +96,7 @@ def main():
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 admin.send("VACUUM STATUS")
-                status = admin.expect("VACUUM ", 2)
+                status = admin.expect("NOTICE Admin :VACUUM ", 2)
                 if "idle" in status and "completed=1" in status:
                     assert "failed=0" in status, status
                     break
@@ -106,18 +106,29 @@ def main():
             with sqlite3.connect(path) as db:
                 assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
                 assert db.execute("SELECT text FROM vacuum_probe").fetchone()[0] == "preserved"
+            # Some optional databases are created lazily by the server.
+            # Ensure ALL operates on six existing, valid SQLite files.
+            for name in names:
+                db_path = os.path.join(td, name + ".db")
+                with sqlite3.connect(db_path) as db:
+                    db.execute("CREATE TABLE IF NOT EXISTS vacuum_test_marker (id INTEGER PRIMARY KEY)")
+                    db.commit()
             admin.send("VACUUM ALL")
             admin.expect("VACUUM started")
             deadline = time.monotonic() + 15
+            last_status = "(no response)"
             while time.monotonic() < deadline:
                 admin.send("VACUUM STATUS")
-                status = admin.expect("VACUUM ", 2)
+                status = admin.expect("NOTICE Admin :VACUUM ", 2)
+                last_status = status
                 if "idle" in status and "completed=6" in status:
                     assert "failed=0" in status, status
                     break
+                if "idle" in status and "failed=" in status and "failed=0" not in status:
+                    raise AssertionError("ALL VACUUM failed: " + status)
                 time.sleep(.1)
             else:
-                raise AssertionError("ALL VACUUM did not finish")
+                raise AssertionError("ALL VACUUM did not finish; last status: " + last_status)
             for name in names:
                 with sqlite3.connect(os.path.join(td, name + ".db")) as db:
                     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
