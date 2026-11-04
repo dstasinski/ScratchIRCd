@@ -5,10 +5,12 @@ Add blocks to the existing key=value `ircd.conf` file:
 ```ini
 alias blah {
     target = blah
+    account = blah-service
 }
 
 alias Trivia {
     target = TriviaBot
+    account = trivia-service
 }
 ```
 
@@ -20,7 +22,7 @@ as `/blah something with spaces` and `/Trivia start`.
 Alias names are case-insensitive, begin with an ASCII letter, and contain
 only ASCII letters, digits, or underscore. Targets must be valid IRC
 nicknames. Up to 64 aliases may be defined. Duplicates, empty targets,
-and malformed blocks make configuration loading fail. One target per block.
+and malformed blocks make configuration loading fail. Exactly one target and one NickServ account per block; both are required.
 
 Built-in IRC commands take precedence over aliases, including NICKSERV,
 CHANSERV and MEMOSERV. An alias cannot replace a built-in command.
@@ -28,10 +30,13 @@ Aliases do not expand into other aliases or execute arbitrary commands.
 
 Aliases use the normal PRIVMSG handler and its permissions, routing,
 message-length checks, and errors. An alias is available only while its target is connected, registered,
-identified with NickServ (an authenticated account is present), and
+identified with NickServ **as the account specified by `account`**, and
 currently authenticated as an IRC operator (or network administrator).
 Otherwise the server returns numeric 440 (ERR_SERVICESDOWN) naming that
 target instead of forwarding the message. This checks the target's current
-state, not merely its nickname; privileges must remain active.
+state, not merely its nickname; privileges must remain active. An
+unrelated identified operator using the same nickname cannot receive
+alias messages. Existing alias configurations must add an `account` field
+before restarting or rehashing, or configuration loading will fail.
 Other PRIVMSG errors and restrictions remain unchanged. Alias definitions reload on a successful
 `/REHASH`; a rejected REHASH leaves the active aliases unchanged.
