@@ -27,6 +27,7 @@ CHANSERV and MEMOSERV. An alias cannot replace a built-in command.
 Aliases do not expand into other aliases or execute arbitrary commands.
 
 Aliases use the normal PRIVMSG handler and its permissions, routing,
-message-length checks, and errors. If the target is offline, the usual
-PRIVMSG error is returned. Alias definitions reload on a successful
+message-length checks, and errors. If the target nickname is not connected, the server returns numeric
+440 (ERR_SERVICESDOWN) naming that target instead of forwarding the message.
+Other PRIVMSG errors and restrictions remain unchanged. Alias definitions reload on a successful
 `/REHASH`; a rejected REHASH leaves the active aliases unchanged.
