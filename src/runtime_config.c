@@ -498,10 +498,36 @@ static int set_option(ServerConfig *config, const char *key, const char *value) 
     return -1;
 }
 
+/* Alias blocks are the only structured entries in the otherwise key=value file. */
+static int alias_name_valid(const char *name) {
+    const unsigned char *p = (const unsigned char *)name;
+    size_t length = strlen(name);
+    if (length == 0U || length > IRC_NICK_MAX ||
+        !isalpha(*p)) return 0;
+    for (; *p != '\0'; ++p)
+        if (!isalnum(*p) && *p != '_') return 0;
+    return 1;
+}
+
+static int alias_begin(ServerConfig *config, const char *name) {
+    size_t i;
+    CommandAliasConfig *entry;
+    if (!alias_name_valid(name) || config->alias_count >= IRCD_MAX_COMMAND_ALIASES)
+        return -1;
+    for (i = 0U; i < config->alias_count; ++i)
+        if (strcasecmp(config->aliases[i].name, name) == 0) return -1;
+    entry = &config->aliases[config->alias_count];
+    if (copy_value(entry->name, sizeof(entry->name), name) != 0) return -1;
+    entry->target[0] = '\0';
+    ++config->alias_count;
+    return 0;
+}
+
 int runtime_config_load(ServerConfig *config, const char *path) {
     FILE *file;
     char line[IRCD_CONFIG_LINE_MAX];
     unsigned long line_number = 0UL;
+    int in_alias = 0;
 
     if (config == NULL || path == NULL) return -1;
     file = fopen(path, "r");
@@ -515,6 +541,35 @@ int runtime_config_load(ServerConfig *config, const char *path) {
 
         ++line_number;
         if (*text == '\0' || *text == '#') continue;
+        if (in_alias) {
+            if (strcmp(text, "}") == 0) {
+                if (config->aliases[config->alias_count - 1U].target[0] == '\0')
+                    goto invalid_alias;
+                in_alias = 0;
+                continue;
+            }
+            equals = strchr(text, '=');
+            if (equals == NULL) goto invalid_alias;
+            *equals = '\0';
+            key = trim(text);
+            value = trim(equals + 1);
+            if (strcmp(key, "target") != 0 ||
+                config->aliases[config->alias_count - 1U].target[0] != '\0' ||
+                !valid_config_nickname(value) ||
+                copy_value(config->aliases[config->alias_count - 1U].target,
+                           sizeof(config->aliases[0].target), value) != 0)
+                goto invalid_alias;
+            continue;
+        }
+        if (strncmp(text, "alias ", 6U) == 0) {
+            char *name = trim(text + 6U);
+            size_t len = strlen(name);
+            if (len == 0U || name[len - 1U] != '{') goto invalid_alias;
+            name[len - 1U] = '\0';
+            if (alias_begin(config, trim(name)) != 0) goto invalid_alias;
+            in_alias = 1;
+            continue;
+        }
 
         equals = strchr(text, '=');
         if (equals == NULL) {
@@ -530,8 +585,18 @@ int runtime_config_load(ServerConfig *config, const char *path) {
             fclose(file);
             return -1;
         }
+        continue;
+invalid_alias:
+        fprintf(stderr, "%s:%lu: invalid alias block\n", path, line_number);
+        fclose(file);
+        return -1;
     }
 
+    if (in_alias) {
+        fprintf(stderr, "%s:%lu: unterminated alias block\n", path, line_number);
+        fclose(file);
+        return -1;
+    }
     if (ferror(file)) {
         fclose(file);
         return -1;
