@@ -38,7 +38,16 @@ typedef struct WebIrcGatewayConfig {
     char password[IRCD_WEBIRC_PASSWORD_MAX + 1U];
 } WebIrcGatewayConfig;
 
+#define IRCD_MAX_COMMAND_ALIASES 64U
+
+typedef struct CommandAliasConfig {
+    char name[IRC_NICK_MAX + 1U];
+    char target[IRC_NICK_MAX + 1U];
+} CommandAliasConfig;
+
 typedef struct ServerConfig {
+    CommandAliasConfig aliases[IRCD_MAX_COMMAND_ALIASES];
+    size_t alias_count;
     char server_name[IRC_SERVER_NAME_MAX + 1U];
     char network_name[IRCD_NETWORK_NAME_MAX + 1U];
     char bind_address[IRC_HOST_MAX + 1U];
