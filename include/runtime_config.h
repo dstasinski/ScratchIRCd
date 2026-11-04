@@ -43,6 +43,7 @@ typedef struct WebIrcGatewayConfig {
 typedef struct CommandAliasConfig {
     char name[IRC_NICK_MAX + 1U];
     char target[IRC_NICK_MAX + 1U];
+    char account[IRC_NICK_MAX + 1U];
 } CommandAliasConfig;
 
 typedef struct ServerConfig {
