@@ -519,6 +519,7 @@ static int alias_begin(ServerConfig *config, const char *name) {
     entry = &config->aliases[config->alias_count];
     if (copy_value(entry->name, sizeof(entry->name), name) != 0) return -1;
     entry->target[0] = '\0';
+    entry->account[0] = '\0';
     ++config->alias_count;
     return 0;
 }
@@ -543,7 +544,8 @@ int runtime_config_load(ServerConfig *config, const char *path) {
         if (*text == '\0' || *text == '#') continue;
         if (in_alias) {
             if (strcmp(text, "}") == 0) {
-                if (config->aliases[config->alias_count - 1U].target[0] == '\0')
+                if (config->aliases[config->alias_count - 1U].target[0] == '\0' ||
+                    config->aliases[config->alias_count - 1U].account[0] == '\0')
                     goto invalid_alias;
                 in_alias = 0;
                 continue;
@@ -553,12 +555,18 @@ int runtime_config_load(ServerConfig *config, const char *path) {
             *equals = '\0';
             key = trim(text);
             value = trim(equals + 1);
-            if (strcmp(key, "target") != 0 ||
-                config->aliases[config->alias_count - 1U].target[0] != '\0' ||
-                !valid_config_nickname(value) ||
-                copy_value(config->aliases[config->alias_count - 1U].target,
-                           sizeof(config->aliases[0].target), value) != 0)
-                goto invalid_alias;
+            if (!valid_config_nickname(value)) goto invalid_alias;
+            if (strcmp(key, "target") == 0) {
+                if (config->aliases[config->alias_count - 1U].target[0] != '\0' ||
+                    copy_value(config->aliases[config->alias_count - 1U].target,
+                               sizeof(config->aliases[0].target), value) != 0)
+                    goto invalid_alias;
+            } else if (strcmp(key, "account") == 0) {
+                if (config->aliases[config->alias_count - 1U].account[0] != '\0' ||
+                    copy_value(config->aliases[config->alias_count - 1U].account,
+                               sizeof(config->aliases[0].account), value) != 0)
+                    goto invalid_alias;
+            } else goto invalid_alias;
             continue;
         }
         if (strncmp(text, "alias ", 6U) == 0) {
