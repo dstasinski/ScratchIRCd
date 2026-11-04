@@ -27,7 +27,11 @@ CHANSERV and MEMOSERV. An alias cannot replace a built-in command.
 Aliases do not expand into other aliases or execute arbitrary commands.
 
 Aliases use the normal PRIVMSG handler and its permissions, routing,
-message-length checks, and errors. If the target nickname is not connected, the server returns numeric
-440 (ERR_SERVICESDOWN) naming that target instead of forwarding the message.
+message-length checks, and errors. An alias is available only while its target is connected, registered,
+identified with NickServ (an authenticated account is present), and
+currently authenticated as an IRC operator (or network administrator).
+Otherwise the server returns numeric 440 (ERR_SERVICESDOWN) naming that
+target instead of forwarding the message. This checks the target's current
+state, not merely its nickname; privileges must remain active.
 Other PRIVMSG errors and restrictions remain unchanged. Alias definitions reload on a successful
 `/REHASH`; a rejected REHASH leaves the active aliases unchanged.
