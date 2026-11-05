@@ -337,3 +337,6 @@ install(TARGETS scratchircd scratchircd-mkpasswd RUNTIME DESTINATION bin)
 
 add_test(NAME vacuum_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_vacuum.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
 set_tests_properties(vacuum_integration PROPERTIES TIMEOUT 60)
+
+add_test(NAME command_aliases_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/test_command_aliases.py $<TARGET_FILE:scratchircd> $<TARGET_FILE:scratchircd-mkpasswd>)
+set_tests_properties(command_aliases_integration PROPERTIES TIMEOUT 60)
