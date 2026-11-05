@@ -214,6 +214,18 @@ int main(int argc, char **argv) {
     assert(load_single_option("argon2_global_burst_per_second = 100\n") == 0);
     assert(load_single_option("chanserv_max_channels_per_account = 20\n") != 0);
 
+    /* Alias blocks must bind both nickname and authenticated account. */
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n account = trivia-service\n}\n") == 0);
+    assert(load_single_option("alias Trivia {\n account = trivia-service\n target = TriviaBot\n}\n") == 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n}\n") != 0);
+    assert(load_single_option("alias Trivia {\n account = trivia-service\n}\n") != 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n account = trivia-service\n account = other\n}\n") != 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n target = OtherBot\n account = trivia-service\n}\n") != 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n account = trivia-service\n extra = value\n}\n") != 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n account = trivia-service\n") != 0);
+    assert(load_single_option("alias Trivia {\n target = TriviaBot\n account = trivia-service\n}\nalias trivia {\n target = OtherBot\n account = other\n}\n") != 0);
+    assert(load_single_option("alias 1Invalid {\n target = TriviaBot\n account = trivia-service\n}\n") != 0);
+
     (void)unlink(path);
 
     if (argc == 2) {
