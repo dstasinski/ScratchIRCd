@@ -113,6 +113,24 @@ def main():
             sender.send("TRIVIA :restored")
             bot.expect("PRIVMSG TriviaBot :restored")
 
+            # Alias matching and account comparison are case-insensitive.
+            write_config("triviabot")
+            bot.send("REHASH")
+            bot.expect(" 382 TriviaBot ")
+            sender.send("tRiViA :mixed case")
+            bot.expect("PRIVMSG TriviaBot :mixed case")
+
+            # A malformed REHASH must leave the previously active aliases intact.
+            write_config("")
+            bot.send("REHASH")
+            bot.expect("REHASH failed: configuration error")
+            sender.send("TRIVIA :still authorized")
+            bot.expect("PRIVMSG TriviaBot :still authorized")
+
+            # No text must not be forwarded, even to an authorized bot.
+            sender.send("TRIVIA")
+            sender.expect(" 412 Sender ")
+
             bot.send("QUIT :bye")
             bot.close(); peers.remove(bot)
             # QUIT is processed asynchronously. Wait until the server confirms
