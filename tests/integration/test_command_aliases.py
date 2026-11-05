@@ -115,6 +115,17 @@ def main():
 
             bot.send("QUIT :bye")
             bot.close(); peers.remove(bot)
+            # QUIT is processed asynchronously. Wait until the server confirms
+            # the target nickname is gone before asserting alias unavailability.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                sender.send("ISON TriviaBot")
+                ison = sender.expect(" 303 Sender ")
+                if ison.rsplit(" :", 1)[-1].strip() == "":
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("TriviaBot remained visible after QUIT")
             sender.send("TRIVIA disconnected")
             sender.expect(" 440 Sender TriviaBot ")
         finally:
