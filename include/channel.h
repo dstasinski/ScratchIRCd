@@ -14,6 +14,9 @@ typedef struct ChannelMaskEntry {
     char mask[IRC_CHANNEL_MASK_MAX + 1U];
     /** Non-zero only for a +b set by an OWNER or PROTECTED member. */
     int protected_authorized;
+    /** Setter identity and Unix timestamp, if known (legacy restores may lack them). */
+    char set_by[IRC_CHANNEL_TOPIC_SETTER_MAX + 1U];
+    time_t set_at;
     struct ChannelMaskEntry *next;
 } ChannelMaskEntry;
 
@@ -105,6 +108,9 @@ void channel_broadcast(Channel *channel, const Client *except, const char *messa
 int channel_mask_add(ChannelMaskEntry **list, const char *mask);
 int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
                                 int protected_authorized);
+int channel_mask_add_with_setter(ChannelMaskEntry **list, const char *mask,
+                                 int protected_authorized, const char *setter,
+                                 time_t set_at);
 int channel_mask_remove(ChannelMaskEntry **list, const char *mask);
 void channel_mask_clear(ChannelMaskEntry **list);
 
