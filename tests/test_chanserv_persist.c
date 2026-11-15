@@ -113,9 +113,12 @@ int main(void) {
     source.join_throttle_seconds = 30U;
     snprintf(source.limit_redirect, sizeof(source.limit_redirect), "%s", "#overflow");
     snprintf(source.ban_redirect, sizeof(source.ban_redirect), "%s", "#banned");
-    assert(channel_mask_add_authorized(&source.ban_list, "Bad!*@*", 1) == 0);
-    assert(channel_mask_add(&source.exception_list, "Friend!*@*") == 0);
-    assert(channel_mask_add(&source.invite_exception_list, "Invite!*@*") == 0);
+    assert(channel_mask_add_with_setter(&source.ban_list, "Bad!*@*", 1,
+                                        "Alice!user@host.test", 1700000000) == 0);
+    assert(channel_mask_add_with_setter(&source.exception_list, "Friend!*@*", 0,
+                                        "Bob!user@host.test", 1700000001) == 0);
+    assert(channel_mask_add_with_setter(&source.invite_exception_list, "Invite!*@*", 0,
+                                        "Carol!user@host.test", 1700000002) == 0);
 
     if ((uintmax_t)SIZE_MAX > (uintmax_t)INT64_MAX) {
         source.user_limit = (size_t)((uintmax_t)INT64_MAX + 1U);
@@ -136,10 +139,16 @@ int main(void) {
     assert(restored.ban_list != NULL);
     assert(strcmp(restored.ban_list->mask, "Bad!*@*") == 0);
     assert(restored.ban_list->protected_authorized == 1);
+    assert(strcmp(restored.ban_list->set_by, "Alice!user@host.test") == 0);
+    assert(restored.ban_list->set_at == (time_t)1700000000);
     assert(restored.exception_list != NULL);
     assert(strcmp(restored.exception_list->mask, "Friend!*@*") == 0);
+    assert(strcmp(restored.exception_list->set_by, "Bob!user@host.test") == 0);
+    assert(restored.exception_list->set_at == (time_t)1700000001);
     assert(restored.invite_exception_list != NULL);
     assert(strcmp(restored.invite_exception_list->mask, "Invite!*@*") == 0);
+    assert(strcmp(restored.invite_exception_list->set_by, "Carol!user@host.test") == 0);
+    assert(restored.invite_exception_list->set_at == (time_t)1700000002);
     channel_mask_clear(&restored.ban_list);
     channel_mask_clear(&restored.exception_list);
     channel_mask_clear(&restored.invite_exception_list);
