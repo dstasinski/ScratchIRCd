@@ -95,6 +95,18 @@ int main(void) {
     /* A duplicate remains harmless and succeeds even when the list is full. */
     assert(channel_mask_add(&channel.ban_list, "*!user0@host.example") == 0);
 
+    /* New entries retain their original setter and timestamp. */
+    channel_mask_clear(&channel.ban_list);
+    assert(channel_mask_add_with_setter(&channel.ban_list, "*!*@test.example",
+                                        1, "Daniel!daniel@Example.COM", 1234567890) == 0);
+    assert(strcmp(channel.ban_list->set_by, "Daniel!daniel@Example.COM") == 0);
+    assert(channel.ban_list->set_at == (time_t)1234567890);
+    assert(channel_mask_add_with_setter(&channel.ban_list, "*!*@test.example",
+                                        0, "Other!user@host", 1234567891) == 0);
+    assert(strcmp(channel.ban_list->set_by, "Daniel!daniel@Example.COM") == 0);
+    assert(channel.ban_list->set_at == (time_t)1234567890);
+    channel_mask_clear(&channel.ban_list);
+
     channel_invite_clear(&channel);
     for (i = 0U; i < IRC_CHANNEL_INVITE_MAX; ++i)
         assert(channel_invite_add(&channel, (uint64_t)i + 1U) == 0);
