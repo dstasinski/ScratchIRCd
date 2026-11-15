@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static ClientModeSet client_mode_bit(char letter) {
     switch (letter) {
@@ -206,7 +207,8 @@ static void send_mask_list(Server *server, Client *client, Channel *channel,
     if (type == 'b') {
         for (entry = channel->ban_list; entry != NULL; entry = entry->next)
             client_sendf(client, RPL_BANLIST, server->config.server_name,
-                         client->nick, channel->name, entry->mask, "*", 0UL);
+                         client->nick, channel->name, entry->mask, entry->set_by[0] ? entry->set_by : "*",
+                         (unsigned long)entry->set_at);
         client_sendf(client, RPL_ENDOFBANLIST, server->config.server_name,
                      client->nick, channel->name);
     } else if (type == 'e') {
@@ -528,10 +530,13 @@ static CommandResult mode_channel(Server *server, Client *client,
                         continue;
                     }
                 }
-                if (letter == 'b')
-                    (void)channel_mask_add_authorized(list, param, protected_authorized);
-                else
-                    (void)channel_mask_add(list, param);
+                {
+                    char setter[IRC_CHANNEL_TOPIC_SETTER_MAX + 1U];
+                    (void)snprintf(setter, sizeof(setter), "%s!%s@%s",
+                                   client->nick, client->user, client->display_host);
+                    (void)channel_mask_add_with_setter(
+                        list, param, protected_authorized, setter, time(NULL));
+                }
             } else {
                 (void)channel_mask_remove(list, param);
             }
