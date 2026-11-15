@@ -187,8 +187,9 @@ void channel_forget_service_privileges(Channel *channel) {
     }
 }
 
-int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
-                                int protected_authorized) {
+int channel_mask_add_with_setter(ChannelMaskEntry **list, const char *mask,
+                                 int protected_authorized, const char *setter,
+                                 time_t set_at) {
     ChannelMaskEntry *entry;
     size_t count = 0U;
 
@@ -208,9 +209,17 @@ int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
     if (entry == NULL) return -1;
     snprintf(entry->mask, sizeof(entry->mask), "%s", mask);
     entry->protected_authorized = protected_authorized ? 1 : 0;
+    if (setter != NULL)
+        (void)snprintf(entry->set_by, sizeof(entry->set_by), "%s", setter);
+    entry->set_at = set_at;
     entry->next = *list;
     *list = entry;
     return 0;
+}
+
+int channel_mask_add_authorized(ChannelMaskEntry **list, const char *mask,
+                                int protected_authorized) {
+    return channel_mask_add_with_setter(list, mask, protected_authorized, NULL, 0);
 }
 
 int channel_mask_add(ChannelMaskEntry **list, const char *mask) {
