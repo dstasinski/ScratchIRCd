@@ -160,6 +160,8 @@ static int ensure_schema(sqlite3 *db) {
         "type INTEGER NOT NULL CHECK(type BETWEEN 1 AND 3),"
         "mask TEXT NOT NULL,"
         "protected_authorized INTEGER NOT NULL DEFAULT 0,"
+        "set_by TEXT NOT NULL DEFAULT '',"
+        "set_at INTEGER NOT NULL DEFAULT 0,"
         "PRIMARY KEY(channel,type,mask),"
         "FOREIGN KEY(channel) REFERENCES channels(name) ON DELETE CASCADE"
         ");";
@@ -177,7 +179,26 @@ static int ensure_schema(sqlite3 *db) {
     if (exists && !mask_schema_is_numeric(db)) {
         if (exec_sql(db, "DROP TABLE channel_masks;") != 0) return -1;
     }
-    if (exec_sql(db, mask_schema) == 0) rc = 0;
+    if (exec_sql(db, mask_schema) != 0) return -1;
+    /* Existing numeric schemas gain metadata columns without losing bans. */
+    {
+        int has_set_by = 0, has_set_at = 0;
+        if (sqlite3_prepare_v2(db, "PRAGMA table_info(channel_masks)",
+                               -1, &stmt, NULL) != SQLITE_OK) return -1;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *name = (const char *)sqlite3_column_text(stmt, 1);
+            if (name != NULL && strcmp(name, "set_by") == 0) has_set_by = 1;
+            if (name != NULL && strcmp(name, "set_at") == 0) has_set_at = 1;
+        }
+        sqlite3_finalize(stmt); stmt = NULL;
+        if (!has_set_by && exec_sql(db,
+            "ALTER TABLE channel_masks ADD COLUMN set_by TEXT NOT NULL DEFAULT ''") != 0)
+            return -1;
+        if (!has_set_at && exec_sql(db,
+            "ALTER TABLE channel_masks ADD COLUMN set_at INTEGER NOT NULL DEFAULT 0") != 0)
+            return -1;
+    }
+    rc = 0;
     return rc;
 }
 
@@ -203,10 +224,12 @@ static int save_masks(sqlite3 *db, const char *channel,
     sqlite3_stmt *stmt = NULL;
     const ChannelMaskEntry *entry;
     if (sqlite3_prepare_v2(db,
-        "INSERT INTO channel_masks(channel,type,mask,protected_authorized) "
-        "VALUES(?1,?2,?3,?4)", -1, &stmt, NULL) != SQLITE_OK) return -1;
+        "INSERT INTO channel_masks(channel,type,mask,protected_authorized,set_by,set_at) "
+        "VALUES(?1,?2,?3,?4,?5,?6)", -1, &stmt, NULL) != SQLITE_OK) return -1;
     for (entry = list; entry != NULL; entry = entry->next) {
-        if (!text_fits(entry->mask, IRC_CHANNEL_MASK_MAX)) {
+        if (!text_fits(entry->mask, IRC_CHANNEL_MASK_MAX) ||
+            !text_fits(entry->set_by, IRC_CHANNEL_TOPIC_SETTER_MAX) ||
+            entry->set_at < 0) {
             sqlite3_finalize(stmt);
             return -1;
         }
@@ -216,6 +239,8 @@ static int save_masks(sqlite3 *db, const char *channel,
         sqlite3_bind_int(stmt, 2, type);
         sqlite3_bind_text(stmt, 3, entry->mask, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 4, entry->protected_authorized ? 1 : 0);
+        sqlite3_bind_text(stmt, 5, entry->set_by, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 6, (sqlite3_int64)entry->set_at);
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             sqlite3_finalize(stmt);
             return -1;
@@ -286,15 +311,19 @@ static int restore_masks(sqlite3 *db, Channel *channel) {
     sqlite3_stmt *stmt = NULL;
     int rc;
     if (sqlite3_prepare_v2(db,
-        "SELECT type,mask,protected_authorized FROM channel_masks "
+        "SELECT type,mask,protected_authorized,set_by,set_at FROM channel_masks "
         "WHERE channel=?1 ORDER BY rowid", -1, &stmt, NULL) != SQLITE_OK) return -1;
     sqlite3_bind_text(stmt, 1, channel->name, -1, SQLITE_TRANSIENT);
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         int type = sqlite3_column_int(stmt, 0);
         int authorized = sqlite3_column_int(stmt, 2);
         char mask[IRC_CHANNEL_MASK_MAX + 1U];
+        char setter[IRC_CHANNEL_TOPIC_SETTER_MAX + 1U];
+        sqlite3_int64 set_at = sqlite3_column_int64(stmt, 4);
         ChannelMaskEntry **list;
         if (copy_stmt_text(stmt, 1, mask, sizeof(mask)) != 0 || mask[0] == '\0' ||
+            copy_stmt_text(stmt, 3, setter, sizeof(setter)) != 0 ||
+            set_at < 0 ||
             (authorized != 0 && authorized != 1)) {
             sqlite3_finalize(stmt);
             return -1;
@@ -307,7 +336,7 @@ static int restore_masks(sqlite3 *db, Channel *channel) {
                 sqlite3_finalize(stmt);
                 return -1;
         }
-        if (channel_mask_add_authorized(list, mask, authorized) != 0) {
+        if (channel_mask_add_with_setter(list, mask, authorized, setter, (time_t)set_at) != 0) {
             sqlite3_finalize(stmt);
             return -1;
         }
